@@ -1,16 +1,14 @@
 {
   "entity": "Order",
   "version": 1,
-
   "model": {
     "provider": "gemini",
     "baseURL": "https://generativelanguage.googleapis.com/v1beta/openai",
-    "model": "gemini-3.5-flash",
+    "model": "gemini-3.1-flash-lite",
     "apiKeyEnv": "QF_API_KEY",
     "temperature": 0,
     "maxTokens": 4096
   },
-
   "models": [
     {
       "provider": "groq",
@@ -33,68 +31,145 @@
       "model": "qwen2.5"
     }
   ],
-
   "backends": {
-    "sql": { "table": "orders" },
-    "mongo": { "collection": "orders" }
+    "sql": {
+      "table": "orders"
+    },
+    "mongo": {
+      "collection": "orders"
+    }
   },
-
   "fields": [
     {
       "name": "status",
       "type": "enum",
-      "values": ["PLACED", "DELIVERED", "CANCELLED", "REFUNDED"],
-      "operators": ["equals", "notEquals", "in", "notIn"],
-      "synonyms": ["state", "order status", "delivery status"],
+      "values": [
+        "PLACED",
+        "DELIVERED",
+        "CANCELLED",
+        "REFUNDED"
+      ],
+      "operators": [
+        "equals",
+        "notEquals",
+        "in",
+        "notIn"
+      ],
+      "synonyms": [
+        "state",
+        "order status",
+        "delivery status"
+      ],
       "indexed": true,
       "priority": 10,
-      "mapping": { "sql": "status", "mongo": "status" }
+      "mapping": {
+        "sql": "status",
+        "mongo": "status"
+      }
     },
     {
       "name": "refunded",
       "type": "boolean",
-      "synonyms": ["was refunded", "is refunded"],
-      "mapping": { "sql": "refunded", "mongo": "refunded" }
+      "synonyms": [
+        "was refunded",
+        "is refunded"
+      ],
+      "mapping": {
+        "sql": "refunded",
+        "mongo": "refunded"
+      }
     },
     {
       "name": "createdAt",
       "type": "date",
-      "operators": ["before", "after", "between"],
-      "synonyms": ["created", "order date", "placed on", "ordered"],
+      "operators": [
+        "before",
+        "after",
+        "between"
+      ],
+      "synonyms": [
+        "created",
+        "order date",
+        "placed on",
+        "ordered"
+      ],
       "indexed": true,
       "priority": 8,
-      "mapping": { "sql": "created_at", "mongo": "createdAt" }
+      "mapping": {
+        "sql": "created_at",
+        "mongo": "createdAt"
+      }
     },
     {
       "name": "amount",
       "type": "number",
-      "operators": ["gt", "lt", "gte", "lte", "between"],
-      "synonyms": ["total", "order value", "price", "cost"],
-      "validators": { "min": 0 },
-      "mapping": { "sql": "amount", "mongo": "amount" }
+      "operators": [
+        "gt",
+        "lt",
+        "gte",
+        "lte",
+        "between"
+      ],
+      "synonyms": [
+        "total",
+        "order value",
+        "price",
+        "cost"
+      ],
+      "validators": {
+        "min": 0
+      },
+      "mapping": {
+        "sql": "amount",
+        "mongo": "amount"
+      }
     },
     {
       "name": "tags",
       "type": "array",
       "itemType": "string",
-      "operators": ["contains", "containsAny", "containsAll"],
-      "synonyms": ["labels"],
-      "mapping": { "sql": "tags", "mongo": "tags" }
+      "operators": [
+        "contains",
+        "containsAny",
+        "containsAll"
+      ],
+      "synonyms": [
+        "labels"
+      ],
+      "mapping": {
+        "sql": "tags",
+        "mongo": "tags"
+      }
     },
     {
       "name": "customerName",
       "type": "string",
-      "operators": ["contains", "startsWith", "endsWith", "equals"],
-      "synonyms": ["customer", "buyer", "name"],
+      "operators": [
+        "contains",
+        "startsWith",
+        "endsWith",
+        "equals"
+      ],
+      "synonyms": [
+        "customer",
+        "buyer",
+        "name"
+      ],
       "searchable": true,
-      "mapping": { "sql": "customer_name", "mongo": "customerName" }
+      "mapping": {
+        "sql": "customer_name",
+        "mongo": "customerName"
+      }
     }
   ],
-
-  "defaults": { "limit": 50, "maxLimit": 500 },
-
+  "defaults": {
+    "limit": 50,
+    "maxLimit": 500
+  },
   "policy": {
     "maxNestingDepth": 5,
-    "denyRegexOn": ["customerName"]
+    "denyRegexOn": [
+      "customerName"
+    ]
   }
 }

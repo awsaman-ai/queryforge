@@ -1,113 +1,214 @@
 {
   "entity": "Product",
   "version": 1,
-
   "model": {
     "provider": "gemini",
     "baseURL": "https://generativelanguage.googleapis.com/v1beta/openai",
-    "model": "gemini-3.5-flash",
+    "model": "gemini-3.1-flash-lite",
     "apiKeyEnv": "QF_API_KEY",
     "temperature": 0,
     "maxTokens": 4096
   },
-
   "backends": {
-    "mongo": { "collection": "products" }
+    "mongo": {
+      "collection": "products"
+    }
   },
-
   "fields": [
     {
       "name": "title",
       "type": "string",
-      "operators": ["contains", "startsWith", "equals"],
-      "synonyms": ["name", "product name", "product"],
+      "operators": [
+        "contains",
+        "startsWith",
+        "equals"
+      ],
+      "synonyms": [
+        "name",
+        "product name",
+        "product"
+      ],
       "searchable": true,
       "priority": 10,
-      "mapping": { "mongo": "title" }
+      "mapping": {
+        "mongo": "title"
+      }
     },
     {
       "name": "brand",
       "type": "enum",
-      "values": ["ACME", "GLOBEX", "INITECH", "UMBRELLA", "SOYLENT"],
-      "operators": ["equals", "notEquals", "in", "notIn"],
-      "synonyms": ["make", "manufacturer"],
+      "values": [
+        "ACME",
+        "GLOBEX",
+        "INITECH",
+        "UMBRELLA",
+        "SOYLENT"
+      ],
+      "operators": [
+        "equals",
+        "notEquals",
+        "in",
+        "notIn"
+      ],
+      "synonyms": [
+        "make",
+        "manufacturer"
+      ],
       "indexed": true,
       "priority": 8,
-      "mapping": { "mongo": "brand" }
+      "mapping": {
+        "mongo": "brand"
+      }
     },
     {
       "name": "categories",
       "type": "array",
       "itemType": "string",
-      "operators": ["contains", "containsAny", "containsAll"],
-      "synonyms": ["category", "department", "section"],
+      "operators": [
+        "contains",
+        "containsAny",
+        "containsAll"
+      ],
+      "synonyms": [
+        "category",
+        "department",
+        "section"
+      ],
       "indexed": true,
       "priority": 6,
-      "mapping": { "mongo": "categories" }
+      "mapping": {
+        "mongo": "categories"
+      }
     },
     {
       "name": "tags",
       "type": "array",
       "itemType": "string",
-      "operators": ["contains", "containsAny", "containsAll"],
-      "synonyms": ["labels", "keywords"],
-      "mapping": { "mongo": "tags" }
+      "operators": [
+        "contains",
+        "containsAny",
+        "containsAll"
+      ],
+      "synonyms": [
+        "labels",
+        "keywords"
+      ],
+      "mapping": {
+        "mongo": "tags"
+      }
     },
     {
       "name": "price",
       "type": "number",
-      "operators": ["gt", "lt", "gte", "lte", "between"],
-      "synonyms": ["cost", "amount", "how much"],
-      "validators": { "min": 0 },
+      "operators": [
+        "gt",
+        "lt",
+        "gte",
+        "lte",
+        "between"
+      ],
+      "synonyms": [
+        "cost",
+        "amount",
+        "how much"
+      ],
+      "validators": {
+        "min": 0
+      },
       "sortable": true,
-      "mapping": { "mongo": "price" }
+      "mapping": {
+        "mongo": "price"
+      }
     },
     {
       "name": "rating",
       "type": "number",
-      "operators": ["gte", "lte", "between", "gt", "lt"],
-      "synonyms": ["stars", "score", "review score"],
-      "validators": { "min": 0, "max": 5 },
+      "operators": [
+        "gte",
+        "lte",
+        "between",
+        "gt",
+        "lt"
+      ],
+      "synonyms": [
+        "stars",
+        "score",
+        "review score"
+      ],
+      "validators": {
+        "min": 0,
+        "max": 5
+      },
       "sortable": true,
-      "mapping": { "mongo": "rating" }
+      "mapping": {
+        "mongo": "rating"
+      }
     },
     {
       "name": "inStock",
       "type": "boolean",
-      "synonyms": ["available", "in stock", "stocked"],
+      "synonyms": [
+        "available",
+        "in stock",
+        "stocked"
+      ],
       "indexed": true,
-      "mapping": { "mongo": "inStock" }
+      "mapping": {
+        "mongo": "inStock"
+      }
     },
     {
       "name": "releasedAt",
       "type": "date",
-      "operators": ["before", "after", "between"],
-      "synonyms": ["released", "launch date", "available since"],
+      "operators": [
+        "before",
+        "after",
+        "between"
+      ],
+      "synonyms": [
+        "released",
+        "launch date",
+        "available since"
+      ],
       "indexed": true,
-      "mapping": { "mongo": "releasedAt" }
+      "mapping": {
+        "mongo": "releasedAt"
+      }
     },
     {
       "name": "description",
       "type": "string",
-      "operators": ["contains"],
-      "synonyms": ["details", "about"],
+      "operators": [
+        "contains"
+      ],
+      "synonyms": [
+        "details",
+        "about"
+      ],
       "searchable": true,
       "sortable": false,
-      "mapping": { "mongo": "description" }
+      "mapping": {
+        "mongo": "description"
+      }
     },
     {
       "name": "internalSku",
       "type": "string",
       "queryable": false,
       "returnable": false,
-      "mapping": { "mongo": "internalSku" }
+      "mapping": {
+        "mongo": "internalSku"
+      }
     }
   ],
-
-  "defaults": { "limit": 20, "maxLimit": 100 },
-
+  "defaults": {
+    "limit": 20,
+    "maxLimit": 100
+  },
   "policy": {
     "maxNestingDepth": 5,
-    "denyRegexOn": ["description"]
+    "denyRegexOn": [
+      "description"
+    ]
   }
 }

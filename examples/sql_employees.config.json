@@ -1,107 +1,208 @@
 {
   "entity": "Employee",
   "version": 1,
-
   "model": {
     "provider": "gemini",
     "baseURL": "https://generativelanguage.googleapis.com/v1beta/openai",
-    "model": "gemini-3.5-flash",
+    "model": "gemini-3.1-flash-lite",
     "apiKeyEnv": "QF_API_KEY",
     "temperature": 0,
     "maxTokens": 4096
   },
-
   "backends": {
-    "sql": { "table": "employees" }
+    "sql": {
+      "table": "employees"
+    }
   },
-
   "fields": [
     {
       "name": "department",
       "type": "enum",
-      "values": ["ENGINEERING", "SALES", "MARKETING", "HR", "FINANCE"],
-      "operators": ["equals", "notEquals", "in", "notIn"],
-      "synonyms": ["dept", "team", "division"],
+      "values": [
+        "ENGINEERING",
+        "SALES",
+        "MARKETING",
+        "HR",
+        "FINANCE"
+      ],
+      "operators": [
+        "equals",
+        "notEquals",
+        "in",
+        "notIn"
+      ],
+      "synonyms": [
+        "dept",
+        "team",
+        "division"
+      ],
       "indexed": true,
       "priority": 10,
       "sortable": true,
-      "mapping": { "sql": "department" }
+      "mapping": {
+        "sql": "department"
+      }
     },
     {
       "name": "status",
       "type": "enum",
-      "values": ["ACTIVE", "ON_LEAVE", "TERMINATED"],
-      "operators": ["equals", "in", "notIn"],
-      "synonyms": ["employment status", "state"],
+      "values": [
+        "ACTIVE",
+        "ON_LEAVE",
+        "TERMINATED"
+      ],
+      "operators": [
+        "equals",
+        "in",
+        "notIn"
+      ],
+      "synonyms": [
+        "employment status",
+        "state"
+      ],
       "indexed": true,
       "priority": 9,
-      "mapping": { "sql": "status" }
+      "mapping": {
+        "sql": "status"
+      }
     },
     {
       "name": "hireDate",
       "type": "date",
-      "operators": ["before", "after", "between"],
-      "synonyms": ["hired", "joined", "start date", "joining date"],
+      "operators": [
+        "before",
+        "after",
+        "between"
+      ],
+      "synonyms": [
+        "hired",
+        "joined",
+        "start date",
+        "joining date"
+      ],
       "indexed": true,
       "priority": 7,
-      "mapping": { "sql": "hire_date" }
+      "mapping": {
+        "sql": "hire_date"
+      }
     },
     {
       "name": "salary",
       "type": "number",
-      "operators": ["gt", "lt", "gte", "lte", "between"],
-      "synonyms": ["pay", "compensation", "wage"],
-      "validators": { "min": 0, "max": 10000000 },
+      "operators": [
+        "gt",
+        "lt",
+        "gte",
+        "lte",
+        "between"
+      ],
+      "synonyms": [
+        "pay",
+        "compensation",
+        "wage"
+      ],
+      "validators": {
+        "min": 0,
+        "max": 10000000
+      },
       "sortable": true,
       "searchable": false,
-      "permissions": { "read": ["hr", "admin"] },
-      "mapping": { "sql": "salary" }
+      "permissions": {
+        "read": [
+          "hr",
+          "admin"
+        ]
+      },
+      "mapping": {
+        "sql": "salary"
+      }
     },
     {
       "name": "fullName",
       "type": "string",
-      "operators": ["contains", "startsWith", "endsWith", "equals"],
-      "synonyms": ["name", "employee name"],
+      "operators": [
+        "contains",
+        "startsWith",
+        "endsWith",
+        "equals"
+      ],
+      "synonyms": [
+        "name",
+        "employee name"
+      ],
       "searchable": true,
-      "mapping": { "sql": "full_name" }
+      "mapping": {
+        "sql": "full_name"
+      }
     },
     {
       "name": "email",
       "type": "string",
-      "operators": ["contains", "startsWith", "equals"],
-      "synonyms": ["email address", "mail"],
+      "operators": [
+        "contains",
+        "startsWith",
+        "equals"
+      ],
+      "synonyms": [
+        "email address",
+        "mail"
+      ],
       "searchable": true,
       "indexed": true,
-      "mapping": { "sql": "email" }
+      "mapping": {
+        "sql": "email"
+      }
     },
     {
       "name": "officeCity",
       "type": "string",
-      "operators": ["equals", "in", "startsWith"],
-      "synonyms": ["city", "location", "office"],
+      "operators": [
+        "equals",
+        "in",
+        "startsWith"
+      ],
+      "synonyms": [
+        "city",
+        "location",
+        "office"
+      ],
       "indexed": true,
       "priority": 5,
-      "mapping": { "sql": "office_city" }
+      "mapping": {
+        "sql": "office_city"
+      }
     },
     {
       "name": "isManager",
       "type": "boolean",
-      "synonyms": ["manager", "is a manager", "people manager"],
-      "mapping": { "sql": "is_manager" }
+      "synonyms": [
+        "manager",
+        "is a manager",
+        "people manager"
+      ],
+      "mapping": {
+        "sql": "is_manager"
+      }
     },
     {
       "name": "ssn",
       "type": "string",
       "queryable": false,
       "returnable": false,
-      "mapping": { "sql": "ssn" }
+      "mapping": {
+        "sql": "ssn"
+      }
     }
   ],
-
-  "defaults": { "limit": 25, "maxLimit": 200 },
-
+  "defaults": {
+    "limit": 25,
+    "maxLimit": 200
+  },
   "policy": {
     "maxNestingDepth": 4,
-    "denyRegexOn": ["fullName", "email"]
+    "denyRegexOn": [
+      "fullName",
+      "email"
+    ]
   }
 }
