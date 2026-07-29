@@ -62,6 +62,10 @@
   <h1>QueryForge — Configuration Reference</h1>
   <p class="lead">A QueryForge configuration is a single JSON file. It does four jobs at once: it is the <strong>prompt context</strong> the model sees, the <strong>validation rulebook</strong>, the <strong>logical→physical field mapping</strong> per backend, and the <strong>model selector</strong>. This page documents every option so you can write your own.</p>
 
+  <div class="note"><strong>Prefer not to hand-write JSON?</strong> <a href="config-builder.html">Open the config builder →</a>
+  It is a single self-contained page: every option below rendered as a form, validated live against the same rules the
+  loader enforces, with the finished file a click away. It also imports an existing config for editing.</div>
+
   <div class="note"><strong>Read-only by design.</strong> QueryForge only ever produces <strong>GET / read</strong> queries (<code>SELECT</code>, <code>find</code>). There is no operator or config option that can write, update, or delete data. The library returns a query string/document; it never connects to or executes against your database.</div>
 
   <nav class="toc">
@@ -81,6 +85,7 @@
     <a href="#unsupported">Unsupported requests</a>
     <a href="#examples">Full examples</a>
     <a href="#authoring">Author your own</a>
+    <a href="config-builder.html"><strong>Config builder ↗</strong></a>
   </nav>
 
   <h2 id="ast">What is the Query AST?</h2>
@@ -169,7 +174,7 @@ ORDER BY created_at DESC LIMIT 20
     <tr><th>Key</th><th>Type</th><th>Default</th><th>Description</th></tr>
     <tr><td><code>provider</code></td><td>string</td><td class="default">""</td><td>Informational label (e.g. <code>gemini</code>, <code>groq</code>, <code>ollama</code>).</td></tr>
     <tr><td><code>baseURL</code></td><td>string</td><td class="default">""</td><td>Endpoint root. <code>/chat/completions</code> is appended. E.g. Gemini: <code>https://generativelanguage.googleapis.com/v1beta/openai</code>.</td></tr>
-    <tr><td><code>model</code></td><td>string</td><td class="default">""</td><td>Model id, e.g. <code>gemini-3.5-flash</code>.</td></tr>
+    <tr><td><code>model</code></td><td>string</td><td class="default">""</td><td>Model id, e.g. <code>gemini-3.1-flash-lite</code>.</td></tr>
     <tr><td><code>apiKeyEnv</code></td><td>string</td><td class="default">""</td><td><strong>The NAME of the environment variable</strong> holding your key — never the key itself. E.g. <code>QF_API_KEY</code>. Empty is fine for keyless local servers (Ollama). Pasting the key here is <a href="#apikeyenv">rejected at load</a>.</td></tr>
     <tr><td><code>temperature</code></td><td>number</td><td class="default">0</td><td>Sampling temperature; <code>0</code> is deterministic and recommended.</td></tr>
     <tr><td><code>maxTokens</code></td><td>number</td><td class="default">0</td><td>Response cap; <code>0</code> lets the server decide. Note that reasoning models charge their hidden thinking tokens against this budget, so leave generous headroom — <code>4096</code> is a safe starting point.</td></tr>
@@ -179,7 +184,7 @@ ORDER BY created_at DESC LIMIT 20
 
   <h3>models — fallback chain (optional)</h3>
   <p>Beyond the single <code>model</code> block, an optional <code>models</code> array lets you list several models in priority order. QueryForge tries them in order and uses the first that answers, so a rate-limit, quota, or billing block on one provider transparently falls through to the next. <code>model</code> is the primary; <code>models</code> are the ordered fallbacks, and a chain can freely mix providers (e.g. Gemini → Groq → Anthropic → local Ollama). Each entry is a full model block with its own <code>apiKeyEnv</code>.</p>
-<pre><code>"model":  { "provider": "gemini", "baseURL": "…/v1beta/openai", "model": "gemini-3.5-flash", "apiKeyEnv": "QF_API_KEY" },
+<pre><code>"model":  { "provider": "gemini", "baseURL": "…/v1beta/openai", "model": "gemini-3.1-flash-lite", "apiKeyEnv": "QF_API_KEY" },
 "models": [
   { "provider": "groq",      "baseURL": "https://api.groq.com/openai/v1", "model": "llama-3.3-70b-versatile", "apiKeyEnv": "GROQ_API_KEY" },
   { "provider": "anthropic", "baseURL": "https://api.anthropic.com",      "model": "claude-opus-4-8",          "apiKeyEnv": "ANTHROPIC_API_KEY" },
@@ -418,6 +423,8 @@ if errors.As(err, &amp;unsupported) {
 }</code></pre>
 
   <h2 id="authoring">Author your own config</h2>
+  <p>The <a href="config-builder.html">config builder</a> walks these steps as a form and flags each mistake as you
+  make it. If you would rather write the file by hand, this is the order that works:</p>
   <ol>
     <li>Pick an <code>entity</code> name and set the <code>model</code> block (start with a free Gemini/Groq tier; put your key in the env var you name in <code>apiKeyEnv</code>).</li>
     <li>Add a <code>backends</code> entry for each database you target, mapping to the physical table/collection.</li>

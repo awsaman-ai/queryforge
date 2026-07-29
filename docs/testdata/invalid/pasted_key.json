@@ -1,0 +1,12 @@
+{
+  "entity": "Order",
+  "model": {
+    "apiKeyEnv": "AIzaSyC-not-a-real-key"
+  },
+  "fields": [
+    {
+      "name": "customerName",
+      "type": "string"
+    }
+  ]
+}

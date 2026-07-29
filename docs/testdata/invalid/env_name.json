@@ -1,0 +1,12 @@
+{
+  "entity": "Order",
+  "model": {
+    "apiKeyEnv": "MY-KEY"
+  },
+  "fields": [
+    {
+      "name": "customerName",
+      "type": "string"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "entity": "",
+  "fields": [
+    {
+      "name": "customerName",
+      "type": "string"
+    }
+  ]
+}

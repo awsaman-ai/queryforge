@@ -256,7 +256,7 @@ The API **key value never lives in the config** — `apiKeyEnv` names the enviro
 List several models and QueryForge tries them in order, using the first that answers — so a rate-limit, quota, or billing block on one provider transparently falls through to the next. It's the same `ModelProvider` seam composed (`FallbackProvider`), so nothing else changes.
 
 ```jsonc
-"model":  { "provider": "gemini", "baseURL": "…/v1beta/openai", "model": "gemini-3.5-flash", "apiKeyEnv": "QF_API_KEY" },
+"model":  { "provider": "gemini", "baseURL": "…/v1beta/openai", "model": "gemini-3.1-flash-lite", "apiKeyEnv": "QF_API_KEY" },
 "models": [
   { "provider": "groq",      "baseURL": "https://api.groq.com/openai/v1", "model": "llama-3.3-70b-versatile", "apiKeyEnv": "GROQ_API_KEY" },
   { "provider": "anthropic", "baseURL": "https://api.anthropic.com",      "model": "claude-opus-4-8",          "apiKeyEnv": "ANTHROPIC_API_KEY" },
@@ -273,6 +273,8 @@ go run ./examples -config examples/orders.fallback.config.json -backend sql -tex
 ## Configuration
 
 One JSON file is the prompt context, the validation rulebook, the field→backend mapping, and the model selector. **Full reference:** [`docs/config.html`](docs/config.html).
+
+**Don't hand-write it — build it:** [`docs/config-builder.html`](docs/config-builder.html) is a single self-contained page (open it straight from disk, no server, no network) that walks through every option, explains what each one gates, validates as you type with the same rules the loader enforces, and downloads the finished JSON. It also imports an existing config for editing.
 
 Shipped examples in [`examples/`](examples/):
 - `orders.config.json` — one Order config compiled to **both** SQL and Mongo.

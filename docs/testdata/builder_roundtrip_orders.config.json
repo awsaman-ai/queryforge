@@ -1,0 +1,159 @@
+{
+  "entity": "Order",
+  "version": 1,
+  "model": {
+    "provider": "gemini",
+    "baseURL": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "model": "gemini-3.1-flash-lite",
+    "apiKeyEnv": "QF_API_KEY",
+    "temperature": 0,
+    "maxTokens": 4096
+  },
+  "backends": {
+    "sql": {
+      "table": "orders"
+    },
+    "mongo": {
+      "collection": "orders"
+    }
+  },
+  "fields": [
+    {
+      "name": "status",
+      "type": "enum",
+      "values": [
+        "PLACED",
+        "DELIVERED",
+        "CANCELLED",
+        "REFUNDED"
+      ],
+      "operators": [
+        "equals",
+        "notEquals",
+        "in",
+        "notIn"
+      ],
+      "synonyms": [
+        "state",
+        "order status",
+        "delivery status"
+      ],
+      "mapping": {
+        "mongo": "status",
+        "sql": "status"
+      },
+      "indexed": true,
+      "priority": 10
+    },
+    {
+      "name": "refunded",
+      "type": "boolean",
+      "synonyms": [
+        "was refunded",
+        "is refunded"
+      ],
+      "mapping": {
+        "mongo": "refunded",
+        "sql": "refunded"
+      }
+    },
+    {
+      "name": "createdAt",
+      "type": "date",
+      "operators": [
+        "before",
+        "after",
+        "between"
+      ],
+      "synonyms": [
+        "created",
+        "order date",
+        "placed on",
+        "ordered"
+      ],
+      "mapping": {
+        "mongo": "createdAt",
+        "sql": "created_at"
+      },
+      "indexed": true,
+      "priority": 8
+    },
+    {
+      "name": "amount",
+      "type": "number",
+      "operators": [
+        "gt",
+        "lt",
+        "gte",
+        "lte",
+        "between"
+      ],
+      "synonyms": [
+        "total",
+        "order value",
+        "price",
+        "cost"
+      ],
+      "mapping": {
+        "mongo": "amount",
+        "sql": "amount"
+      },
+      "validators": {
+        "min": 0
+      }
+    },
+    {
+      "name": "tags",
+      "type": "array",
+      "itemType": "string",
+      "operators": [
+        "contains",
+        "containsAny",
+        "containsAll"
+      ],
+      "synonyms": [
+        "labels"
+      ],
+      "mapping": {
+        "mongo": "tags",
+        "sql": "tags"
+      }
+    },
+    {
+      "name": "customerName",
+      "type": "string",
+      "operators": [
+        "contains",
+        "startsWith",
+        "endsWith",
+        "equals"
+      ],
+      "synonyms": [
+        "customer",
+        "buyer",
+        "name"
+      ],
+      "mapping": {
+        "mongo": "customerName",
+        "sql": "customer_name"
+      },
+      "searchable": true
+    },
+    {
+      "name": "internalNote",
+      "type": "string",
+      "queryable": false,
+      "returnable": false
+    }
+  ],
+  "defaults": {
+    "limit": 50,
+    "maxLimit": 500
+  },
+  "policy": {
+    "maxNestingDepth": 5,
+    "denyRegexOn": [
+      "customerName"
+    ]
+  }
+}

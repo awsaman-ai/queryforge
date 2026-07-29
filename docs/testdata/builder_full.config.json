@@ -1,0 +1,211 @@
+{
+  "entity": "Employee",
+  "version": 2,
+  "model": {
+    "provider": "gemini",
+    "baseURL": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "model": "gemini-3.5-flash",
+    "apiKeyEnv": "QF_API_KEY",
+    "temperature": 0,
+    "maxTokens": 4096,
+    "jsonMode": true
+  },
+  "models": [
+    {
+      "provider": "groq",
+      "baseURL": "https://api.groq.com/openai/v1",
+      "model": "llama-3.3-70b-versatile",
+      "apiKeyEnv": "GROQ_API_KEY",
+      "temperature": 0,
+      "maxTokens": 4096,
+      "jsonMode": false
+    },
+    {
+      "provider": "ollama",
+      "baseURL": "http://localhost:11434/v1",
+      "model": "qwen2.5"
+    }
+  ],
+  "backends": {
+    "sql": {
+      "table": "employees"
+    },
+    "mongo": {
+      "collection": "employees"
+    },
+    "es": {
+      "index": "employees-v2"
+    },
+    "mybackend": {
+      "name": "employees"
+    }
+  },
+  "fields": [
+    {
+      "name": "name",
+      "type": "string",
+      "synonyms": [
+        "full name",
+        "employee"
+      ],
+      "mapping": {
+        "es": "name",
+        "mongo": "name",
+        "mybackend": "name",
+        "sql": "full_name"
+      },
+      "searchable": true,
+      "sortable": true,
+      "indexed": true,
+      "priority": 9
+    },
+    {
+      "name": "salary",
+      "type": "number",
+      "operators": [
+        "gt",
+        "lt",
+        "gte",
+        "lte",
+        "between"
+      ],
+      "synonyms": [
+        "pay",
+        "compensation"
+      ],
+      "mapping": {
+        "sql": "salary"
+      },
+      "searchable": false,
+      "permissions": {
+        "read": [
+          "hr",
+          "admin"
+        ]
+      },
+      "validators": {
+        "min": 0,
+        "max": 10000000
+      }
+    },
+    {
+      "name": "active",
+      "type": "boolean",
+      "mapping": {
+        "sql": "is_active"
+      }
+    },
+    {
+      "name": "department",
+      "type": "enum",
+      "values": [
+        "ENG",
+        "SALES",
+        "HR"
+      ],
+      "operators": [
+        "equals",
+        "notEquals",
+        "in",
+        "notIn"
+      ],
+      "mapping": {
+        "sql": "dept"
+      },
+      "indexed": true,
+      "priority": 10
+    },
+    {
+      "name": "hiredAt",
+      "type": "date",
+      "operators": [
+        "before",
+        "after",
+        "between"
+      ],
+      "synonyms": [
+        "hire date",
+        "joined"
+      ],
+      "mapping": {
+        "mongo": "hiredAt",
+        "sql": "hired_at"
+      },
+      "indexed": true
+    },
+    {
+      "name": "skills",
+      "type": "array",
+      "itemType": "string",
+      "operators": [
+        "contains",
+        "containsAny",
+        "containsAll"
+      ],
+      "mapping": {
+        "sql": "skills"
+      },
+      "sortable": false
+    },
+    {
+      "name": "scores",
+      "type": "array",
+      "itemType": "number",
+      "mapping": {
+        "sql": "scores"
+      },
+      "validators": {
+        "min": 0,
+        "max": 100
+      }
+    },
+    {
+      "name": "channels",
+      "type": "array",
+      "values": [
+        "WEB",
+        "APP",
+        "PHONE"
+      ],
+      "itemType": "enum",
+      "operators": [
+        "contains",
+        "containsAny"
+      ],
+      "mapping": {
+        "mongo": "channels",
+        "sql": "channels"
+      }
+    },
+    {
+      "name": "ssn",
+      "type": "string",
+      "mapping": {
+        "sql": "ssn"
+      },
+      "queryable": false,
+      "filterable": false,
+      "returnable": false
+    },
+    {
+      "name": "tenantId",
+      "type": "string",
+      "mapping": {
+        "mongo": "tenantId",
+        "sql": "tenant_id"
+      },
+      "queryable": false
+    }
+  ],
+  "defaults": {
+    "limit": 50,
+    "maxLimit": 500
+  },
+  "policy": {
+    "requireTenantPredicate": true,
+    "maxNestingDepth": 5,
+    "denyRegexOn": [
+      "name"
+    ]
+  }
+}

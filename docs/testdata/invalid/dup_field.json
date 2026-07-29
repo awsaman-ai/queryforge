@@ -1,0 +1,13 @@
+{
+  "entity": "Order",
+  "fields": [
+    {
+      "name": "customerName",
+      "type": "string"
+    },
+    {
+      "name": "customerName",
+      "type": "number"
+    }
+  ]
+}
