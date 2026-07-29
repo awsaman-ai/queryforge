@@ -97,6 +97,16 @@ type Condition struct {
 	Field    string   `json:"field,omitempty"`
 	Operator Operator `json:"operator,omitempty"`
 	Value    *Value   `json:"value,omitempty"`
+
+	// Scoped marks a predicate the calling application forced onto the query via
+	// a Scope map, rather than one the user's question asked for. It steers
+	// predicate ordering and lets Explain present the scope separately.
+	//
+	// It is deliberately excluded from JSON in both directions. That is what
+	// makes it trustworthy: the flag can only ever be set by applyScope, which
+	// runs after validation, so no model output and no request body can forge a
+	// node claiming to be caller-supplied.
+	Scoped bool `json:"-"`
 }
 
 // ValueKind is the tag of the Value union.

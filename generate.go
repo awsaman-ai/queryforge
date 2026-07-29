@@ -151,6 +151,14 @@ func orderedChildren(c *Config, children []*Condition) []*Condition {
 // condSortKey derives the ordering key for a condition: whether its field is
 // indexed (0/1) and its priority. Logical nodes get the neutral (1, 0) key.
 func condSortKey(c *Config, cond *Condition) (indexedRank int, priority int) {
+	// Caller-supplied scope predicates sort ahead of everything. They are the
+	// most selective filter in the query (one subscription out of all of them)
+	// and sit on tenant-style columns that are essentially always indexed, even
+	// though the config need not declare them. Putting them first also makes the
+	// emitted query read the way it behaves: the scope, then the question.
+	if cond.Scoped {
+		return -1, 0
+	}
 	if cond.Type == CondComparison {
 		if f, ok := c.FieldByName(cond.Field); ok {
 			if f.Indexed {

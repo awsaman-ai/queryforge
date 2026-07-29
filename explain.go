@@ -18,6 +18,14 @@ func Explain(q *Query, c *Config) string {
 
 	var sb strings.Builder
 
+	// Separate the caller's scope from the user's own conditions, so the prose
+	// reads as "here is what you asked for" followed by "and here is what was
+	// applied regardless". Merged into one sentence, a forced tenant predicate
+	// would look like something the question requested — the opposite of what an
+	// explain-before-execute readback is for. Both are nil when no scope was
+	// injected, leaving the wording of every existing explanation untouched.
+	scoped, userFilter := splitScope(q.Filter)
+
 	// Projection clause.
 	if len(q.Select) > 0 {
 		sb.WriteString("Return ")
@@ -28,10 +36,10 @@ func Explain(q *Query, c *Config) string {
 	sb.WriteString(" from ")
 	sb.WriteString(q.Entity)
 
-	// Filter clause.
-	if q.Filter != nil {
+	// Filter clause — the user's conditions only; scope is reported below.
+	if userFilter != nil {
 		sb.WriteString(" where ")
-		sb.WriteString(describeCondition(q.Filter))
+		sb.WriteString(describeCondition(userFilter))
 	}
 
 	// Sort clause.
@@ -57,6 +65,18 @@ func Explain(q *Query, c *Config) string {
 	}
 
 	sb.WriteString(".")
+
+	// Scope clause. "Always" is the operative word: these predicates hold for
+	// every query this caller makes, whatever the question was.
+	if len(scoped) > 0 {
+		parts := make([]string, len(scoped))
+		for i, cond := range scoped {
+			parts[i] = describeComparison(cond)
+		}
+		sb.WriteString(" Always scoped to ")
+		sb.WriteString(strings.Join(parts, ", "))
+		sb.WriteString(".")
+	}
 	return sb.String()
 }
 

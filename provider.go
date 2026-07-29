@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -187,21 +188,40 @@ func snippet(b []byte, n int) string {
 // StubProvider is a deterministic ModelProvider for tests and offline use: it
 // returns a preset response (or error) and records the last prompts it saw, so
 // the planner and engine can be exercised with no network and no API key.
+//
+// An Engine is safe for concurrent use, so a stub standing in for a real
+// provider has to be too — otherwise wiring one in turns any concurrency test of
+// the surrounding code into a race report about the stub. The bookkeeping
+// fields are therefore written under mu; read them with Snapshot when more than
+// one goroutine is in play, or directly in the ordinary sequential case.
 type StubProvider struct {
-	Response   string // canned assistant text to return
-	Err        error  // when set, Complete returns this error
-	LastSystem string // captured system prompt from the most recent call
-	LastUser   string // captured user prompt from the most recent call
-	Calls      int    // number of times Complete was invoked
+	Response string // canned assistant text to return
+	Err      error  // when set, Complete returns this error
+
+	mu         sync.Mutex // guards the three fields below
+	LastSystem string     // captured system prompt from the most recent call
+	LastUser   string     // captured user prompt from the most recent call
+	Calls      int        // number of times Complete was invoked
 }
 
 // Complete records the prompts and returns the preset response/error.
 func (s *StubProvider) Complete(_ context.Context, system, user string) (string, error) {
+	s.mu.Lock()
 	s.LastSystem = system
 	s.LastUser = user
 	s.Calls++
+	s.mu.Unlock()
+
 	if s.Err != nil {
 		return "", s.Err
 	}
 	return s.Response, nil
+}
+
+// Snapshot returns the recorded prompts and call count consistently. Use it
+// instead of reading the fields when Complete may be running concurrently.
+func (s *StubProvider) Snapshot() (lastSystem, lastUser string, calls int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.LastSystem, s.LastUser, s.Calls
 }

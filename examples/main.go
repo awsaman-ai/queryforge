@@ -24,6 +24,14 @@ func main() {
 	text := flag.String("text", "", "natural-language query (required unless -ast is given)")
 	astPath := flag.String("ast", "", "path to a JSON AST file: compile it deterministically (no model call)")
 	timeout := flag.Duration("timeout", 30*time.Second, "model call timeout")
+
+	// Caller-supplied scope filters, repeatable: -scope key=value. These stand in
+	// for values a real application would take from the session (subscription,
+	// tenant, user), not from the user's question.
+	var scopeArgs scopeFlag
+	flag.Var(&scopeArgs, "scope", "extra filter AND-ed into every query, as key=value (repeatable); "+
+		"the value is parsed as JSON when it looks like JSON, else as a string")
+	scopeInAST := flag.Bool("scope-in-ast", false, "show the injected scope predicates inside the printed AST")
 	flag.Parse()
 
 	// Load the config (validates structure and rejects typos).
@@ -32,10 +40,13 @@ func main() {
 		die("load config: %v", err)
 	}
 	engine := qf.New(cfg)
+	engine.ScopeInAST = *scopeInAST
+
+	scope := scopeArgs.scope() // nil when no -scope flag was given
 
 	// Deterministic path: compile a hand-written AST with no model call.
 	if *astPath != "" {
-		runFromAST(engine, *astPath, *backend)
+		runFromAST(engine, *astPath, *backend, scope)
 		return
 	}
 
@@ -53,7 +64,7 @@ func main() {
 	defer cancel()
 
 	// Full pipeline: NL -> AST -> validate -> generate.
-	res, err := engine.Translate(ctx, *text, *backend)
+	res, err := engine.Translate(ctx, *text, *backend, scope)
 	if err != nil {
 		// A refusal is a legitimate answer ("this config can't express that"),
 		// not a crash — report it plainly and exit 2 so scripts can tell the
@@ -72,6 +83,7 @@ func main() {
 	printAST(res.AST)
 	fmt.Printf("\nExplain:\n  %s\n", res.Explain)
 	printQuery(res.Query)
+	printScope(res.Scope)
 	printWarnings(res.Warnings)
 	if res.ProviderUsed != "" { // populated when a fallback chain is configured
 		fmt.Printf("\nAnswered by: %s\n", res.ProviderUsed)
@@ -82,7 +94,7 @@ func main() {
 }
 
 // runFromAST loads an AST from disk and compiles it deterministically.
-func runFromAST(engine *qf.Engine, path, backend string) {
+func runFromAST(engine *qf.Engine, path, backend string, scope qf.Scope) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		die("read ast: %v", err)
@@ -91,14 +103,77 @@ func runFromAST(engine *qf.Engine, path, backend string) {
 	if err := json.Unmarshal(data, &ast); err != nil {
 		die("parse ast: %v", err)
 	}
-	q, err := engine.GenerateFrom(&ast, backend)
+	q, err := engine.GenerateFrom(&ast, backend, scope)
 	if err != nil {
 		die("generate: %v", err)
 	}
-	printAST(&ast)
-	fmt.Printf("\nExplain:\n  %s\n", qf.Explain(&ast, engine.Config()))
+
+	// GenerateFrom returns only the query, so ask for the effective AST to print
+	// and explain — otherwise the readback would omit the scope that was applied.
+	effective, filters, err := engine.ApplyScope(&ast, scope)
+	if err != nil {
+		die("scope: %v", err)
+	}
+	shown := &ast
+	if engine.ScopeInAST {
+		shown = effective
+	}
+
+	printAST(shown)
+	fmt.Printf("\nExplain:\n  %s\n", qf.Explain(effective, engine.Config()))
 	printQuery(q)
+	printScope(filters)
 	printWarnings(q.Warnings)
+}
+
+// scopeFlag collects repeated -scope key=value arguments.
+type scopeFlag []string
+
+// String renders the accumulated pairs (required by flag.Value).
+func (s *scopeFlag) String() string { return strings.Join(*s, ",") }
+
+// Set records one -scope occurrence.
+func (s *scopeFlag) Set(v string) error {
+	if !strings.Contains(v, "=") {
+		return fmt.Errorf("expected key=value, got %q", v)
+	}
+	*s = append(*s, v)
+	return nil
+}
+
+// scope parses the collected pairs into a qf.Scope. Each value is first tried as
+// JSON, so numbers, booleans and lists arrive with their real types
+// (-scope userId=9, -scope 'enterpriseId=["E-1","E-2"]'); anything that is not
+// valid JSON is taken as a plain string, which is what bare ids like SUB-42 are.
+func (s *scopeFlag) scope() qf.Scope {
+	if len(*s) == 0 {
+		return nil // no -scope flags: inject nothing
+	}
+	out := make(qf.Scope, len(*s))
+	for _, pair := range *s {
+		key, raw, _ := strings.Cut(pair, "=") // Set guaranteed the separator
+		var v any
+		if err := json.Unmarshal([]byte(raw), &v); err != nil {
+			v = raw // not JSON: treat it as the string it is
+		}
+		out[strings.TrimSpace(key)] = v
+	}
+	return out
+}
+
+// printScope lists the filters that were forced onto the query.
+func printScope(filters []qf.ScopeFilter) {
+	if len(filters) == 0 {
+		return
+	}
+	fmt.Println("\nScope applied:")
+	for _, f := range filters {
+		origin := "not in config" // the usual case: a session value, not query vocabulary
+		if f.Declared {
+			origin = "declared in config"
+		}
+		fmt.Printf("  - %s  (%s)\n", f, origin)
+	}
 }
 
 // printAST pretty-prints the AST as JSON.

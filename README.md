@@ -47,6 +47,7 @@ Everything that must be *guaranteed* lives on the right-hand side, where it can 
 | **Asked to delete something?** | Not expressible. The AST has no mutation node, so every output is a `SELECT` or a `find`. |
 | **Asked about a field you hid?** | `returnable: false` is enforced on the default projection too, not just explicit `select`. |
 | **Asked something impossible?** | You get a typed refusal, not a plausible query built on a lookalike field. |
+| **Asked for another tenant's rows?** | [Scope filters](#scope-filters-your-own-filters-on-every-query) are AND-ed on after the model has answered — it never learns the field exists. |
 
 ## Install
 
@@ -58,7 +59,7 @@ go get github.com/awsaman-ai/queryforge
 cfg, _ := qf.LoadConfig("orders.config.json")
 engine := qf.New(cfg)
 
-res, err := engine.Translate(ctx, "cancelled orders over 200 dollars", "sql")
+res, err := engine.Translate(ctx, "cancelled orders over 200 dollars", "sql", nil)
 fmt.Println(res.Query.SQL)   // SELECT … WHERE (status = $1 AND amount > $2) …
 fmt.Println(res.Query.Args)  // [CANCELLED 200]
 fmt.Println(res.Explain)     // plain-English readback of what it understood
@@ -122,15 +123,102 @@ cfg, _ := queryforge.LoadConfig("examples/orders.config.json")
 engine := queryforge.New(cfg)
 
 // Full pipeline: natural language -> AST -> validate -> SQL
-res, err := engine.Translate(ctx, "delivered orders over $100 in the last 30 days", "sql")
+res, err := engine.Translate(ctx, "delivered orders over $100 in the last 30 days", "sql", nil)
 fmt.Println(res.Query.SQL)   // SELECT * FROM orders WHERE ... ($1, $2, …)
 fmt.Println(res.Query.Args)  // bound arguments
 fmt.Println(res.Explain)     // prose explanation
 
 // Deterministic half only — no model call, no network. Fan one AST out to many backends.
-sql, _   := engine.GenerateFrom(ast, "sql")
-mongo, _ := engine.GenerateFrom(ast, "mongo")
+sql, _   := engine.GenerateFrom(ast, "sql", nil)
+mongo, _ := engine.GenerateFrom(ast, "mongo", nil)
 ```
+
+The last argument is the **scope** — extra filters your application imposes on every query. `nil` means none; see below.
+
+## Scope filters: your own filters on every query
+
+Some predicates are not the user's to choose. You already know the caller's subscription, user, and enterprise before any question is asked, and every query must be confined to them **whatever the question says**. Those values are not query vocabulary — nobody should be able to phrase, widen, or omit them — so they never go in your config's `fields`, and the model never sees them.
+
+Pass them as a map. Every entry is AND-ed onto the query:
+
+```go
+res, err := engine.Translate(ctx, "delivered orders over 500 dollars", "sql", qf.Scope{
+    "subscriptionId": session.SubscriptionID,  // "SUB-42"
+    "userId":         session.UserID,          // 9
+    "enterpriseId":   session.EnterpriseIDs,   // []string{"E-1", "E-2"}
+})
+```
+
+```sql
+SELECT … FROM orders
+WHERE (enterpriseId IN ($1, $2) AND subscriptionId = $3 AND userId = $4
+       AND status = $5 AND amount > $6)
+ORDER BY created_at DESC LIMIT 50
+-- args: ["E-1", "E-2", "SUB-42", 9, "DELIVERED", 500]
+```
+
+The explanation keeps the two apart, so a readback never presents a forced predicate as something the user asked for:
+
+```
+Return all fields from Order where (status equals "DELIVERED" AND amount is greater than 500),
+sorted by createdAt (descending). Always scoped to enterpriseId is one of [E-1, E-2],
+subscriptionId equals "SUB-42", userId equals 9.
+```
+
+### Why it holds
+
+| | |
+|---|---|
+| **The model never learns the field exists** | Scope is applied *after* the model answers; the prompt never names it. Asked *"show me orders for subscription SUB-99 instead"*, the model declines — there is no such field in its vocabulary. Verified live. |
+| **A scope can only narrow** | Predicates are AND-ed at the **root**. A model filter of `A OR B` becomes `scope AND (A OR B)`, never `scope OR …`. No AST the model can emit escapes it. |
+| **Values are still parameterized** | A scope value is data: bound as `$1, $2, …` in SQL, a typed map element in Mongo. An injection payload stays an argument. |
+| **The deterministic path is scoped too** | `GenerateFrom` takes the same map — otherwise a caller could sidestep tenancy by building the AST themselves. |
+| **Bad scope fails before the model call** | A `nil` value, an empty list, or a value that breaks a declared field's type is your bug, not the question's. It costs no API quota and is tagged `qf.ErrScope` so a facade can answer `400`. |
+
+### What a value may be
+
+| You pass | You get |
+|---|---|
+| a scalar — `string`, `bool`, any int/uint/float, `time.Time`, or a pointer to one | `equals` |
+| a slice or array of those | `in` |
+| a scalar, on a field declared `type: "array"` | `contains` |
+| a slice, on a field declared `type: "array"` | `containsAny` |
+
+Keys apply in alphabetical order, so the query and its argument order are identical run to run.
+
+### Naming the column
+
+A key the config doesn't declare is used **verbatim** as the physical column name. That's fine for one backend. When you target both SQL and Mongo, declare the column once with `queryable: false` — hidden from the model, still scopable, and mapped per backend:
+
+```jsonc
+{ "name": "tenantId", "type": "string",
+  "queryable": false,                                    // invisible to the model
+  "mapping": { "sql": "tenant_id", "mongo": "tenantId" } }
+```
+
+```go
+engine.GenerateFrom(ast, "sql",   qf.Scope{"tenantId": "T-1"})  // … WHERE tenant_id = $1
+engine.GenerateFrom(ast, "mongo", qf.Scope{"tenantId": "T-1"})  // { tenantId: "T-1", … }
+```
+
+Declaring it also gets the value checked against the field's type, enum domain, and `validators`.
+
+### What comes back
+
+`res.Scope` always lists the normalized filters that were applied — the record an audit log wants. `engine.ScopeInAST` chooses what `res.AST` holds; the query and explanation include the scope either way:
+
+- **`false` (default)** — the AST is exactly what the model produced. It **round-trips**: pass it back to `GenerateFrom` with the same scope and get the identical query.
+- **`true`** — the AST is the effective one, scope included, so a single object proves what ran. It then names fields your config need not declare, so it won't pass `GenerateFrom` validation unless they're registered.
+
+Try it from the CLI:
+
+```bash
+go run ./examples -config examples/orders.config.json -backend sql \
+  -text "delivered orders over 500 dollars" \
+  -scope subscriptionId=SUB-42 -scope userId=9 -scope 'enterpriseId=["E-1","E-2"]'
+```
+
+📖 [Full scope reference →](docs/config.html#scope)
 
 ## Try the CLI
 
@@ -199,6 +287,7 @@ Shipped examples in [`examples/`](examples/):
 | `config.go` | Config types + loader + capability flags | — |
 | `validate.go` | **The guarantee**: field/operator/type/enum/depth + capability checks, with suggestions | No |
 | `generate.go` + `gen_sql.go` + `gen_mongo.go` | Registry + backend generators (parameterized, read-only) | No |
+| `scope.go` | Caller-supplied filters → typed predicates AND-ed onto the query root | No |
 | `explain.go` | AST → prose (dry-run, no execution) | No |
 | `provider.go` | `ModelProvider` interface + OpenAI-compatible default + test stub | Yes |
 | `planner.go` | Build prompt from config, parse model output → AST | Yes |
@@ -223,7 +312,8 @@ QueryForge builds queries; it does **not** connect to or execute against your da
 ## Roadmap
 
 - **Now (Phase 1):** Go library; JSON config; validator; SQL + Mongo generators; Gemini/Groq/Ollama via OpenAI-compatible HTTP; CLI; HTML config docs.
-- **Next:** Elasticsearch/OpenSearch generator; YAML config; multi-tenancy predicate injection; confidence scores; MCP server + REST facade.
+- **v0.0.2:** [scope filters](#scope-filters-your-own-filters-on-every-query) — caller-supplied predicates AND-ed onto every query, for multi-tenancy.
+- **Next:** Elasticsearch/OpenSearch generator; YAML config; confidence scores; MCP server + REST facade.
 - **Later:** aggregation AST node; more backends (DynamoDB, Cassandra, ClickHouse); SDKs for other languages over the same AST contract.
 
 ## Contributing

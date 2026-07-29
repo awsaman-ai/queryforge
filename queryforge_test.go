@@ -38,7 +38,7 @@ func newTestEngine(t *testing.T, p ModelProvider) *Engine {
 func TestTranslateHappyPath(t *testing.T) {
 	e := newTestEngine(t, &StubProvider{Response: canonicalAST})
 
-	res, err := e.Translate(context.Background(), "delivered orders in the last 30 days", "sql")
+	res, err := e.Translate(context.Background(), "delivered orders in the last 30 days", "sql", nil)
 	if err != nil {
 		t.Fatalf("Translate: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestTranslateRepairRecovers(t *testing.T) {
 	valid := `{"entity":"Order","filter":{"type":"comparison","field":"status","operator":"equals","value":{"kind":"enum","v":"DELIVERED"}}}`
 	e := newTestEngine(t, &scriptedProvider{responses: []string{invalid, valid}})
 
-	res, err := e.Translate(context.Background(), "delivered orders", "sql")
+	res, err := e.Translate(context.Background(), "delivered orders", "sql", nil)
 	if err != nil {
 		t.Fatalf("Translate should have recovered: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestTranslateFailsClosed(t *testing.T) {
 	e := newTestEngine(t, &StubProvider{Response: invalid})
 	e.MaxRepairs = 1 // 2 attempts total
 
-	_, err := e.Translate(context.Background(), "delivered orders", "sql")
+	_, err := e.Translate(context.Background(), "delivered orders", "sql", nil)
 	if err == nil || !strings.Contains(err.Error(), "failed validation") {
 		t.Errorf("expected fail-closed error, got %v", err)
 	}
@@ -84,7 +84,7 @@ func TestTranslateFailsClosed(t *testing.T) {
 // TestTranslateUnknownBackend rejects an unregistered backend.
 func TestTranslateUnknownBackend(t *testing.T) {
 	e := newTestEngine(t, &StubProvider{Response: canonicalAST})
-	if _, err := e.Translate(context.Background(), "x", "cassandra"); err == nil {
+	if _, err := e.Translate(context.Background(), "x", "cassandra", nil); err == nil {
 		t.Error("expected unknown-backend error")
 	}
 }
@@ -96,7 +96,7 @@ func TestGenerateFromNoModelCall(t *testing.T) {
 	e := newTestEngine(t, stub)
 
 	ast := canonicalQuery()
-	res, err := e.GenerateFrom(ast, "mongo")
+	res, err := e.GenerateFrom(ast, "mongo", nil)
 	if err != nil {
 		t.Fatalf("GenerateFrom: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestGenerateFromNoModelCall(t *testing.T) {
 func TestGenerateFromRejectsInvalid(t *testing.T) {
 	e := newTestEngine(t, &StubProvider{})
 	bad := single(comp("nope", OpEquals, vStr("x")))
-	if _, err := e.GenerateFrom(bad, "sql"); err == nil {
+	if _, err := e.GenerateFrom(bad, "sql", nil); err == nil {
 		t.Error("expected validation error")
 	}
 }
@@ -122,11 +122,11 @@ func TestGenerateFromFanOut(t *testing.T) {
 	e := newTestEngine(t, &StubProvider{})
 	ast := canonicalQuery()
 
-	sql, err := e.GenerateFrom(ast, "sql")
+	sql, err := e.GenerateFrom(ast, "sql", nil)
 	if err != nil {
 		t.Fatalf("sql: %v", err)
 	}
-	mongo, err := e.GenerateFrom(ast, "mongo")
+	mongo, err := e.GenerateFrom(ast, "mongo", nil)
 	if err != nil {
 		t.Fatalf("mongo: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestTranslateRepairsUnparseableOutput(t *testing.T) {
 	p := &scriptedProvider{responses: []string{`{"entity":"Order","filter":{`, canonicalAST}}
 	e := newTestEngine(t, p)
 
-	res, err := e.Translate(context.Background(), "delivered orders", "sql")
+	res, err := e.Translate(context.Background(), "delivered orders", "sql", nil)
 	if err != nil {
 		t.Fatalf("expected recovery from a malformed reply, got %v", err)
 	}
@@ -199,7 +199,7 @@ func TestTranslateDoesNotRetryTransportFailure(t *testing.T) {
 	stub := &StubProvider{Err: errors.New("401 unauthorized")}
 	e := newTestEngine(t, stub)
 
-	if _, err := e.Translate(context.Background(), "delivered orders", "sql"); err == nil {
+	if _, err := e.Translate(context.Background(), "delivered orders", "sql", nil); err == nil {
 		t.Fatal("expected transport failure to propagate")
 	}
 	if stub.Calls != 1 {
@@ -214,7 +214,7 @@ func TestTranslateGivesUpOnPersistentGarbage(t *testing.T) {
 	p := &scriptedProvider{responses: []string{`not json at all`}}
 	e := newTestEngine(t, p)
 
-	_, err := e.Translate(context.Background(), "delivered orders", "sql")
+	_, err := e.Translate(context.Background(), "delivered orders", "sql", nil)
 	if err == nil {
 		t.Fatal("expected failure after the repair budget is exhausted")
 	}
@@ -251,7 +251,7 @@ func TestTranslateSurfacesRefusal(t *testing.T) {
 	p := &scriptedProvider{responses: []string{`{"unsupported":"no field for courier"}`}}
 	e := newTestEngine(t, p)
 
-	res, err := e.Translate(context.Background(), "orders shipped by DHL", "sql")
+	res, err := e.Translate(context.Background(), "orders shipped by DHL", "sql", nil)
 	if res != nil {
 		t.Errorf("expected no query for an unsupported request, got %+v", res.Query)
 	}

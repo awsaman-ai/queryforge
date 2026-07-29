@@ -20,6 +20,24 @@ type Engine struct {
 	registry   *Registry        // backend id -> generator
 	MaxRepairs int              // bounded validation-repair retries (default 2)
 	Now        func() time.Time // injectable clock for relative dates (tests)
+
+	// ScopeInAST chooses what TranslateResult.AST reports when a Scope is
+	// supplied. The compiled query and the explanation always include the scope;
+	// only this one field changes.
+	//
+	//	false (default) — the AST is exactly what the model produced, in the
+	//	  config's vocabulary. The scope is reported separately on
+	//	  TranslateResult.Scope. This AST round-trips: hand it back to
+	//	  GenerateFrom with the same Scope and you get the identical query.
+	//
+	//	true — the AST is the effective one, scope predicates included, so it
+	//	  alone is a complete record of what was compiled. Note that it then
+	//	  names fields the config need not declare, so feeding it back through
+	//	  GenerateFrom fails validation unless those fields are registered.
+	//
+	// Pick false for pipelines that re-compile ASTs; true for audit logs that
+	// store one object and must be able to prove what ran.
+	ScopeInAST bool
 }
 
 // TranslateResult is the full output of a translation: the AST, the compiled
@@ -33,6 +51,12 @@ type TranslateResult struct {
 	Warnings       []string // advisories (e.g. non-indexed filter)
 	RepairAttempts int      // number of validation repairs performed (0 = first try)
 	ProviderUsed   string   // which model answered, when a fallback chain is configured
+
+	// Scope lists the caller-supplied filters that were AND-ed into the query,
+	// normalized and in the order they were applied. It is always populated when
+	// a Scope was passed, whatever ScopeInAST is set to — an audit log should
+	// never have to infer which predicates were forced.
+	Scope []ScopeFilter
 }
 
 // New builds an engine from a config, selecting the model provider(s) from the
@@ -65,13 +89,26 @@ func (e *Engine) now() time.Time {
 }
 
 // Translate runs the full pipeline: NL -> AST (one model call) -> validate ->
-// (bounded repair) -> generate -> explain. It fails closed: if the model cannot
-// produce a valid AST within the repair budget, it returns an error rather than
-// a guessed query.
-func (e *Engine) Translate(ctx context.Context, text, backend string) (*TranslateResult, error) {
+// (bounded repair) -> scope injection -> generate -> explain. It fails closed:
+// if the model cannot produce a valid AST within the repair budget, it returns
+// an error rather than a guessed query.
+//
+// scope carries filters the calling application imposes regardless of what was
+// asked — subscription, tenant, user, enterprise ids. They are AND-ed onto the
+// root of the filter tree after validation, so they can only narrow the result
+// and the model never learns they exist. Pass nil for none. See Scope.
+func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scope) (*TranslateResult, error) {
 	gen, ok := e.registry.Get(backend)
 	if !ok {
 		return nil, fmt.Errorf("unknown backend %q (registered: %s)", backend, strings.Join(e.registry.Backends(), ", "))
+	}
+
+	// Normalize the scope up front. A bad scope is a bug in the calling code and
+	// cannot be repaired by asking the model again, so it should not cost an API
+	// call or leave the caller wondering whether the question was at fault.
+	filters, err := normalizeScope(scope, e.config)
+	if err != nil {
+		return nil, err
 	}
 
 	var hint RepairHint // repair hint; zero value on the first attempt
@@ -101,18 +138,25 @@ func (e *Engine) Translate(ctx context.Context, text, backend string) (*Translat
 			continue // try again within the budget
 		}
 
-		// Valid AST: compile deterministically and explain.
-		res, gerr := gen.Generate(ast, e.config, GenOptions{Now: e.now()})
+		// Valid AST: splice in the caller's scope, then compile deterministically
+		// and explain. Both the query and the explanation describe the effective
+		// AST, so what the caller is shown is always what will run.
+		effective := applyScope(ast, filters)
+		res, gerr := gen.Generate(effective, e.config, GenOptions{Now: e.now()})
 		if gerr != nil {
 			return nil, gerr
 		}
 		out := &TranslateResult{
 			AST:            ast,
 			Query:          res,
-			Explain:        Explain(ast, e.config),
+			Explain:        Explain(effective, e.config),
 			Raw:            raw,
 			Warnings:       res.Warnings,
 			RepairAttempts: attempt,
+			Scope:          filters,
+		}
+		if e.ScopeInAST {
+			out.AST = effective // report the compiled AST instead of the model's
 		}
 		// When a fallback chain is configured, record which model answered.
 		if namer, ok := e.provider.(providerNamer); ok {
@@ -130,10 +174,18 @@ func (e *Engine) Translate(ctx context.Context, text, backend string) (*Translat
 	return nil, fmt.Errorf("translation failed validation after %d attempt(s); last error: %w", e.MaxRepairs+1, lastErr)
 }
 
-// GenerateFrom is the deterministic half only: validate an existing AST and
-// compile it to a backend. It makes NO model call and touches NO network — it is
-// the entry point tests and multi-backend fan-out use.
-func (e *Engine) GenerateFrom(ast *Query, backend string) (*Result, error) {
+// GenerateFrom is the deterministic half only: validate an existing AST, splice
+// in the caller's scope, and compile it to a backend. It makes NO model call and
+// touches NO network — it is the entry point tests and multi-backend fan-out use.
+//
+// scope behaves exactly as in Translate, and applies here too: the deterministic
+// path must be as confined as the AI one, or a caller could sidestep tenancy by
+// building the AST itself. Pass nil for none.
+//
+// ast is never modified, so fanning one AST out to several backends with the
+// same scope compiles the same predicates each time rather than accumulating
+// them.
+func (e *Engine) GenerateFrom(ast *Query, backend string, scope Scope) (*Result, error) {
 	gen, ok := e.registry.Get(backend)
 	if !ok {
 		return nil, fmt.Errorf("unknown backend %q (registered: %s)", backend, strings.Join(e.registry.Backends(), ", "))
@@ -141,7 +193,27 @@ func (e *Engine) GenerateFrom(ast *Query, backend string) (*Result, error) {
 	if err := Validate(ast, e.config); err != nil {
 		return nil, err // never compile an invalid AST
 	}
-	return gen.Generate(ast, e.config, GenOptions{Now: e.now()})
+	filters, err := normalizeScope(scope, e.config)
+	if err != nil {
+		return nil, err
+	}
+	return gen.Generate(applyScope(ast, filters), e.config, GenOptions{Now: e.now()})
+}
+
+// ApplyScope performs, on its own, the scope-injection step that Translate and
+// GenerateFrom do internally: it returns the effective AST that would be
+// compiled, plus the normalized filters that were spliced in.
+//
+// It exists because GenerateFrom returns only the compiled query, leaving a
+// caller who wants to Explain or audit that call with no way to see the scope
+// that was applied. It is deterministic — no model call, no network — and never
+// modifies ast.
+func (e *Engine) ApplyScope(ast *Query, scope Scope) (*Query, []ScopeFilter, error) {
+	filters, err := normalizeScope(scope, e.config)
+	if err != nil {
+		return nil, nil, err
+	}
+	return applyScope(ast, filters), filters, nil
 }
 
 // Validate exposes standalone validation with the engine's config.

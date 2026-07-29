@@ -151,7 +151,7 @@ func TestEngineTranslateFallsThrough(t *testing.T) {
 	e := NewWithProvider(cfg, NewFallbackProvider(down, up))
 	e.Now = func() time.Time { return fixedNow }
 
-	res, err := e.Translate(context.Background(), "delivered orders", "sql")
+	res, err := e.Translate(context.Background(), "delivered orders", "sql", nil)
 	if err != nil {
 		t.Fatalf("Translate should have recovered via fallback: %v", err)
 	}

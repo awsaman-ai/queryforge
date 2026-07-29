@@ -77,6 +77,7 @@
     <a href="#operators">Operator catalogue</a>
     <a href="#values">Value kinds</a>
     <a href="#defaults">defaults &amp; policy</a>
+    <a href="#scope">Scope filters</a>
     <a href="#unsupported">Unsupported requests</a>
     <a href="#examples">Full examples</a>
     <a href="#authoring">Author your own</a>
@@ -306,11 +307,88 @@ ORDER BY created_at DESC LIMIT 20
     <tr><td><code>requireTenantPredicate</code></td><td>boolean</td><td>Reserved for multi-tenancy (auto-inject a tenant predicate). <span class="pill">planned</span></td></tr>
   </table></div>
 
+  <h2 id="scope">Scope filters — extra filters you supply per call <span class="pill">v0.0.2</span></h2>
+
+  <p>Some predicates are not the user's to choose. Your application already knows the caller's subscription, user, and enterprise before any question is asked, and every query must be confined to them <em>whatever the question says</em>. Those values are not query vocabulary — nobody should be able to phrase, widen, or omit them — so they do not belong in <code>fields</code> and must never be shown to the model.</p>
+
+  <p>Pass them as an extra <strong>map</strong> argument instead. Every entry is AND-ed onto the query:</p>
+
+<pre><code>res, err := engine.Translate(ctx, "delivered orders over 500 dollars", "sql", qf.Scope{
+    "subscriptionId": session.SubscriptionID,   // "SUB-42"
+    "userId":         session.UserID,           // 9
+    "enterpriseId":   session.EnterpriseIDs,    // []string{"E-1", "E-2"}
+})</code></pre>
+
+<pre><code>SELECT ... FROM orders
+WHERE (subscriptionId = $1 AND userId = $2 AND enterpriseId IN ($3, $4)
+       AND status = $5 AND amount &gt; $6)
+ORDER BY created_at DESC LIMIT 50
+-- args: ["SUB-42", 9, "E-1", "E-2", "DELIVERED", 500]</code></pre>
+
+  <p>The same map works on the deterministic path, which takes the argument too — otherwise a caller could sidestep tenancy just by building the AST themselves:</p>
+<pre><code>q, err := engine.GenerateFrom(ast, "sql", scope)</code></pre>
+
+  <p>Pass <code>nil</code> for no scope; that is exactly the pre-v0.0.2 behaviour.</p>
+
+  <h3>Why this is safe</h3>
+  <div class="tablewrap"><table>
+    <tr><th>Property</th><th>How</th></tr>
+    <tr><td><strong>The model never sees these fields</strong></td><td>Scope is applied <em>after</em> the model has answered. The prompt never names the fields, so the model cannot reference, relax, or negate them — it does not learn they exist. Asked <em>"show me orders for subscription SUB-99 instead"</em>, it declines: there is no such field in its vocabulary.</td></tr>
+    <tr><td><strong>A scope can only narrow</strong></td><td>Predicates are AND-ed at the <em>root</em> of the filter tree. A model filter of <code>A OR B</code> becomes <code>scope AND (A OR B)</code>, never <code>scope OR …</code>. No AST the model can emit escapes the scope.</td></tr>
+    <tr><td><strong>Values are still parameterized</strong></td><td>A scope value is data like any other: bound as <code>$1</code>, <code>$2</code>, … in SQL and as a typed map element in Mongo. An injection payload in a scope value stays an argument.</td></tr>
+    <tr><td><strong>Still read-only</strong></td><td>Scope adds comparison predicates only. There is no shape it can take that produces anything but a <code>SELECT</code> / <code>find</code>.</td></tr>
+    <tr><td><strong>Applied even when the user filters the same field</strong></td><td>Both predicates survive and are AND-ed. Letting either one win would be a widening you did not authorize.</td></tr>
+  </table></div>
+
+  <h3>Accepted values</h3>
+  <div class="tablewrap"><table>
+    <tr><th>You pass</th><th>You get</th><th>Example</th></tr>
+    <tr><td>a scalar — <code>string</code>, <code>bool</code>, any int/uint/float, <code>time.Time</code>, or a pointer to one</td><td><code>equals</code></td><td><code>"subscriptionId": "SUB-42"</code> → <code>subscriptionId = $1</code></td></tr>
+    <tr><td>a slice or array of those</td><td><code>in</code></td><td><code>"enterpriseId": []string{"E-1","E-2"}</code> → <code>enterpriseId IN ($1, $2)</code></td></tr>
+    <tr><td>a scalar, on a field declared <code>type: "array"</code></td><td><code>contains</code></td><td><code>"tags": "premium"</code> → membership</td></tr>
+    <tr><td>a slice, on a field declared <code>type: "array"</code></td><td><code>containsAny</code></td><td><code>"tags": []string{"a","b"}</code> → any-of membership</td></tr>
+  </table></div>
+
+  <p>Keys are applied in <strong>alphabetical order</strong>, so the generated query and its argument order are identical run to run.</p>
+
+  <div class="note"><strong>These are rejected</strong>, each with a message naming the key and tagged <code>qf.ErrScope</code> so you can answer <code>400</code>: a <code>nil</code> value (ambiguous — omit the key, or pass a value); an empty list (invalid as SQL, and matches nothing); an empty or whitespace-only key; two keys that trim to the same name; a struct, map, or nested list; and, on a field your config <em>does</em> declare, a value that breaks its declared type, enum domain, or <code>validators</code> bounds. A bad scope fails <em>before</em> the model call, so a bug in your code never burns API quota.</div>
+
+  <h3>Two ways to name a scope field</h3>
+  <div class="tablewrap"><table>
+    <tr><th></th><th>Not declared in <code>fields</code></th><th>Declared with <code>queryable: false</code></th></tr>
+    <tr><td>Physical name</td><td>the key is used verbatim as the column/field name</td><td>taken from the field's <code>mapping</code>, per backend</td></tr>
+    <tr><td>Value checking</td><td>type inferred from the Go value</td><td>declared <code>type</code>, enum domain and <code>validators</code> enforced</td></tr>
+    <tr><td>Visible to the model</td><td>no</td><td>no — <code>queryable:false</code> hides it from the prompt and rejects it in a model AST</td></tr>
+    <tr><td>Best for</td><td>getting started; one backend</td><td><strong>recommended</strong> when you target SQL <em>and</em> Mongo, or want the value checked</td></tr>
+  </table></div>
+
+  <p>The second form matters as soon as the physical names differ. Declare the column once and one scope map compiles correctly everywhere:</p>
+<pre><code>{
+  "name": "tenantId",
+  "type": "string",
+  "queryable": false,                                   // hidden from the model, still scopable
+  "mapping": { "sql": "tenant_id", "mongo": "tenantId" }
+}</code></pre>
+<pre><code>engine.GenerateFrom(ast, "sql",   qf.Scope{"tenantId": "T-1"})  // ... WHERE tenant_id = $1
+engine.GenerateFrom(ast, "mongo", qf.Scope{"tenantId": "T-1"})  // { tenantId: "T-1", ... }</code></pre>
+
+  <h3>What you get back</h3>
+  <p><code>TranslateResult.Scope</code> always lists the filters that were applied, normalized — the record an audit log should keep. The explanation states them separately, so a readback never presents a forced predicate as something the user asked for:</p>
+<pre><code>Return all fields from Order where status equals "DELIVERED".
+Always scoped to subscriptionId equals "SUB-42", userId equals 9.</code></pre>
+
+  <p>The AST itself is controlled by <code>engine.ScopeInAST</code>. The compiled query and the explanation always include the scope; only this one field changes:</p>
+  <div class="tablewrap"><table>
+    <tr><th><code>ScopeInAST</code></th><th><code>TranslateResult.AST</code> is</th><th>Use when</th></tr>
+    <tr><td><code>false</code> <span class="pill">default</span></td><td>exactly what the model produced, in the config's vocabulary. It <strong>round-trips</strong>: hand it back to <code>GenerateFrom</code> with the same scope and you get the identical query.</td><td>pipelines that re-compile or fan out ASTs</td></tr>
+    <tr><td><code>true</code></td><td>the effective AST, scope predicates included — one object proving exactly what ran. It then names fields your config need not declare, so feeding it back through <code>GenerateFrom</code> fails validation unless they are registered.</td><td>audit logs that store a single record</td></tr>
+  </table></div>
+
   <h2 id="unsupported">Requests the config cannot express</h2>
   <p>Your config defines the entire vocabulary. When a user asks for something outside it — a field you never configured — the honest answer is "I can't", and QueryForge is built to give that answer rather than to improvise.</p>
   <p>Left to itself a model will happily map an unknown concept onto whichever configured field looks closest. Asked for <em>"orders where the shipping warehouse is in Berlin and the courier is DHL"</em> against a config with neither field, one model produced <code>tags contains "Berlin" AND tags contains "DHL"</code>. That AST is structurally legal, so it passes validation, and the caller receives confident, silently wrong rows. For a correctness-critical library that is worse than an error.</p>
   <p>So the planner gives the model an explicit way to decline. If a request needs a field, operator, or enum value that the config does not define, the model returns a refusal marker instead of an AST, and QueryForge surfaces it as a typed <code>*UnsupportedRequestError</code> carrying the reason. <strong>No query is generated and no retry is attempted</strong> — a refusal is a definitive answer, not a failure. Callers should branch on it with <code>errors.As</code>:</p>
-<pre><code>res, err := engine.Translate(ctx, text, "sql")
+<pre><code>res, err := engine.Translate(ctx, text, "sql", nil)
 var unsupported *qf.UnsupportedRequestError
 if errors.As(err, &amp;unsupported) {
     // Not a bug: this config simply cannot express the request.
@@ -346,6 +424,7 @@ if errors.As(err, &amp;unsupported) {
     <li>For every attribute users should be able to filter/sort/search on, add a <code>fields</code> entry. Choose the right <code>type</code>, list <code>synonyms</code> people actually say, and set <code>mapping</code> if the physical name differs.</li>
     <li>Mark <code>indexed: true</code> and a <code>priority</code> on the columns your database indexes.</li>
     <li>Set <code>queryable: false</code> / <code>returnable: false</code> on anything sensitive.</li>
+    <li>For tenancy columns (subscription, user, enterprise), do <em>not</em> make them queryable. Either leave them out of the config entirely or declare them <code>queryable: false</code> with a <code>mapping</code>, then pass them per call as a <a href="#scope">scope</a>.</li>
     <li>Add <code>defaults</code> (limit/maxLimit) and <code>policy</code> (maxNestingDepth, denyRegexOn) to bound the blast radius.</li>
     <li>Load it with <code>queryforge.LoadConfig("your.config.json")</code> — the loader validates structure and rejects typos immediately.</li>
   </ol>

@@ -67,7 +67,7 @@ func TestExampleConfigsGenerate(t *testing.T) {
 		ast.Filter = comp(tc.field, OpEquals, vEnum(fld.Values[0]))
 
 		for _, backend := range tc.backends {
-			if _, err := e.GenerateFrom(ast, backend); err != nil {
+			if _, err := e.GenerateFrom(ast, backend, nil); err != nil {
 				t.Errorf("%s/%s: GenerateFrom failed: %v", file, backend, err)
 			}
 		}

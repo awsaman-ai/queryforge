@@ -115,6 +115,7 @@ args: ["CANCELLED", "2026-06-29T08:49:06Z", 500]</code></pre>
     <div class="card"><h3>Asked to delete something?</h3><p>Not expressible. The AST has no mutation node, so the guarantee holds by construction.</p></div>
     <div class="card"><h3>Asked about a hidden field?</h3><p><code>returnable: false</code> is enforced on the default projection too, not only explicit <code>select</code>.</p></div>
     <div class="card"><h3>Asked something impossible?</h3><p>You get a typed refusal, not a plausible query built on a lookalike field.</p></div>
+    <div class="card"><h3>Asked for another tenant's rows?</h3><p><a href="config.html#scope">Scope filters</a> are AND-ed on after the model has answered — it never learns the field exists.</p></div>
     <div class="card"><h3>Changed your mind on models?</h3><p>Gemini, Groq, Anthropic, local Ollama — a config change, never a code change. Fallback chains included.</p></div>
   </div>
 
@@ -123,11 +124,18 @@ args: ["CANCELLED", "2026-06-29T08:49:06Z", 500]</code></pre>
 <pre><code>cfg, _ := qf.LoadConfig("orders.config.json")
 engine := qf.New(cfg)
 
-res, err := engine.Translate(ctx, "cancelled orders over 200 dollars", "sql")
+res, err := engine.Translate(ctx, "cancelled orders over 200 dollars", "sql", nil)
 fmt.Println(res.Query.SQL)   // SELECT … WHERE (status = $1 AND amount > $2) …
 fmt.Println(res.Query.Args)  // [CANCELLED 200]
 fmt.Println(res.Explain)     // plain-English readback of what it understood</code></pre>
   <p class="muted">Core has no third-party dependencies — standard library only.</p>
+
+  <p>That last argument is the <a href="config.html#scope"><strong>scope</strong></a> — filters your application imposes on every query, whatever the user asked. Pass <code>nil</code> for none, or a map for multi-tenancy:</p>
+<pre><code>res, err := engine.Translate(ctx, "cancelled orders over 200 dollars", "sql", qf.Scope{
+    "subscriptionId": session.SubscriptionID,
+    "userId":         session.UserID,
+})
+// … WHERE (subscriptionId = $1 AND userId = $2 AND status = $3 AND amount &gt; $4)</code></pre>
 
   <h2>Next</h2>
   <ul>
