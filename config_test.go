@@ -216,3 +216,75 @@ func TestApiKeyEnvNeverHoldsSecret(t *testing.T) {
 		t.Errorf("apiKeyEnv %q looks like a secret, not an env var name", c.Model.APIKeyEnv)
 	}
 }
+
+// TestAPIKeyEnvRejectsPastedSecret covers BUG-009. apiKeyEnv holds the NAME of
+// an environment variable; pasting the key itself produced no Authorization
+// header and a provider-side "Missing or invalid Authorization header" 400 —
+// an error that points nowhere near the actual cause. Loading must fail instead.
+func TestAPIKeyEnvRejectsPastedSecret(t *testing.T) {
+	cases := []struct {
+		name, apiKeyEnv string
+	}{
+		{"gemini key", "AIzaSyFAKE0000000000000000000000000000"},
+		{"openai key", "sk-proj-abc123def456"},
+		{"anthropic key", "sk-ant-api03-abc123"},
+		{"groq key", "gsk_abc123def456"},
+		{"github token", "ghp_abc123def456"},
+		{"slack token", "xoxb-123-456-abc"},
+		{"contains a dash", "QF-API-KEY"},
+		{"contains a dot", "qf.api.key"},
+		{"contains a space", "QF API KEY"},
+		{"starts with a digit", "1KEY"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			js := `{"entity":"Order","model":{"baseURL":"https://x","model":"m","apiKeyEnv":"` + tc.apiKeyEnv + `"},
+			        "fields":[{"name":"status","type":"string"}]}`
+			_, err := ParseConfig([]byte(js))
+			if err == nil {
+				t.Fatalf("expected %q to be rejected", tc.apiKeyEnv)
+			}
+			if !strings.Contains(err.Error(), "apiKeyEnv") {
+				t.Errorf("error should name the offending field, got: %v", err)
+			}
+			// The error must never reprint the secret — it would land in logs.
+			if strings.Contains(err.Error(), tc.apiKeyEnv) {
+				t.Errorf("error echoed the offending value back: %v", err)
+			}
+		})
+	}
+}
+
+// TestAPIKeyEnvAcceptsValidNames guards against over-rejecting: legitimate
+// variable names, and an empty value (keyless local servers), must still load.
+func TestAPIKeyEnvAcceptsValidNames(t *testing.T) {
+	for _, name := range []string{"QF_API_KEY", "ANTHROPIC_API_KEY", "_KEY", "key2", "A1"} {
+		js := `{"entity":"Order","model":{"baseURL":"https://x","model":"m","apiKeyEnv":"` + name + `"},
+		        "fields":[{"name":"status","type":"string"}]}`
+		if _, err := ParseConfig([]byte(js)); err != nil {
+			t.Errorf("%q should be accepted, got %v", name, err)
+		}
+	}
+	// Omitted entirely: legal, for keyless endpoints such as a local Ollama.
+	js := `{"entity":"Order","model":{"baseURL":"http://localhost:11434/v1","model":"qwen2.5"},
+	        "fields":[{"name":"status","type":"string"}]}`
+	if _, err := ParseConfig([]byte(js)); err != nil {
+		t.Errorf("absent apiKeyEnv should be accepted, got %v", err)
+	}
+}
+
+// TestAPIKeyEnvCheckedInFallbackChain checks every entry in the models[] chain
+// is validated, not just the primary block.
+func TestAPIKeyEnvCheckedInFallbackChain(t *testing.T) {
+	js := `{"entity":"Order",
+	        "model":{"baseURL":"https://x","model":"m","apiKeyEnv":"QF_API_KEY"},
+	        "models":[{"baseURL":"https://y","model":"n","apiKeyEnv":"AIzaSyEXAMPLEEXAMPLE"}],
+	        "fields":[{"name":"status","type":"string"}]}`
+	err := func() error { _, e := ParseConfig([]byte(js)); return e }()
+	if err == nil {
+		t.Fatal("expected a pasted key in models[0] to be rejected")
+	}
+	if !strings.Contains(err.Error(), "models[0]") {
+		t.Errorf("error should identify which chain entry is wrong, got: %v", err)
+	}
+}

@@ -58,6 +58,77 @@ type ModelConfig struct {
 // Defaults to false — see JSONMode.
 func (m ModelConfig) EffectiveJSONMode() bool { return m.JSONMode != nil && *m.JSONMode }
 
+// secretPrefixes are the recognisable openings of common API keys. Matching one
+// means the caller pasted a credential where a variable name belongs.
+var secretPrefixes = []string{
+	"AIza",    // Google / Gemini
+	"sk-",     // OpenAI and compatible
+	"sk-ant-", // Anthropic
+	"gsk_",    // Groq
+	"ghp_",    // GitHub personal access token
+	"xox",     // Slack
+}
+
+// validateAPIKeyEnv rejects an apiKeyEnv that holds a secret rather than the
+// name of an environment variable.
+//
+// This exists because the failure it prevents is almost impossible to diagnose
+// from the outside: the key never reaches the provider, so the endpoint replies
+// "Missing or invalid Authorization header" — an error about a header the caller
+// never saw, describing a key they are certain they configured. Worse, the
+// pasted secret then travels wherever the config travels, including into version
+// control and startup logs.
+//
+// The rule: environment variable names are letters, digits and underscores, and
+// do not begin with a digit. Real keys violate this immediately (they contain
+// "-", or start with a lowercase provider prefix), so the check is precise
+// without being clever.
+//
+// Errors never quote the offending value — echoing it would reprint the secret
+// in logs, which is part of what this guards against.
+func (m ModelConfig) validateAPIKeyEnv(where string) error {
+	name := strings.TrimSpace(m.APIKeyEnv)
+	if name == "" {
+		return nil // absent is legal: keyless local servers (Ollama) need no key
+	}
+
+	// A recognised key prefix is unambiguous, so name it directly.
+	for _, p := range secretPrefixes {
+		if strings.HasPrefix(name, p) {
+			return fmt.Errorf("config: %s.apiKeyEnv looks like an API key, not an environment variable name. "+
+				"This field takes the NAME of the variable holding your key (e.g. \"QF_API_KEY\"), and the key itself "+
+				"goes in the environment: export QF_API_KEY=<your-key>. Keys must never be written into a config file", where)
+		}
+	}
+
+	// Otherwise fall back to the shape of a legal variable name.
+	if !validEnvVarName(name) {
+		return fmt.Errorf("config: %s.apiKeyEnv is not a valid environment variable name "+
+			"(expected letters, digits and underscores, not starting with a digit — e.g. \"QF_API_KEY\"). "+
+			"This field takes the variable's NAME; the key itself belongs in the environment", where)
+	}
+	return nil
+}
+
+// validEnvVarName reports whether s has the shape of a POSIX environment
+// variable name: [A-Za-z_][A-Za-z0-9_]*.
+func validEnvVarName(s string) bool {
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		switch {
+		case ch >= 'A' && ch <= 'Z', ch >= 'a' && ch <= 'z', ch == '_':
+			// always legal
+		case ch >= '0' && ch <= '9':
+			if i == 0 {
+				return false // a name may not start with a digit
+			}
+		default:
+			return false // "-", ".", spaces, etc.
+		}
+	}
+	return true
+}
+
 // isEmpty reports whether the block names no endpoint at all — used to skip a
 // blank primary Model when only the Models fallback list is populated.
 func (m ModelConfig) isEmpty() bool {
@@ -203,6 +274,20 @@ func (c *Config) finalize() error {
 	}
 	if len(c.Fields) == 0 {
 		return fmt.Errorf("config: at least one field is required")
+	}
+
+	// Check every model block's apiKeyEnv before anything else can go wrong.
+	// The field holds the NAME of an environment variable, never a key, and
+	// pasting the key here is the natural mistake: the resulting os.Getenv
+	// lookup silently returns "", no Authorization header is sent, and the
+	// provider answers with a generic 400 that says nothing about the cause.
+	if err := c.Model.validateAPIKeyEnv("model"); err != nil {
+		return err
+	}
+	for i := range c.Models {
+		if err := c.Models[i].validateAPIKeyEnv(fmt.Sprintf("models[%d]", i)); err != nil {
+			return err
+		}
 	}
 	c.fieldByName = make(map[string]*Field, len(c.Fields))
 	c.synonymIndex = make(map[string]*Field)

@@ -66,6 +66,7 @@
 
   <nav class="toc">
     <strong>Contents</strong><br>
+    <a href="#ast">What is the Query AST?</a>
     <a href="#structure">Top-level structure</a>
     <a href="#model">model</a>
     <a href="#backends">backends</a>
@@ -80,6 +81,72 @@
     <a href="#examples">Full examples</a>
     <a href="#authoring">Author your own</a>
   </nav>
+
+  <h2 id="ast">What is the Query AST?</h2>
+  <p><strong>AST</strong> stands for <strong>Abstract Syntax Tree</strong>. In QueryForge it is a plain JSON object describing <em>what the user asked for</em>, sitting between the English sentence and the finished database query. You will see the term throughout this page and in the API responses, so it is worth two minutes.</p>
+
+  <p>The name decodes literally:</p>
+  <ul>
+    <li><strong>Tree</strong> — filters nest. <code>A AND (B OR C)</code> is a branching structure, not a flat list, so a <code>logical</code> node holds <code>children</code>, and each child may itself be another <code>logical</code> node.</li>
+    <li><strong>Abstract</strong> — it knows nothing about SQL or Mongo. It says <code>"operator": "gt"</code>, never <code>&gt;</code> and never <code>$gt</code>. It carries the <em>meaning</em>, stripped of any one database's syntax.</li>
+    <li><strong>Syntax</strong> — it is a fixed grammar with a small set of node types, not free-form text.</li>
+  </ul>
+
+  <h3>One AST, every backend</h3>
+  <p>Ask: <em>"orders over 500 dollars in the last 30 days that were not cancelled, newest first, top 20"</em>. The model produces this — and nothing else:</p>
+<pre><code>{
+  "entity": "Order",
+  "filter": {
+    "type": "logical", "op": "AND",
+    "children": [
+      { "type": "comparison", "field": "amount",    "operator": "gt",        "value": {"kind":"number","v":500} },
+      { "type": "comparison", "field": "createdAt", "operator": "after",     "value": {"kind":"relative_date","unit":"day","amount":-30} },
+      { "type": "comparison", "field": "status",    "operator": "notEquals", "value": {"kind":"enum","v":"CANCELLED"} }
+    ]
+  },
+  "sort":  [{ "field": "createdAt", "dir": "DESC" }],
+  "limit": 20
+}</code></pre>
+  <p>That single object then compiles deterministically into both of these:</p>
+<pre><code>SELECT … FROM orders
+WHERE (status &lt;&gt; $1 AND created_at &gt;= $2 AND amount &gt; $3)
+ORDER BY created_at DESC LIMIT 20
+
+{ amount: {$gt: 500}, createdAt: {$gte: "…"}, status: {$ne: "CANCELLED"} }</code></pre>
+  <p class="muted">Same AST, two databases, no second prompt. Adding a backend means writing one generator — it never means rewriting the prompt.</p>
+
+  <h3>Why not just have the model write SQL?</h3>
+  <p>This is the central design decision, so the alternative deserves a straight answer. A model asked for SQL directly can invent a column, invent a table, or emit a statement you cannot check before running it. There is no good place to ask "is this user even allowed to filter on that field?", and every new dialect means a new prompt.</p>
+  <p>With an AST in the middle, the model's job shrinks to filling in a form. Everything after that is ordinary, testable Go:</p>
+  <ol>
+    <li><strong>Validation</strong> — every field, operator, and value is checked against your config. An invented field is rejected here, before anything is compiled.</li>
+    <li><strong>Generation</strong> — the approved AST becomes a real query, with values <strong>bound as parameters</strong> (<code>$1</code>, <code>$2</code>) rather than pasted into the statement, so a string like <code>Robert'); DROP TABLE orders;--</code> arrives as data and can never execute.</li>
+  </ol>
+
+  <div class="note"><strong>This is how "read-only" is guaranteed.</strong> The AST has no node type that can write. There is no insert, update, or delete node to emit — so the guarantee does not rest on a check somebody might forget to run, it rests on there being no way to express a write at all.</div>
+
+  <h3>The node types</h3>
+  <p>The root object accepts these keys. Everything is optional except <code>entity</code>; omit what you do not need.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Key</th><th>Type</th><th>Meaning</th></tr>
+    <tr><td><code>entity</code></td><td>string</td><td>What is being queried. Must match the config's <code>entity</code>.</td></tr>
+    <tr><td><code>version</code></td><td>string</td><td>AST schema version, currently <code>"1.0"</code>. Defaulted when omitted.</td></tr>
+    <tr><td><code>filter</code></td><td>object</td><td>Root of the predicate tree. Omitted = match everything.</td></tr>
+    <tr><td><code>sort</code></td><td>array</td><td>Ordering clauses, applied in order: <code>{"field":"…","dir":"ASC"|"DESC"}</code>.</td></tr>
+    <tr><td><code>limit</code></td><td>number</td><td>Maximum rows. Falls back to the config's <code>defaults.limit</code>, capped by <code>maxLimit</code>.</td></tr>
+    <tr><td><code>offset</code></td><td>number</td><td>Rows to skip, for pagination.</td></tr>
+    <tr><td><code>select</code></td><td>string[]</td><td>Which fields to return. Omitted = all <a href="#capabilities">returnable</a> fields.</td></tr>
+  </table></div>
+
+  <p>Inside <code>filter</code>, every node is one of exactly two shapes:</p>
+  <div class="tablewrap"><table>
+    <tr><th><code>type</code></th><th>Shape</th><th>Purpose</th></tr>
+    <tr><td><code>comparison</code></td><td><code>{"type":"comparison","field":…,"operator":…,"value":{"kind":…,"v":…}}</code></td><td>A leaf: one test against one field. See <a href="#operators">operators</a> and <a href="#values">value kinds</a>.</td></tr>
+    <tr><td><code>logical</code></td><td><code>{"type":"logical","op":"AND"|"OR"|"NOT","children":[…]}</code></td><td>A branch: combines other nodes. Children may be either shape, which is what makes it a tree.</td></tr>
+  </table></div>
+
+  <h3>Seeing it yourself</h3>
+  <p>Every <code>/api/translate</code> response includes the AST it produced, in the <code>"ast"</code> field. The companion <code>/api/generate</code> endpoint accepts one directly and makes <strong>no model call at all</strong> — so it needs no API key and always returns the same query for the same input. Take the <code>ast</code> from a translate response, post it to generate with a different <code>backend</code>, and watch one object become the other dialect.</p>
 
   <h2 id="structure">Top-level structure</h2>
   <p>A config has six top-level keys. Only <code>entity</code> and <code>fields</code> are strictly required, but a real config also sets <code>model</code> (to translate natural language) and <code>backends</code> (to map to physical tables/collections).</p>
@@ -102,7 +169,7 @@
     <tr><td><code>provider</code></td><td>string</td><td class="default">""</td><td>Informational label (e.g. <code>gemini</code>, <code>groq</code>, <code>ollama</code>).</td></tr>
     <tr><td><code>baseURL</code></td><td>string</td><td class="default">""</td><td>Endpoint root. <code>/chat/completions</code> is appended. E.g. Gemini: <code>https://generativelanguage.googleapis.com/v1beta/openai</code>.</td></tr>
     <tr><td><code>model</code></td><td>string</td><td class="default">""</td><td>Model id, e.g. <code>gemini-3.5-flash</code>.</td></tr>
-    <tr><td><code>apiKeyEnv</code></td><td>string</td><td class="default">""</td><td><strong>The NAME of the environment variable</strong> holding your key — never the key itself. E.g. <code>QF_API_KEY</code>. Empty is fine for keyless local servers (Ollama).</td></tr>
+    <tr><td><code>apiKeyEnv</code></td><td>string</td><td class="default">""</td><td><strong>The NAME of the environment variable</strong> holding your key — never the key itself. E.g. <code>QF_API_KEY</code>. Empty is fine for keyless local servers (Ollama). Pasting the key here is <a href="#apikeyenv">rejected at load</a>.</td></tr>
     <tr><td><code>temperature</code></td><td>number</td><td class="default">0</td><td>Sampling temperature; <code>0</code> is deterministic and recommended.</td></tr>
     <tr><td><code>maxTokens</code></td><td>number</td><td class="default">0</td><td>Response cap; <code>0</code> lets the server decide. Note that reasoning models charge their hidden thinking tokens against this budget, so leave generous headroom — <code>4096</code> is a safe starting point.</td></tr>
     <tr><td><code>jsonMode</code></td><td>boolean</td><td class="default">false</td><td>Sends the OpenAI <code>response_format: json_object</code> flag. <strong>Leave this off unless you know your endpoint handles it well.</strong> Gemini's OpenAI-compatibility endpoint returns brace-unbalanced JSON with it enabled (measured: 2/5 replies parseable with it, 5/5 without). QueryForge already instructs the model to return a bare JSON object and tolerates code fences, so this flag is rarely needed.</td></tr>
@@ -118,6 +185,16 @@
   { "provider": "ollama",    "baseURL": "http://localhost:11434/v1",      "model": "qwen2.5" }
 ]</code></pre>
   <p class="muted">Omit <code>models</code> entirely for a single model. The <code>provider: "anthropic"</code> label (or an <code>api.anthropic.com</code> base URL) selects the native Anthropic Messages API; everything else uses the OpenAI-compatible dialect.</p>
+
+  <h3 id="apikeyenv">apiKeyEnv holds a NAME, not a key</h3>
+  <p>This is the single easiest thing to get wrong, so it is worth stating twice. <code>apiKeyEnv</code> names the environment variable that holds your key; the key lives in the environment, never in the file.</p>
+<pre><code>// Correct — the field names a variable, and the key stays outside the file
+"apiKeyEnv": "QF_API_KEY"        →  export QF_API_KEY=AIza…
+
+// Wrong — the key pasted into the field
+"apiKeyEnv": "AIzaSy…"           →  rejected at load</code></pre>
+  <p>Getting this wrong used to fail in a way that pointed nowhere near the cause: the library would look up an environment variable literally named <code>AIzaSy…</code>, find nothing, send no <code>Authorization</code> header, and the provider would answer <em>"Missing or invalid Authorization header"</em> — an error about a header you never wrote, describing a key you were certain you had configured. The pasted secret would also travel wherever the config travelled, including into version control and startup logs.</p>
+  <p>QueryForge now rejects it when the config loads, in the primary <code>model</code> block and in every <code>models</code> fallback entry. A value is refused if it opens with a known key prefix (<code>AIza</code>, <code>sk-</code>, <code>sk-ant-</code>, <code>gsk_</code>, <code>ghp_</code>, <code>xox</code>) or is not shaped like a variable name (letters, digits and underscores, not starting with a digit). The error explains the fix and <strong>never repeats the value back</strong> — echoing it would put the secret straight into your logs.</p>
 
   <h2 id="backends">backends</h2>
   <p>Maps the logical entity to a physical source per backend. Each backend uses its idiomatic key. If omitted, the entity name is used as the source.</p>

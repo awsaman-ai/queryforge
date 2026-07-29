@@ -11,6 +11,42 @@ Natural language  →  [ AI planner ]  →  Query AST (IR)  →  [ deterministic
 
 The point of the split: everything that must be *guaranteed* lives in deterministic, offline-testable code.
 
+### First: what's an AST?
+
+**AST = Abstract Syntax Tree.** It's a plain JSON object describing *what the user asked for*, sitting between the English sentence and the finished query. The name is literal: a **tree** because filters nest (`A AND (B OR C)` branches), **abstract** because it knows nothing about SQL or Mongo — it says `"operator": "gt"`, never `>` and never `$gt`.
+
+Ask *"orders over 500 dollars in the last 30 days that were not cancelled, newest first, top 20"* and the model produces exactly this — nothing else:
+
+```json
+{
+  "entity": "Order",
+  "filter": {
+    "type": "logical", "op": "AND",
+    "children": [
+      { "type": "comparison", "field": "amount",    "operator": "gt",        "value": {"kind":"number","v":500} },
+      { "type": "comparison", "field": "createdAt", "operator": "after",     "value": {"kind":"relative_date","unit":"day","amount":-30} },
+      { "type": "comparison", "field": "status",    "operator": "notEquals", "value": {"kind":"enum","v":"CANCELLED"} }
+    ]
+  },
+  "sort":  [{ "field": "createdAt", "dir": "DESC" }],
+  "limit": 20
+}
+```
+
+That one object compiles into **both** of these, with no second prompt:
+
+```sql
+SELECT … FROM orders WHERE (status <> $1 AND created_at >= $2 AND amount > $3)
+ORDER BY created_at DESC LIMIT 20
+```
+```javascript
+{ amount: {$gt: 500}, createdAt: {$gte: "…"}, status: {$ne: "CANCELLED"} }
+```
+
+**Why not just let the model write SQL?** Because a model asked for SQL can invent a column, invent a table, or emit something you can't check before running it. With an AST in the middle the model only fills in a form; validation and generation are ordinary testable Go. And the AST has **no node type that can write** — so "read-only" doesn't depend on a check someone might forget, it depends on there being no way to express a write.
+
+Full reference: [`docs/config.html`](docs/config.html#ast).
+
 | Guarantee | How |
 |---|---|
 | **No hallucinated fields** | The AST is validated against the config before generation. Unknown field → hard rejection (with "did you mean" suggestions). |
