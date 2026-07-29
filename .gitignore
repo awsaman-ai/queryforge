@@ -1,0 +1,18 @@
+# Binaries
+/qf
+/examples/qf
+*.exe
+*.test
+*.out
+
+# Env / secrets
+.env
+*.local
+
+# Go
+/vendor/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/

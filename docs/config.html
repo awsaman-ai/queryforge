@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QueryForge — Configuration Reference</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1a1d24; --muted: #5b6472; --border: #e2e6ec;
+    --card: #f6f8fa; --accent: #2f6feb; --code-bg: #f0f3f7; --code-fg: #0b3a8a;
+    --th-bg: #eef2f7; --warn-bg: #fff7e6; --warn-bd: #ffd591;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1319; --fg: #e6e9ef; --muted: #9aa4b2; --border: #232a35;
+      --card: #161b23; --accent: #6fa0ff; --code-bg: #1a212b; --code-fg: #9ecbff;
+      --th-bg: #1a212b; --warn-bg: #2a2413; --warn-bd: #6b5518;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1319; --fg: #e6e9ef; --muted: #9aa4b2; --border: #232a35;
+    --card: #161b23; --accent: #6fa0ff; --code-bg: #1a212b; --code-fg: #9ecbff;
+    --th-bg: #1a212b; --warn-bg: #2a2413; --warn-bd: #6b5518;
+  }
+  :root[data-theme="light"] {
+    --bg: #ffffff; --fg: #1a1d24; --muted: #5b6472; --border: #e2e6ec;
+    --card: #f6f8fa; --accent: #2f6feb; --code-bg: #f0f3f7; --code-fg: #0b3a8a;
+    --th-bg: #eef2f7; --warn-bg: #fff7e6; --warn-bd: #ffd591;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 2rem 1.25rem 5rem; }
+  h1 { font-size: 2rem; margin: 0 0 .25rem; }
+  h2 { font-size: 1.4rem; margin: 2.5rem 0 .75rem; padding-top: .5rem; border-top: 1px solid var(--border); }
+  h3 { font-size: 1.1rem; margin: 1.5rem 0 .5rem; }
+  .lead { color: var(--muted); font-size: 1.05rem; margin: .25rem 0 1.5rem; }
+  p, li { color: var(--fg); }
+  code { background: var(--code-bg); color: var(--code-fg); padding: .1em .35em; border-radius: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9em; }
+  pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; overflow-x: auto; }
+  pre code { background: none; color: var(--fg); padding: 0; }
+  .tablewrap { overflow-x: auto; margin: 1rem 0; border: 1px solid var(--border); border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: .92rem; }
+  th, td { text-align: left; padding: .55rem .75rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--th-bg); font-weight: 600; white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  .muted { color: var(--muted); }
+  .pill { display: inline-block; background: var(--card); border: 1px solid var(--border); border-radius: 999px; padding: .05rem .5rem; font-size: .8rem; }
+  .note { background: var(--warn-bg); border: 1px solid var(--warn-bd); border-radius: 8px; padding: .75rem 1rem; margin: 1rem 0; }
+  nav.toc { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.25rem; margin: 1.5rem 0; }
+  nav.toc a { color: var(--accent); text-decoration: none; display: inline-block; margin: .15rem .75rem .15rem 0; }
+  nav.toc a:hover { text-decoration: underline; }
+  a { color: var(--accent); }
+  .default { font-family: ui-monospace, monospace; font-size: .85em; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>QueryForge — Configuration Reference</h1>
+  <p class="lead">A QueryForge configuration is a single JSON file. It does four jobs at once: it is the <strong>prompt context</strong> the model sees, the <strong>validation rulebook</strong>, the <strong>logical→physical field mapping</strong> per backend, and the <strong>model selector</strong>. This page documents every option so you can write your own.</p>
+
+  <div class="note"><strong>Read-only by design.</strong> QueryForge only ever produces <strong>GET / read</strong> queries (<code>SELECT</code>, <code>find</code>). There is no operator or config option that can write, update, or delete data. The library returns a query string/document; it never connects to or executes against your database.</div>
+
+  <nav class="toc">
+    <strong>Contents</strong><br>
+    <a href="#structure">Top-level structure</a>
+    <a href="#model">model</a>
+    <a href="#backends">backends</a>
+    <a href="#fields">fields</a>
+    <a href="#types">Field types</a>
+    <a href="#capabilities">Capability flags</a>
+    <a href="#hints">indexed &amp; priority</a>
+    <a href="#operators">Operator catalogue</a>
+    <a href="#values">Value kinds</a>
+    <a href="#defaults">defaults &amp; policy</a>
+    <a href="#unsupported">Unsupported requests</a>
+    <a href="#examples">Full examples</a>
+    <a href="#authoring">Author your own</a>
+  </nav>
+
+  <h2 id="structure">Top-level structure</h2>
+  <p>A config has six top-level keys. Only <code>entity</code> and <code>fields</code> are strictly required, but a real config also sets <code>model</code> (to translate natural language) and <code>backends</code> (to map to physical tables/collections).</p>
+  <div class="tablewrap"><table>
+    <tr><th>Key</th><th>Type</th><th>Required</th><th>Purpose</th></tr>
+    <tr><td><code>entity</code></td><td>string</td><td>yes</td><td>Logical name of the thing being queried (e.g. <code>Order</code>). Must match the AST's <code>entity</code>.</td></tr>
+    <tr><td><code>version</code></td><td>number</td><td>no</td><td>Your config's version, for your own schema-versioning/migrations.</td></tr>
+    <tr><td><code>model</code></td><td>object</td><td>for NL</td><td>Which AI model to call. See <a href="#model">model</a>.</td></tr>
+    <tr><td><code>backends</code></td><td>object</td><td>no</td><td>Physical source per backend. See <a href="#backends">backends</a>.</td></tr>
+    <tr><td><code>fields</code></td><td>array</td><td>yes</td><td>The queryable attributes. See <a href="#fields">fields</a>.</td></tr>
+    <tr><td><code>defaults</code></td><td>object</td><td>no</td><td>Default/max result window. See <a href="#defaults">defaults</a>.</td></tr>
+    <tr><td><code>policy</code></td><td>object</td><td>no</td><td>Safety guardrails. See <a href="#defaults">policy</a>.</td></tr>
+  </table></div>
+  <p class="muted">The loader is strict: an unknown key anywhere in the file is rejected, so typos surface immediately rather than being silently ignored. JSON only (no comments).</p>
+
+  <h2 id="model">model</h2>
+  <p>Selects the AI planner target. Switching provider or model is a <strong>config change, never a code change</strong> — any OpenAI-compatible <code>/chat/completions</code> endpoint works (hosted or self-hosted).</p>
+  <div class="tablewrap"><table>
+    <tr><th>Key</th><th>Type</th><th>Default</th><th>Description</th></tr>
+    <tr><td><code>provider</code></td><td>string</td><td class="default">""</td><td>Informational label (e.g. <code>gemini</code>, <code>groq</code>, <code>ollama</code>).</td></tr>
+    <tr><td><code>baseURL</code></td><td>string</td><td class="default">""</td><td>Endpoint root. <code>/chat/completions</code> is appended. E.g. Gemini: <code>https://generativelanguage.googleapis.com/v1beta/openai</code>.</td></tr>
+    <tr><td><code>model</code></td><td>string</td><td class="default">""</td><td>Model id, e.g. <code>gemini-3.5-flash</code>.</td></tr>
+    <tr><td><code>apiKeyEnv</code></td><td>string</td><td class="default">""</td><td><strong>The NAME of the environment variable</strong> holding your key — never the key itself. E.g. <code>QF_API_KEY</code>. Empty is fine for keyless local servers (Ollama).</td></tr>
+    <tr><td><code>temperature</code></td><td>number</td><td class="default">0</td><td>Sampling temperature; <code>0</code> is deterministic and recommended.</td></tr>
+    <tr><td><code>maxTokens</code></td><td>number</td><td class="default">0</td><td>Response cap; <code>0</code> lets the server decide. Note that reasoning models charge their hidden thinking tokens against this budget, so leave generous headroom — <code>4096</code> is a safe starting point.</td></tr>
+    <tr><td><code>jsonMode</code></td><td>boolean</td><td class="default">false</td><td>Sends the OpenAI <code>response_format: json_object</code> flag. <strong>Leave this off unless you know your endpoint handles it well.</strong> Gemini's OpenAI-compatibility endpoint returns brace-unbalanced JSON with it enabled (measured: 2/5 replies parseable with it, 5/5 without). QueryForge already instructs the model to return a bare JSON object and tolerates code fences, so this flag is rarely needed.</td></tr>
+  </table></div>
+  <div class="note"><strong>Security:</strong> the key value never appears in the config. QueryForge reads it from the named environment variable at runtime.</div>
+
+  <h3>models — fallback chain (optional)</h3>
+  <p>Beyond the single <code>model</code> block, an optional <code>models</code> array lets you list several models in priority order. QueryForge tries them in order and uses the first that answers, so a rate-limit, quota, or billing block on one provider transparently falls through to the next. <code>model</code> is the primary; <code>models</code> are the ordered fallbacks, and a chain can freely mix providers (e.g. Gemini → Groq → Anthropic → local Ollama). Each entry is a full model block with its own <code>apiKeyEnv</code>.</p>
+<pre><code>"model":  { "provider": "gemini", "baseURL": "…/v1beta/openai", "model": "gemini-3.5-flash", "apiKeyEnv": "QF_API_KEY" },
+"models": [
+  { "provider": "groq",      "baseURL": "https://api.groq.com/openai/v1", "model": "llama-3.3-70b-versatile", "apiKeyEnv": "GROQ_API_KEY" },
+  { "provider": "anthropic", "baseURL": "https://api.anthropic.com",      "model": "claude-opus-4-8",          "apiKeyEnv": "ANTHROPIC_API_KEY" },
+  { "provider": "ollama",    "baseURL": "http://localhost:11434/v1",      "model": "qwen2.5" }
+]</code></pre>
+  <p class="muted">Omit <code>models</code> entirely for a single model. The <code>provider: "anthropic"</code> label (or an <code>api.anthropic.com</code> base URL) selects the native Anthropic Messages API; everything else uses the OpenAI-compatible dialect.</p>
+
+  <h2 id="backends">backends</h2>
+  <p>Maps the logical entity to a physical source per backend. Each backend uses its idiomatic key. If omitted, the entity name is used as the source.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Backend</th><th>Key</th><th>Example</th></tr>
+    <tr><td>SQL</td><td><code>table</code></td><td><code>"sql": { "table": "orders" }</code></td></tr>
+    <tr><td>MongoDB</td><td><code>collection</code></td><td><code>"mongo": { "collection": "orders" }</code></td></tr>
+    <tr><td>Elasticsearch <span class="pill">future</span></td><td><code>index</code></td><td><code>"es": { "index": "orders-v2" }</code></td></tr>
+    <tr><td>Custom plugin</td><td><code>name</code></td><td><code>"mybackend": { "name": "orders" }</code></td></tr>
+  </table></div>
+
+  <h2 id="fields">fields</h2>
+  <p>The heart of the config: each entry is one queryable attribute. This is the complete list of per-field keys.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Key</th><th>Type</th><th>Default</th><th>Description</th></tr>
+    <tr><td><code>name</code></td><td>string</td><td class="default">—</td><td>Logical field name used in the AST and natural language. Required.</td></tr>
+    <tr><td><code>type</code></td><td>string</td><td class="default">—</td><td>One of <code>string, number, boolean, enum, date, array</code>. Required. See <a href="#types">Field types</a>.</td></tr>
+    <tr><td><code>values</code></td><td>string[]</td><td class="default">—</td><td>The allowed domain for <code>enum</code> fields. Required when type is enum.</td></tr>
+    <tr><td><code>itemType</code></td><td>string</td><td class="default">string</td><td>Element type for <code>array</code> fields.</td></tr>
+    <tr><td><code>operators</code></td><td>string[]</td><td class="default">type default</td><td>Whitelist of comparison operators this field permits. Empty = a sensible default set for the type.</td></tr>
+    <tr><td><code>synonyms</code></td><td>string[]</td><td class="default">[]</td><td>Alternate phrasings that resolve to this field (fed to the model and used for "did you mean" suggestions).</td></tr>
+    <tr><td><code>mapping</code></td><td>object</td><td class="default">{}</td><td>Backend → physical column/field name, e.g. <code>{"sql":"customer_name","mongo":"customerName"}</code>. Falls back to <code>name</code>.</td></tr>
+    <tr><td><code>queryable</code></td><td>boolean</td><td class="default">true</td><td>Include/exclude from the NL surface. <code>false</code> hides the field from the model and rejects any AST that references it.</td></tr>
+    <tr><td><code>filterable</code></td><td>boolean</td><td class="default">true</td><td>May appear in filter predicates (WHERE / find).</td></tr>
+    <tr><td><code>searchable</code></td><td>boolean</td><td class="default">string→true, else false</td><td>May use text-search operators (<code>contains, startsWith, endsWith, regex</code>).</td></tr>
+    <tr><td><code>sortable</code></td><td>boolean</td><td class="default">array→false, else true</td><td>May appear in the sort list.</td></tr>
+    <tr><td><code>returnable</code></td><td>boolean</td><td class="default">true</td><td>May appear in the result projection (<code>select</code>).</td></tr>
+    <tr><td><code>indexed</code></td><td>boolean</td><td class="default">false</td><td>Field is backed by a DB index. A hint — see <a href="#hints">indexed &amp; priority</a>.</td></tr>
+    <tr><td><code>priority</code></td><td>number</td><td class="default">0</td><td>Relative importance; higher sorts earlier in predicates and the prompt. A hint.</td></tr>
+    <tr><td><code>permissions</code></td><td>object</td><td class="default">all</td><td>Field-level RBAC: <code>{"read": ["hr","admin"]}</code>. <code>"*"</code> = everyone.</td></tr>
+    <tr><td><code>validators</code></td><td>object</td><td class="default">none</td><td>Numeric bounds: <code>{"min":0,"max":100}</code>. Enforced during validation.</td></tr>
+  </table></div>
+
+  <h2 id="types">Field types</h2>
+  <p>The type bounds which value kinds and default operators are legal.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Type</th><th>Default operators (when <code>operators</code> omitted)</th><th>Notes</th></tr>
+    <tr><td><code>string</code></td><td>equals, notEquals, contains, startsWith, endsWith, in, notIn, isNull, isNotNull</td><td>Searchable by default.</td></tr>
+    <tr><td><code>number</code></td><td>equals, notEquals, gt, lt, gte, lte, between, in, notIn, isNull, isNotNull</td><td>Supports <code>validators</code> min/max.</td></tr>
+    <tr><td><code>boolean</code></td><td>equals, notEquals, isNull, isNotNull</td><td>Value kind <code>boolean</code>.</td></tr>
+    <tr><td><code>enum</code></td><td>equals, notEquals, in, notIn, isNull, isNotNull</td><td><code>values</code> required; out-of-domain values are rejected.</td></tr>
+    <tr><td><code>date</code></td><td>before, after, between, equals, isNull, isNotNull</td><td>Accepts <code>date</code> and <code>relative_date</code> values. <code>after</code>/<code>before</code> are inclusive.</td></tr>
+    <tr><td><code>array</code></td><td>contains, containsAny, containsAll, isNull, isNotNull</td><td>Not sortable by default. Elements typed by <code>itemType</code>.</td></tr>
+  </table></div>
+
+  <h2 id="capabilities">Capability flags</h2>
+  <p>Five boolean flags gate what a field can do. They sit <em>alongside</em> <code>operators</code>: <code>operators</code> bounds <em>which</em> comparison operators are legal; the flags bound <em>where</em> the field may appear.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Flag</th><th>Gate</th><th>If violated</th></tr>
+    <tr><td><code>queryable</code></td><td>Exposed to the model &amp; referenceable at all.</td><td>Field hidden from prompt; any reference is rejected.</td></tr>
+    <tr><td><code>filterable</code></td><td>Usable in filter predicates.</td><td>Predicate on the field is rejected.</td></tr>
+    <tr><td><code>searchable</code></td><td>Usable with text-search operators.</td><td>A <code>contains/startsWith/endsWith/regex</code> on a string/enum field is rejected.</td></tr>
+    <tr><td><code>sortable</code></td><td>Usable in <code>sort</code>.</td><td>Sort on the field is rejected.</td></tr>
+    <tr><td><code>returnable</code></td><td>May appear in results at all.</td><td>Selecting the field is rejected, <em>and</em> it is excluded from the default projection.</td></tr>
+  </table></div>
+  <p class="muted">Use <code>queryable: false</code> + <code>returnable: false</code> together to fully hide a sensitive column (e.g. an SSN) from both querying and results.</p>
+  <div class="note"><strong>How <code>returnable: false</code> is enforced.</strong> It is not only a guard on explicit <code>select</code> lists. As soon as any field in the config is non-returnable, QueryForge stops emitting the wide form (<code>SELECT *</code>, or an unprojected Mongo <code>find</code>) and instead emits an explicit allow-list of the returnable columns — because <code>SELECT *</code> would return the hidden column straight from the database and silently defeat the exclusion. Configs that hide nothing keep the compact <code>SELECT *</code>. If <em>every</em> field is non-returnable the projection would be empty, which is invalid SQL and means "return everything" in Mongo, so QueryForge reports an error instead.</div>
+
+  <h2 id="hints">indexed &amp; priority</h2>
+  <p>These two are <strong>hints</strong>, not gates — they never reject a query. They steer deterministic behavior:</p>
+  <ul>
+    <li><strong>Predicate ordering:</strong> within an <code>AND</code>/<code>OR</code>, predicates on <code>indexed</code> fields are emitted first, then higher <code>priority</code> first. Because AND/OR are commutative, this is safe and improves how the database plans the query.</li>
+    <li><strong>Soft warnings:</strong> filtering on a non-indexed field produces a non-fatal warning in the result (<code>"filtering on non-indexed field … may be slow"</code>) that your app may surface or ignore.</li>
+    <li><strong>Prompt ordering:</strong> higher-priority fields are presented earlier to the model.</li>
+  </ul>
+
+  <h2 id="operators">Operator catalogue</h2>
+  <p>The fixed set of operators. Which ones a field may use is bounded by its <code>operators</code> list (or the type default).</p>
+  <div class="tablewrap"><table>
+    <tr><th>Operator</th><th>Meaning</th><th>Value shape</th></tr>
+    <tr><td><code>equals</code> / <code>notEquals</code></td><td>Exact (in)equality</td><td>scalar</td></tr>
+    <tr><td><code>gt</code> / <code>lt</code> / <code>gte</code> / <code>lte</code></td><td>Numeric comparison</td><td>scalar (number)</td></tr>
+    <tr><td><code>between</code></td><td>Inclusive range</td><td>array of exactly 2</td></tr>
+    <tr><td><code>in</code> / <code>notIn</code></td><td>Membership in a set</td><td>array</td></tr>
+    <tr><td><code>contains</code></td><td>Substring (string) or element membership (array)</td><td>scalar</td></tr>
+    <tr><td><code>containsAny</code> / <code>containsAll</code></td><td>Array overlap / superset</td><td>array</td></tr>
+    <tr><td><code>startsWith</code> / <code>endsWith</code></td><td>Prefix / suffix match</td><td>scalar (string)</td></tr>
+    <tr><td><code>regex</code></td><td>Regular-expression match</td><td>scalar (string)</td></tr>
+    <tr><td><code>before</code> / <code>after</code></td><td>Date comparison (inclusive)</td><td>date or relative_date</td></tr>
+    <tr><td><code>isNull</code> / <code>isNotNull</code></td><td>Presence check</td><td>no value</td></tr>
+  </table></div>
+  <p>Logical connectives <code>AND</code>, <code>OR</code>, <code>NOT</code> combine predicates in the AST.</p>
+
+  <h2 id="values">Value kinds</h2>
+  <p>Each comparison value in the AST is tagged with a kind so the validator can enforce type legality before any query is built.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Kind</th><th>Shape</th><th>Example</th></tr>
+    <tr><td><code>string</code></td><td><code>{"kind":"string","v":"abc"}</code></td><td>text</td></tr>
+    <tr><td><code>number</code></td><td><code>{"kind":"number","v":42}</code></td><td>numeric</td></tr>
+    <tr><td><code>boolean</code></td><td><code>{"kind":"boolean","v":false}</code></td><td>true/false</td></tr>
+    <tr><td><code>enum</code></td><td><code>{"kind":"enum","v":"DELIVERED"}</code></td><td>member of <code>values</code></td></tr>
+    <tr><td><code>array</code></td><td><code>{"kind":"array","v":["a","b"]}</code></td><td>for in/between/contains*</td></tr>
+    <tr><td><code>date</code></td><td><code>{"kind":"date","v":"2026-01-31"}</code></td><td>absolute date</td></tr>
+    <tr><td><code>relative_date</code></td><td><code>{"kind":"relative_date","unit":"day","amount":-30}</code></td><td>"30 days ago"; units: minute, hour, day, week, month, year</td></tr>
+  </table></div>
+
+  <h2 id="defaults">defaults &amp; policy</h2>
+  <h3>defaults</h3>
+  <div class="tablewrap"><table>
+    <tr><th>Key</th><th>Type</th><th>Description</th></tr>
+    <tr><td><code>limit</code></td><td>number</td><td>Default row limit applied when the query omits one.</td></tr>
+    <tr><td><code>maxLimit</code></td><td>number</td><td>Ceiling; a query requesting more is rejected.</td></tr>
+  </table></div>
+  <h3>policy</h3>
+  <div class="tablewrap"><table>
+    <tr><th>Key</th><th>Type</th><th>Description</th></tr>
+    <tr><td><code>maxNestingDepth</code></td><td>number</td><td>Maximum filter-tree depth; <code>0</code> = unlimited. Guards against pathological nesting.</td></tr>
+    <tr><td><code>denyRegexOn</code></td><td>string[]</td><td>Field names on which <code>regex</code> is forbidden (ReDoS / PII safety).</td></tr>
+    <tr><td><code>requireTenantPredicate</code></td><td>boolean</td><td>Reserved for multi-tenancy (auto-inject a tenant predicate). <span class="pill">planned</span></td></tr>
+  </table></div>
+
+  <h2 id="unsupported">Requests the config cannot express</h2>
+  <p>Your config defines the entire vocabulary. When a user asks for something outside it — a field you never configured — the honest answer is "I can't", and QueryForge is built to give that answer rather than to improvise.</p>
+  <p>Left to itself a model will happily map an unknown concept onto whichever configured field looks closest. Asked for <em>"orders where the shipping warehouse is in Berlin and the courier is DHL"</em> against a config with neither field, one model produced <code>tags contains "Berlin" AND tags contains "DHL"</code>. That AST is structurally legal, so it passes validation, and the caller receives confident, silently wrong rows. For a correctness-critical library that is worse than an error.</p>
+  <p>So the planner gives the model an explicit way to decline. If a request needs a field, operator, or enum value that the config does not define, the model returns a refusal marker instead of an AST, and QueryForge surfaces it as a typed <code>*UnsupportedRequestError</code> carrying the reason. <strong>No query is generated and no retry is attempted</strong> — a refusal is a definitive answer, not a failure. Callers should branch on it with <code>errors.As</code>:</p>
+<pre><code>res, err := engine.Translate(ctx, text, "sql")
+var unsupported *qf.UnsupportedRequestError
+if errors.As(err, &amp;unsupported) {
+    // Not a bug: this config simply cannot express the request.
+    fmt.Println("Cannot answer:", unsupported.Reason)
+    return
+}</code></pre>
+  <p class="muted">Declining is reserved for genuinely missing vocabulary. A phrasing that matches a field's <code>synonyms</code> still resolves normally — "buyer" and "order value" map to <code>customerName</code> and <code>amount</code> without complaint. If you find legitimate questions being refused, the fix is usually to add <code>synonyms</code> to the field rather than to change the query.</p>
+
+  <h2 id="examples">Full examples</h2>
+  <p>Three complete configs ship in <code>examples/</code>. Study them to see the patterns for each database family.</p>
+  <ul>
+    <li><code>examples/orders.config.json</code> — an e-commerce Order, mapped to <strong>both</strong> SQL and Mongo from one config.</li>
+    <li><code>examples/sql_employees.config.json</code> — <strong>relational</strong> patterns: indexed + prioritized columns, snake_case mappings, RBAC on <code>salary</code>, an excluded <code>ssn</code>, numeric validators.</li>
+    <li><code>examples/nosql_products.config.json</code> — <strong>document</strong> patterns: array fields (<code>categories</code>, <code>tags</code>) with contains operators, text search on <code>title</code>/<code>description</code>, rating bounds.</li>
+  </ul>
+  <h3>Annotated field</h3>
+<pre><code>{
+  "name": "salary",              // logical name used in NL and the AST
+  "type": "number",              // bounds operators + value kinds
+  "operators": ["gt","lt","gte","lte","between"],
+  "synonyms": ["pay","compensation","wage"],
+  "validators": { "min": 0, "max": 10000000 },  // rejected outside this range
+  "sortable": true,              // may appear in ORDER BY
+  "searchable": false,           // no text-search operators
+  "permissions": { "read": ["hr","admin"] },    // field-level RBAC
+  "mapping": { "sql": "salary" } // physical column name
+}</code></pre>
+
+  <h2 id="authoring">Author your own config</h2>
+  <ol>
+    <li>Pick an <code>entity</code> name and set the <code>model</code> block (start with a free Gemini/Groq tier; put your key in the env var you name in <code>apiKeyEnv</code>).</li>
+    <li>Add a <code>backends</code> entry for each database you target, mapping to the physical table/collection.</li>
+    <li>For every attribute users should be able to filter/sort/search on, add a <code>fields</code> entry. Choose the right <code>type</code>, list <code>synonyms</code> people actually say, and set <code>mapping</code> if the physical name differs.</li>
+    <li>Mark <code>indexed: true</code> and a <code>priority</code> on the columns your database indexes.</li>
+    <li>Set <code>queryable: false</code> / <code>returnable: false</code> on anything sensitive.</li>
+    <li>Add <code>defaults</code> (limit/maxLimit) and <code>policy</code> (maxNestingDepth, denyRegexOn) to bound the blast radius.</li>
+    <li>Load it with <code>queryforge.LoadConfig("your.config.json")</code> — the loader validates structure and rejects typos immediately.</li>
+  </ol>
+
+  <p class="muted" style="margin-top:2rem">QueryForge · configuration reference · this document is generated as part of the library and lives at <code>docs/config.html</code>.</p>
+
+</div>
+</body>
+</html>
