@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QueryForge — natural language to SQL and MongoDB</title>
+<meta name="description" content="A config-driven Go library that compiles natural language into database queries through a validated Query AST. Read-only by design, no hallucinated fields, no SQL injection.">
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1a1d24; --muted: #5b6472; --border: #e2e6ec;
+    --card: #f6f8fa; --accent: #2f6feb; --code-bg: #f0f3f7; --code-fg: #0b3a8a;
+    --th-bg: #eef2f7; --warn-bg: #fff7e6; --warn-bd: #ffd591;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1319; --fg: #e6e9ef; --muted: #9aa4b2; --border: #232a35;
+      --card: #161b23; --accent: #6fa0ff; --code-bg: #1a212b; --code-fg: #9ecbff;
+      --th-bg: #1a212b; --warn-bg: #2a2413; --warn-bd: #6b5518;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1319; --fg: #e6e9ef; --muted: #9aa4b2; --border: #232a35;
+    --card: #161b23; --accent: #6fa0ff; --code-bg: #1a212b; --code-fg: #9ecbff;
+    --th-bg: #1a212b; --warn-bg: #2a2413; --warn-bd: #6b5518;
+  }
+  :root[data-theme="light"] {
+    --bg: #ffffff; --fg: #1a1d24; --muted: #5b6472; --border: #e2e6ec;
+    --card: #f6f8fa; --accent: #2f6feb; --code-bg: #f0f3f7; --code-fg: #0b3a8a;
+    --th-bg: #eef2f7; --warn-bg: #fff7e6; --warn-bd: #ffd591;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 2rem 1.25rem 5rem; }
+  h1 { font-size: 2rem; margin: 0 0 .25rem; }
+  h2 { font-size: 1.4rem; margin: 2.5rem 0 .75rem; padding-top: .5rem; border-top: 1px solid var(--border); }
+  h3 { font-size: 1.1rem; margin: 1.5rem 0 .5rem; }
+  .lead { color: var(--muted); font-size: 1.05rem; margin: .25rem 0 1.5rem; }
+  p, li { color: var(--fg); }
+  code { background: var(--code-bg); color: var(--code-fg); padding: .1em .35em; border-radius: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9em; }
+  pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; overflow-x: auto; }
+  pre code { background: none; color: var(--fg); padding: 0; }
+  .tablewrap { overflow-x: auto; margin: 1rem 0; border: 1px solid var(--border); border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: .92rem; }
+  th, td { text-align: left; padding: .55rem .75rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--th-bg); font-weight: 600; white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  .muted { color: var(--muted); }
+  .pill { display: inline-block; background: var(--card); border: 1px solid var(--border); border-radius: 999px; padding: .05rem .5rem; font-size: .8rem; }
+  .note { background: var(--warn-bg); border: 1px solid var(--warn-bd); border-radius: 8px; padding: .75rem 1rem; margin: 1rem 0; }
+  nav.toc { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.25rem; margin: 1.5rem 0; }
+  nav.toc a { color: var(--accent); text-decoration: none; display: inline-block; margin: .15rem .75rem .15rem 0; }
+  nav.toc a:hover { text-decoration: underline; }
+  a { color: var(--accent); }
+  .default { font-family: ui-monospace, monospace; font-size: .85em; color: var(--muted); }
+</style>
+<style>
+  .hero { padding: 1rem 0 0; }
+  .hero h1 { font-size: 2.6rem; margin-bottom: .5rem; }
+  .badges a { margin-right: .4rem; text-decoration: none; }
+  .cta { display: inline-block; background: var(--accent); color: #fff; padding: .6rem 1.1rem;
+         border-radius: 8px; text-decoration: none; font-weight: 600; margin: .3rem .5rem .3rem 0; }
+  .cta.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  .arrow { text-align: center; color: var(--muted); font-size: 1.5rem; margin: .25rem 0; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; margin: 1.5rem 0; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.15rem; }
+  .card h3 { margin-top: 0; font-size: 1rem; }
+  .card p { margin-bottom: 0; font-size: .93rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="hero">
+    <h1>QueryForge</h1>
+    <p class="lead">Turn plain English into SQL and MongoDB queries — <strong>without letting a language model write the query</strong>.</p>
+    <div class="badges">
+      <a href="https://github.com/awsaman-ai/queryforge"><img alt="GitHub" src="https://img.shields.io/badge/GitHub-repo-181717?logo=github"></a>
+      <a href="https://pkg.go.dev/github.com/awsaman-ai/queryforge"><img alt="Go Reference" src="https://pkg.go.dev/badge/github.com/awsaman-ai/queryforge.svg"></a>
+      <a href="https://github.com/awsaman-ai/queryforge/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache%202.0-blue.svg"></a>
+    </div>
+    <p style="margin-top:1.25rem">
+      <a class="cta" href="config.html">Configuration reference →</a>
+      <a class="cta secondary" href="https://github.com/awsaman-ai/queryforge">View on GitHub</a>
+    </p>
+  </div>
+
+  <div class="note"><strong>Read-only by design.</strong> Every output is a <code>SELECT</code> or a <code>find</code>. There is no operator or config option that can write, update, or delete — and the library never connects to your database. It hands you the query; running it stays yours.</div>
+
+  <h2>What it does</h2>
+  <p>A user asks a question in their own words:</p>
+<pre><code>"orders over 500 dollars in the last 30 days that were not cancelled, newest first, top 20"</code></pre>
+  <div class="arrow">↓</div>
+  <p>You get a parameterized query you can trust — values bound, never pasted in:</p>
+<pre><code>SELECT status, created_at, amount, customer_name FROM orders
+WHERE (status &lt;&gt; $1 AND created_at &gt;= $2 AND amount &gt; $3)
+ORDER BY created_at DESC LIMIT 20
+
+args: ["CANCELLED", "2026-06-29T08:49:06Z", 500]</code></pre>
+  <p>The same question, against MongoDB, compiled from the identical intermediate representation:</p>
+<pre><code>{ amount: {$gt: 500}, createdAt: {$gte: "2026-06-29T08:49:06Z"}, status: {$ne: "CANCELLED"} }</code></pre>
+
+  <h2>Why not just ask an LLM for SQL?</h2>
+  <p>Because you cannot check what comes back. Ask a model for SQL directly and it can invent a column, invent a table, quietly widen a filter, or hand you a statement that is only <em>probably</em> right — and you have no way to tell before you run it.</p>
+  <p>QueryForge never lets the model near a query string. The model fills in a typed form — the <a href="config.html#ast"><strong>Query AST</strong></a> — constrained to a vocabulary your config registers. Ordinary deterministic Go does everything after that.</p>
+<pre><code>Natural language  →  [ AI planner ]  →  Query AST  →  [ generators ]  →  SQL / Mongo
+   (unbounded)        model + config     (typed)       pure code, no AI</code></pre>
+  <p>Everything that must be <em>guaranteed</em> lives on the right-hand side, where it can be tested offline.</p>
+
+  <div class="grid">
+    <div class="card"><h3>Invented a field?</h3><p>Rejected by the validator before anything compiles, with "did you mean" suggestions.</p></div>
+    <div class="card"><h3>SQL injection?</h3><p>The model emits structure, never a string. Values are bound; only config-supplied identifiers reach the statement.</p></div>
+    <div class="card"><h3>Asked to delete something?</h3><p>Not expressible. The AST has no mutation node, so the guarantee holds by construction.</p></div>
+    <div class="card"><h3>Asked about a hidden field?</h3><p><code>returnable: false</code> is enforced on the default projection too, not only explicit <code>select</code>.</p></div>
+    <div class="card"><h3>Asked something impossible?</h3><p>You get a typed refusal, not a plausible query built on a lookalike field.</p></div>
+    <div class="card"><h3>Changed your mind on models?</h3><p>Gemini, Groq, Anthropic, local Ollama — a config change, never a code change. Fallback chains included.</p></div>
+  </div>
+
+  <h2>Install</h2>
+<pre><code>go get github.com/awsaman-ai/queryforge</code></pre>
+<pre><code>cfg, _ := qf.LoadConfig("orders.config.json")
+engine := qf.New(cfg)
+
+res, err := engine.Translate(ctx, "cancelled orders over 200 dollars", "sql")
+fmt.Println(res.Query.SQL)   // SELECT … WHERE (status = $1 AND amount > $2) …
+fmt.Println(res.Query.Args)  // [CANCELLED 200]
+fmt.Println(res.Explain)     // plain-English readback of what it understood</code></pre>
+  <p class="muted">Core has no third-party dependencies — standard library only.</p>
+
+  <h2>Next</h2>
+  <ul>
+    <li><a href="config.html">Configuration reference</a> — every option, with worked examples for SQL and NoSQL.</li>
+    <li><a href="config.html#ast">What is the Query AST?</a> — the idea the whole design rests on.</li>
+    <li><a href="https://pkg.go.dev/github.com/awsaman-ai/queryforge">Go package docs</a> — the API surface.</li>
+    <li><a href="https://github.com/awsaman-ai/queryforge">GitHub</a> — source, issues, and the QA log in <code>bugs.csv</code>.</li>
+  </ul>
+
+  <p class="muted" style="margin-top:2.5rem">Apache-2.0 licensed. Phase 1: SQL (Postgres dialect) and MongoDB.</p>
+
+</div>
+</body>
+</html>

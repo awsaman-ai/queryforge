@@ -1,15 +1,73 @@
 # QueryForge
 
-**A config-driven Go library that compiles natural language into database queries across many backends — through a validated intermediate representation (the Query AST).**
+[![CI](https://github.com/awsaman-ai/queryforge/actions/workflows/ci.yml/badge.svg)](https://github.com/awsaman-ai/queryforge/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/awsaman-ai/queryforge.svg)](https://pkg.go.dev/github.com/awsaman-ai/queryforge)
+[![Go Report Card](https://goreportcard.com/badge/github.com/awsaman-ai/queryforge)](https://goreportcard.com/report/github.com/awsaman-ai/queryforge)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Go 1.25+](https://img.shields.io/badge/go-1.25%2B-00ADD8.svg)](go.mod)
 
-QueryForge is a *compiler, not a chatbot*. The model never writes a query string. It emits a **validated AST** constrained to a config-registered vocabulary of fields and operators; deterministic Go then compiles that AST to Mongo, SQL, and more.
+**Turn plain English into SQL and MongoDB queries — without letting a language model write the query.**
+
+Your users ask a question. QueryForge gives you a parameterized query you can actually trust.
 
 ```
-Natural language  →  [ AI planner ]  →  Query AST (IR)  →  [ deterministic generators ]  →  SQL / Mongo / …
-   (unbounded)         model + config     (bounded, typed)      pure code, no AI, no network
+"orders over 500 dollars in the last 30 days that were not cancelled, newest first, top 20"
 ```
 
-The point of the split: everything that must be *guaranteed* lives in deterministic, offline-testable code.
+```sql
+SELECT status, created_at, amount, customer_name FROM orders
+WHERE (status <> $1 AND created_at >= $2 AND amount > $3)
+ORDER BY created_at DESC LIMIT 20
+-- args: ["CANCELLED", "2026-06-29T08:49:06Z", 500]
+```
+
+The same question, against MongoDB, from the identical intermediate representation:
+
+```javascript
+{ amount: {$gt: 500}, createdAt: {$gte: "2026-06-29T08:49:06Z"}, status: {$ne: "CANCELLED"} }
+```
+
+## Why not just ask an LLM for SQL?
+
+Because you cannot check what comes back. Ask a model for SQL directly and it can invent a column, invent a table, quietly widen a filter, or hand you a statement that is only *probably* right.
+
+QueryForge never lets the model near a query string. The model fills in a **typed form** — the Query AST — constrained to a vocabulary your config registers. Ordinary deterministic Go does everything after that:
+
+```
+Natural language  →  [ AI planner ]  →  Query AST  →  [ generators ]  →  SQL / Mongo / …
+   (unbounded)        model + config     (typed)       pure code, no AI, no network
+```
+
+Everything that must be *guaranteed* lives on the right-hand side, where it can be tested offline.
+
+| | |
+|---|---|
+| **Invented a field?** | Rejected by the validator before anything compiles — with "did you mean" suggestions. |
+| **SQL injection?** | The model emits structure, never a string. Values are bound (`$1`, `$2`); only config-supplied identifiers reach the statement. |
+| **Asked to delete something?** | Not expressible. The AST has no mutation node, so every output is a `SELECT` or a `find`. |
+| **Asked about a field you hid?** | `returnable: false` is enforced on the default projection too, not just explicit `select`. |
+| **Asked something impossible?** | You get a typed refusal, not a plausible query built on a lookalike field. |
+
+## Install
+
+```bash
+go get github.com/awsaman-ai/queryforge
+```
+
+```go
+cfg, _ := qf.LoadConfig("orders.config.json")
+engine := qf.New(cfg)
+
+res, err := engine.Translate(ctx, "cancelled orders over 200 dollars", "sql")
+fmt.Println(res.Query.SQL)   // SELECT … WHERE (status = $1 AND amount > $2) …
+fmt.Println(res.Query.Args)  // [CANCELLED 200]
+fmt.Println(res.Explain)     // plain-English readback of what it understood
+```
+
+No database connection, ever. QueryForge hands you the query; executing it stays yours.
+Core has **no third-party dependencies** — standard library only.
+
+📖 **[Full configuration reference →](https://awsaman-ai.github.io/queryforge/)**
 
 ### First: what's an AST?
 
@@ -56,14 +114,6 @@ Full reference: [`docs/config.html`](docs/config.html#ast).
 | **Config-driven, no training** | You register metadata. The config *is* the prompt, the grammar, and the mapping. |
 
 ---
-
-## Install
-
-```bash
-go get github.com/awsaman-ai/queryforge
-```
-
-Core has **no third-party dependencies** — standard library only (`net/http`, `encoding/json`).
 
 ## Quickstart (library)
 
