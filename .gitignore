@@ -16,3 +16,6 @@
 .DS_Store
 .idea/
 .vscode/
+
+# Personal working notes (kept locally, not published)
+new_requirements.md

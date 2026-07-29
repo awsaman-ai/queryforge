@@ -176,6 +176,24 @@ QueryForge builds queries; it does **not** connect to or execute against your da
 - **Next:** Elasticsearch/OpenSearch generator; YAML config; multi-tenancy predicate injection; confidence scores; MCP server + REST facade.
 - **Later:** aggregation AST node; more backends (DynamoDB, Cassandra, ClickHouse); SDKs for other languages over the same AST contract.
 
+## Contributing
+
+Issues and pull requests are welcome. CI runs `gofmt`, `go vet`, and the full
+test suite with the race detector on every PR, including from forks — the suite
+is entirely offline, so it needs no API key.
+
+If you are changing behaviour, please add a test that fails without your change.
+The project keeps a QA log in [`bugs.csv`](bugs.csv); if you are fixing a defect,
+adding a row there is welcome but not required.
+
+Security issues should go through [private disclosure](SECURITY.md), not a public
+issue.
+
 ## License
 
-TBD.
+Licensed under the [Apache License, Version 2.0](LICENSE).
+
+You may use, modify, distribute, and embed this in commercial software. The
+license also grants you an explicit patent licence from every contributor. In
+return, keep the copyright and licence notices, and state any significant changes
+you make to the files.

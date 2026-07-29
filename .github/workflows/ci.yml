@@ -1,0 +1,58 @@
+# Runs on every push and pull request, including PRs from forks. A public repo
+# accepting contributions needs this: it is what lets you evaluate someone
+# else's patch without trusting it or building it by hand.
+#
+# The whole suite is offline — the engine is exercised through a stub model
+# provider — so CI needs no API key and consumes no quota.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read # least privilege: CI only needs to read the code
+
+jobs:
+  test:
+    name: test (go ${{ matrix.go }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false # report every version's result, not just the first failure
+      matrix:
+        # Current release plus the previous one, which is the support window
+        # most Go libraries promise.
+        go: ["1.25", "1.26"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache: true # cache modules between runs
+
+      - name: Verify formatting
+        # gofmt -l prints files needing formatting; any output means fail.
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-clean:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test (race detector)
+        run: go test -race ./...
+
+      - name: Confirm the example configs still parse
+        # The shipped examples are documentation; a broken one is a broken doc.
+        run: go test -run TestExampleConfigsParse -v ./...
