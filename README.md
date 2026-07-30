@@ -5,7 +5,9 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Go 1.25+](https://img.shields.io/badge/go-1.25%2B-00ADD8.svg)](go.mod)
 
-**Turn plain English into SQL and MongoDB queries — without letting a language model write the query.**
+**Let your users ask your database anything — in their own words, safely.**
+
+The model never writes the query. It fills in a typed **Query AST** your config constrains, and deterministic Go compiles that to whatever database you run. Postgres SQL and MongoDB ship today; a new backend is a generator, not a rewrite.
 
 📖 [Docs](https://awsaman-ai.github.io/queryforge/) · 🛠 [Build a config in your browser](https://awsaman-ai.github.io/queryforge/config-builder.html) — no install, nothing leaves the page
 
