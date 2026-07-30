@@ -1,0 +1,22 @@
+# Shown above the "New issue" form. Discussions are enabled on this repo, so
+# questions and ideas are pointed there deliberately: an issue implies
+# something is broken, which stops people asking ordinary questions at all.
+# Issues stay for defects and concrete work.
+blank_issues_enabled: true
+
+contact_links:
+  - name: Question — how do I do X?
+    url: https://github.com/awsaman-ai/queryforge/discussions/categories/q-a
+    about: Ask in Q&A. Nothing is too basic, and the answer helps whoever asks next.
+
+  - name: Idea — a backend, an operator, a config option
+    url: https://github.com/awsaman-ai/queryforge/discussions/categories/ideas
+    about: Propose it in Ideas first, so the design can be agreed before anyone writes code.
+
+  - name: Documentation
+    url: https://awsaman-ai.github.io/queryforge/
+    about: Configuration reference, the Query AST explained, and a config builder that runs in your browser.
+
+  - name: Security vulnerability
+    url: https://github.com/awsaman-ai/queryforge/security/policy
+    about: Please report privately, not as a public issue. See SECURITY.md.
