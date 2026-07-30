@@ -2,11 +2,12 @@
 
 [![CI](https://github.com/awsaman-ai/queryforge/actions/workflows/ci.yml/badge.svg)](https://github.com/awsaman-ai/queryforge/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/awsaman-ai/queryforge.svg)](https://pkg.go.dev/github.com/awsaman-ai/queryforge)
-[![Go Report Card](https://goreportcard.com/badge/github.com/awsaman-ai/queryforge)](https://goreportcard.com/report/github.com/awsaman-ai/queryforge)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Go 1.25+](https://img.shields.io/badge/go-1.25%2B-00ADD8.svg)](go.mod)
 
 **Turn plain English into SQL and MongoDB queries — without letting a language model write the query.**
+
+📖 [Docs](https://awsaman-ai.github.io/queryforge/) · 🛠 [Build a config in your browser](https://awsaman-ai.github.io/queryforge/config-builder.html) — no install, nothing leaves the page
 
 Your users ask a question. QueryForge gives you a parameterized query you can actually trust.
 
