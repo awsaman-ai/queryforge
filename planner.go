@@ -126,8 +126,8 @@ func (pl *Planner) SystemPrompt(now time.Time) string {
 	b.WriteString("This is a read-only query builder: never invent fields, operators, or enum values.\n\n")
 
 	// Entity + today's date (for relative dates).
-	b.WriteString(fmt.Sprintf("Entity: %s\n", c.Entity))
-	b.WriteString(fmt.Sprintf("Today (UTC): %s\n", now.Format("2006-01-02")))
+	fmt.Fprintf(&b, "Entity: %s\n", c.Entity)
+	fmt.Fprintf(&b, "Today (UTC): %s\n", now.Format("2006-01-02"))
 	b.WriteString("For relative times like \"last 30 days\", use a relative_date value: {\"kind\":\"relative_date\",\"unit\":\"day\",\"amount\":-30}. Units: minute, hour, day, week, month, year.\n\n")
 
 	// Fields the model may use (queryable only — excluded fields are hidden).

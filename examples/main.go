@@ -100,7 +100,7 @@ func runFromAST(engine *qf.Engine, path, backend string, scope qf.Scope) {
 		die("read ast: %v", err)
 	}
 	var ast qf.Query
-	if err := json.Unmarshal(data, &ast); err != nil {
+	if err = json.Unmarshal(data, &ast); err != nil {
 		die("parse ast: %v", err)
 	}
 	q, err := engine.GenerateFrom(&ast, backend, scope)
@@ -179,7 +179,10 @@ func printScope(filters []qf.ScopeFilter) {
 // printAST pretty-prints the AST as JSON.
 func printAST(ast *qf.Query) {
 	fmt.Println("AST:")
-	b, _ := json.MarshalIndent(ast, "  ", "  ")
+	b, err := json.MarshalIndent(ast, "  ", "  ")
+	if err != nil {
+		die("render ast: %v", err)
+	}
 	fmt.Printf("  %s\n", b)
 }
 
@@ -193,7 +196,10 @@ func printQuery(q *qf.Result) {
 		}
 		return
 	}
-	b, _ := json.MarshalIndent(q.Doc, "  ", "  ")
+	b, err := json.MarshalIndent(q.Doc, "  ", "  ")
+	if err != nil {
+		die("render query: %v", err)
+	}
 	fmt.Printf("  %s\n", b)
 }
 

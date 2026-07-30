@@ -58,10 +58,10 @@ func Explain(q *Query, c *Config) string {
 
 	// Paging clause.
 	if q.Limit != nil {
-		sb.WriteString(fmt.Sprintf(", limited to %d result(s)", *q.Limit))
+		fmt.Fprintf(&sb, ", limited to %d result(s)", *q.Limit)
 	}
 	if q.Offset != nil && *q.Offset > 0 {
-		sb.WriteString(fmt.Sprintf(", skipping the first %d", *q.Offset))
+		fmt.Fprintf(&sb, ", skipping the first %d", *q.Offset)
 	}
 
 	sb.WriteString(".")

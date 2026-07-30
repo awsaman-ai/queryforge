@@ -73,10 +73,10 @@ func (g SQLGenerator) Generate(q *Query, c *Config, opts GenOptions) (*Result, e
 	// LIMIT / OFFSET. These are integers from the AST/config (never user
 	// strings), so inlining them is safe and readable.
 	if lim := effectiveLimit(q, c); lim > 0 {
-		sb.WriteString(fmt.Sprintf(" LIMIT %d", lim))
+		fmt.Fprintf(&sb, " LIMIT %d", lim)
 	}
 	if off := effectiveOffset(q); off > 0 {
-		sb.WriteString(fmt.Sprintf(" OFFSET %d", off))
+		fmt.Fprintf(&sb, " OFFSET %d", off)
 	}
 
 	return &Result{

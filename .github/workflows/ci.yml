@@ -56,3 +56,26 @@ jobs:
       - name: Confirm the example configs still parse
         # The shipped examples are documentation; a broken one is a broken doc.
         run: go test -run TestExampleConfigsParse -v ./...
+
+  lint:
+    # Separate job so a lint failure and a test failure are distinguishable at
+    # a glance, and so lint does not run once per Go version -- the analysers
+    # are version-independent here and running them twice only costs minutes.
+    name: lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          # Pinned rather than floating: a linter release that adds a check
+          # should turn CI red on a deliberate upgrade, not on an unrelated
+          # push by a contributor.
+          version: v2.12.2

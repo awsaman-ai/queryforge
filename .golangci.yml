@@ -1,0 +1,75 @@
+# golangci-lint configuration.
+#
+# Go Report Card, which this repo used to badge, was sunset in 2026; its
+# maintainers point at golangci-lint as the successor, so this is the
+# equivalent quality gate. CI runs it on every push and pull request.
+#
+# The selection below is deliberately conservative: every linter here catches
+# a real defect or a real readability problem. Style linters that would force
+# a house style on contributors are left off on purpose -- a first-time
+# contributor should not have their patch rejected over line length.
+version: "2"
+
+run:
+  # A lint failure must be actionable, so give the slower analysers room
+  # rather than have CI report a timeout as if it were a finding.
+  timeout: 5m
+
+issues:
+  # Defaults cap the report at 3 findings per linter and 3 of any one kind,
+  # which silently hides the rest -- a contributor fixes what they were shown,
+  # pushes, and CI fails again on what it withheld. Report everything.
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+linters:
+  # The standard set is errcheck, govet, ineffassign, staticcheck, unused.
+  default: standard
+
+  enable:
+    - bodyclose      # an unclosed HTTP response body leaks a connection --
+                     # this package makes real HTTP calls to model providers
+    - errorlint      # errors.Is/As over ==, which matters because the API
+                     # promises typed sentinels (ErrScope, ErrModelOutput, ...)
+    - copyloopvar    # a loop variable captured by reference, the classic Go bug
+    - durationcheck  # multiplying two durations, which is almost never meant
+    - makezero       # make([]T, n) then append, a silently wrong slice
+    - nilerr         # returning nil after checking err != nil
+    - noctx          # an HTTP request built without a context cannot be
+                     # cancelled, and every provider call here takes one
+    - rowserrcheck   # sql.Rows.Err() left unchecked
+    - unconvert      # redundant type conversions
+    - wastedassign   # a value assigned and never used
+
+  settings:
+    errcheck:
+      # An ignored error from these is a defect worth failing on. The default
+      # excludes are broad; this narrows them back down for the risky ones.
+      check-type-assertions: true
+      check-blank: true
+      exclude-functions:
+        # `defer resp.Body.Close()` is the idiomatic spelling and the error it
+        # returns after a completed read carries no information a caller could
+        # act on. Writing `defer func() { _ = ... }()` at every call site would
+        # cost readability and buy nothing.
+        - (io.ReadCloser).Close
+
+    govet:
+      enable:
+        - shadow # a shadowed err is how a handled error silently becomes unhandled
+
+  exclusions:
+    generated: lax
+    rules:
+      # Test files legitimately ignore errors in setup and assert on type
+      # assertions inline; failing those would add noise, not safety.
+      - path: _test\.go
+        linters:
+          - errcheck
+          - noctx
+
+formatters:
+  # gofmt is already enforced separately in CI, but running it here too means
+  # a contributor gets one report covering formatting and lint together.
+  enable:
+    - gofmt

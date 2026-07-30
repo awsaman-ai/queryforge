@@ -268,7 +268,7 @@ func scopeScalarValue(raw any) (ValueKind, any, bool) {
 	// caller writing Scope{"userId": claims.UserID} would otherwise hit an
 	// "unsupported type *string" for a perfectly ordinary value. Follow one level
 	// of indirection; a nil pointer is left to fail as the ambiguous value it is.
-	if rv := reflect.ValueOf(raw); rv.Kind() == reflect.Ptr {
+	if rv := reflect.ValueOf(raw); rv.Kind() == reflect.Pointer {
 		if rv.IsNil() {
 			return "", nil, false
 		}
