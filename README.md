@@ -310,6 +310,13 @@ go test ./...
 
 Every component ships with happy-path and adversarial "try to break it" tests (injection strings, unknown fields, illegal operator/type pairs, out-of-domain enums, deep nesting, oversized limits). Bug tracking lives in [`bugs.csv`](bugs.csv).
 
+CI also runs [golangci-lint](https://golangci-lint.run) against [`.golangci.yml`](.golangci.yml). To get the same report before you push:
+
+```bash
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+golangci-lint run ./...
+```
+
 ## Read-only guarantee
 
 QueryForge builds queries; it does **not** connect to or execute against your database. Every output is a read (`SELECT` / `find`). There is no operator or config option that can mutate data.
