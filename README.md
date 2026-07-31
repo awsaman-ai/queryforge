@@ -5,10 +5,13 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Go 1.25+](https://img.shields.io/badge/go-1.25%2B-00ADD8.svg)](go.mod)
 
-**Let your users ask your database anything — in their own words, safely.**
+**Replace the whole filter panel with one sentence.**
+
+Your users stop translating what they want into dropdowns, checkboxes and date pickers — they just say it, in their own words. QueryForge turns that into a query you can trust.
 
 The model never writes the query. It fills in a typed **Query AST** your config constrains, and deterministic Go compiles that to whatever database you run. Postgres SQL and MongoDB ship today; a new backend is a generator, not a rewrite.
 
+▶️ **[Live demo](https://queryforge-demo.amtry.in)** — flip one toggle and watch a thirteen-filter product page become a single search box
 📖 [Docs](https://awsaman-ai.github.io/queryforge/) · 🛠 [Build a config in your browser](https://awsaman-ai.github.io/queryforge/config-builder.html) — no install, nothing leaves the page
 
 Your users ask a question. QueryForge gives you a parameterized query you can actually trust.
