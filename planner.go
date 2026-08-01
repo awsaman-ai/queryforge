@@ -179,7 +179,17 @@ func describeFieldForPrompt(f *Field) string {
 }
 
 // astShapeExample is a compact, canonical AST used to anchor the model's output.
-const astShapeExample = `{"version":"1.0","entity":"Order","filter":{"type":"logical","op":"AND","children":[{"type":"comparison","field":"status","operator":"equals","value":{"kind":"enum","v":"DELIVERED"}},{"type":"comparison","field":"createdAt","operator":"after","value":{"kind":"relative_date","unit":"day","amount":-30}}]},"sort":[{"field":"createdAt","dir":"DESC"}],"limit":50}`
+//
+// The third predicate earns its place: it is the only one carrying an array
+// value. Five operators require one — between, in, notIn, containsAny,
+// containsAll — and with every example predicate holding a scalar, the model had
+// never been shown the shape those operators need. It then invented a scalar
+// instead, which the validator rejected with `operator "between" expects an
+// array value, got "number"`. Measured on gemini-3.1-flash-lite over 18
+// questions x 5 runs: `between` failed 10/10 without this predicate and 0/10
+// with it, taking overall accuracy from 88.9% to 100%. Anything removing it
+// should expect that regression back.
+const astShapeExample = `{"version":"1.0","entity":"Order","filter":{"type":"logical","op":"AND","children":[{"type":"comparison","field":"status","operator":"equals","value":{"kind":"enum","v":"DELIVERED"}},{"type":"comparison","field":"createdAt","operator":"after","value":{"kind":"relative_date","unit":"day","amount":-30}},{"type":"comparison","field":"amount","operator":"between","value":{"kind":"array","v":[100,500]}}]},"sort":[{"field":"createdAt","dir":"DESC"}],"limit":50}`
 
 // buildUserPrompt assembles the user turn: the request, plus a repair hint when
 // a prior attempt failed. The two failure kinds get different advice — a schema

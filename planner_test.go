@@ -164,3 +164,79 @@ func TestJSONModeDefaultsOff(t *testing.T) {
 		t.Error("jsonMode:true in config must enable JSONMode")
 	}
 }
+
+// arrayValuedOperators are the operators whose value must be an array. They are
+// the reason the shape example carries an array predicate; see astShapeExample.
+var arrayValuedOperators = []Operator{"between", "in", "notIn", "containsAny", "containsAll"}
+
+// TestShapeExampleDemonstratesArrayValue is the regression test for BUG-013.
+//
+// The prompt teaches the AST by example, so a value shape absent from the
+// example is a shape the model has to invent — and it invented the wrong one
+// every single time. Measured on gemini-3.1-flash-lite, "orders between 100 and
+// 500" failed 10/10 with a scalar-only example and 0/10 once an array predicate
+// was present.
+//
+// This test fails against the pre-fix constant, which is the point: it pins the
+// example's *teaching* content, not merely its syntax.
+func TestShapeExampleDemonstratesArrayValue(t *testing.T) {
+	if !strings.Contains(astShapeExample, `"kind":"array"`) {
+		t.Fatalf("the shape example shows no array value, so operators %v have no example to copy.\n"+
+			"That is BUG-013: the model then emits a scalar and the validator rejects it.\n---\n%s",
+			arrayValuedOperators, astShapeExample)
+	}
+
+	// It must reach the model, not merely exist as a constant.
+	c := mustParse(t, `{
+      "entity":"Order","model":{},
+      "fields":[{"name":"amount","type":"number","operators":["between","gt"]}]
+    }`)
+	prompt := NewPlanner(c, &StubProvider{}).SystemPrompt(time.Now().UTC())
+	if !strings.Contains(prompt, `"kind":"array"`) {
+		t.Error("the array example never reaches the rendered system prompt")
+	}
+}
+
+// TestShapeExampleIsItselfValid checks that the AST the prompt holds up as the
+// model's template actually passes validation.
+//
+// An example teaching an illegal shape is worse than no example: the model
+// copies it faithfully, the validator rejects it, and the repair loop burns the
+// full budget re-emitting the same rejected structure. Parsing and validating it
+// against a config that declares exactly the fields and operators it uses is the
+// cheapest possible guard against that.
+func TestShapeExampleIsItselfValid(t *testing.T) {
+	c := mustParse(t, `{
+      "entity":"Order","model":{},
+      "defaults":{"limit":50,"maxLimit":500},
+      "fields":[
+        {"name":"status","type":"enum","values":["PLACED","DELIVERED"],"operators":["equals","in"]},
+        {"name":"createdAt","type":"date","operators":["before","after","between"]},
+        {"name":"amount","type":"number","operators":["gt","lt","between"]}
+      ]
+    }`)
+
+	ast, err := parseAST(astShapeExample, c)
+	if err != nil {
+		t.Fatalf("the shape example does not parse as an AST: %v", err)
+	}
+	if err := Validate(ast, c); err != nil {
+		t.Fatalf("the shape example is not a valid AST — the model is being taught a shape "+
+			"the validator rejects: %v", err)
+	}
+
+	// Every array-valued operator the example demonstrates must really be one.
+	for _, cond := range ast.Filter.Children {
+		if cond.Value != nil && cond.Value.Kind == KindArray {
+			found := false
+			for _, op := range arrayValuedOperators {
+				if cond.Operator == op {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("example pairs array value with operator %q, which does not take one", cond.Operator)
+			}
+		}
+	}
+}
