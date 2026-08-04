@@ -157,6 +157,7 @@
     <nav class="qfnav-links">
       <a href="index.html" aria-current="page">Overview</a>
       <a href="config.html">Config reference</a>
+      <a href="https://github.com/awsaman-ai/qfeval">Evaluate</a>
       <a href="https://github.com/awsaman-ai/queryforge">GitHub</a>
     </nav>
     <span class="qfnav-sp"></span>
@@ -246,8 +247,27 @@ fmt.Println(res.Explain)     // plain-English readback of what it understood</co
     <li><a href="config.html">Configuration reference</a> — every option, with worked examples for SQL and NoSQL.</li>
     <li><a href="config.html#ast">What is the Query AST?</a> — the idea the whole design rests on.</li>
     <li><a href="https://pkg.go.dev/github.com/awsaman-ai/queryforge">Go package docs</a> — the API surface.</li>
+    <li><a href="https://github.com/awsaman-ai/qfeval">qfeval</a> — score a config against your own sentences and measure how well a model understands them.</li>
     <li><a href="https://github.com/awsaman-ai/queryforge">GitHub</a> — source, issues, and the QA log in <code>bugs.csv</code>.</li>
   </ul>
+
+  <h2>How well does the model actually understand?</h2>
+  <p>
+    The deterministic half of the pipeline — AST → validate → generate — is covered by this
+    library's own test suite, with no API key and no network. The half that cannot be covered that
+    way is <em>comprehension</em>: whether the model reads a real sentence the way your user meant
+    it. That is a statistical property of a remote service, so it needs a corpus and a pass rate
+    rather than an assertion.
+  </p>
+  <p>
+    <a href="https://github.com/awsaman-ai/qfeval"><strong>qfeval</strong></a> is a separate tool for
+    exactly that. You give it a CSV of sentences and the queries they should compile to; it runs them
+    through the real engine and grades each one — matched exactly, matched in a different spelling,
+    correctly refused, or wrong. On the shipped 25-case example corpus,
+    <code>gemini-3.1-flash-lite</code> scores <strong>24 / 25</strong>, and the single failure is a
+    genuinely ambiguous sentence rather than a misread one. Point it at your own config and your own
+    sentences before you decide which model to pay for.
+  </p>
 
   <p class="muted" style="margin-top:2.5rem">Apache-2.0 licensed. Phase 1: SQL (Postgres dialect) and MongoDB.</p>
 

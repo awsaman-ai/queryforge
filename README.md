@@ -320,6 +320,34 @@ go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
 golangci-lint run ./...
 ```
 
+### Testing the half that tests cannot reach — [qfeval](https://github.com/awsaman-ai/qfeval)
+
+The suite above covers everything after the model: AST → validate → generate is
+pure Go, so it is pinned by ordinary assertions. What it cannot cover is
+**comprehension** — whether the model reads a real sentence the way your user
+meant it. That is a statistical property of a remote service, so it needs a
+corpus and a pass rate, not an assertion.
+
+**[qfeval](https://github.com/awsaman-ai/qfeval)** is a separate tool for exactly
+that. You give it a CSV of sentences and the queries they should compile to; it
+runs them through the real engine and grades each one — matched exactly, matched
+in a different spelling, correctly refused, or wrong — with a canonicalizer that
+forgives differences of spelling and refuses to forgive differences of meaning.
+
+On the 25-case example corpus it ships, `gemini-3.1-flash-lite` scores
+**24 / 25**, and the one failure turns out to be an ambiguous sentence rather
+than a misread one. It also ships a 573-case dataset that exercises every
+capability flag in this config format.
+
+```bash
+git clone https://github.com/awsaman-ai/qfeval.git && cd qfeval
+export QF_API_KEY=<your-key>
+go run . -in golden.example.csv -config ../queryforge/examples/orders.config.json
+```
+
+Worth running against **your** config and **your** sentences before you decide
+which model to pay for.
+
 ## Read-only guarantee
 
 QueryForge builds queries; it does **not** connect to or execute against your database. Every output is a read (`SELECT` / `find`). There is no operator or config option that can mutate data.
@@ -343,6 +371,15 @@ adding a row there is welcome but not required.
 
 Security issues should go through [private disclosure](SECURITY.md), not a public
 issue.
+
+## Related projects
+
+| Project | What it is |
+|---|---|
+| **[qfeval](https://github.com/awsaman-ai/qfeval)** | Scores a QueryForge config against a golden file of natural-language sentences and the queries they should compile to. Measures how well a given model actually understands your users' requests — and lets you compare two models on the same corpus before you pay for one. Ships a 25-case example (24/25 on `gemini-3.1-flash-lite`) and a 573-case dataset covering every capability flag. |
+| [Documentation](https://awsaman-ai.github.io/queryforge/) | Guide, full configuration reference, and the Query AST explained. |
+| [Config builder](https://awsaman-ai.github.io/queryforge/config-builder.html) | Build a config in a form and download it, with live validation. Runs entirely in the browser. |
+| [Live demo](https://queryforge-demo.amtry.in) | A product page with a sentence box, translating for real. |
 
 ## License
 
