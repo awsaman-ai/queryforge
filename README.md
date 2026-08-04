@@ -280,12 +280,35 @@ go run ./examples -config examples/orders.fallback.config.json -backend sql -tex
 
 One JSON file is the prompt context, the validation rulebook, the field→backend mapping, and the model selector. **Full reference:** [`docs/config.html`](docs/config.html).
 
-**Don't hand-write it — build it:** [`docs/config-builder.html`](docs/config-builder.html) is a single self-contained page (open it straight from disk, no server, no network) that walks through every option, explains what each one gates, validates as you type with the same rules the loader enforces, and downloads the finished JSON. It also imports an existing config for editing.
+**Don't hand-write it — build it:** [`docs/config-builder.html`](docs/config-builder.html) is a single self-contained page (open it straight from disk, no server, no network). Each field card starts with the four settings that matter — name, type, values, synonyms — and folds the rest behind **Advanced**; every setting carries an ⓘ that explains what it does and shows a worked example. It validates as you type with the same rules the loader enforces, downloads the finished JSON, and imports an existing config for editing.
 
 Shipped examples in [`examples/`](examples/):
 - `orders.config.json` — one Order config compiled to **both** SQL and Mongo.
 - `sql_employees.config.json` — relational best practices (indexed/prioritized columns, RBAC, excluded `ssn`).
 - `nosql_products.config.json` — document best practices (array fields, text search, rating bounds).
+- `mongo_nested.config.json` — nested documents: an embedded address, plus arrays of sub-documents.
+
+### Nested Mongo documents
+
+Nesting lives entirely in the mapping layer, so the vocabulary the model sees stays flat. An embedded document just needs a dot path:
+
+```json
+{ "name": "city", "type": "string", "mapping": { "mongo": "shippingAddress.city" } }
+```
+
+An **array of sub-documents** needs one more key, because dot paths alone are silently wrong there — Mongo satisfies each one independently, so `{"items.sku":"ABC","items.price":{"$gt":100}}` matches an order whose sku is on one item and whose price is on another. Declaring the array fixes it:
+
+```json
+{ "name": "itemSku",   "type": "string", "mapping": { "mongo": "items.sku" },   "elemMatch": "items" },
+{ "name": "itemPrice", "type": "number", "mapping": { "mongo": "items.price" }, "elemMatch": "items" }
+```
+
+```
+"orders containing item ABC costing over 100"
+→ {"items": {"$elemMatch": {"sku": "ABC", "price": {"$gt": 100}}}}
+```
+
+One element must now satisfy every condition. `elemMatch` must be a leading segment of the field's Mongo path — a mismatch is rejected at load, not discovered in production. Grouping applies to `AND` only, is per-array, and other backends ignore the key entirely (give the field a flat `mapping.sql` column). Full rules: [`docs/config.html#nested`](docs/config.html).
 
 ## Architecture
 

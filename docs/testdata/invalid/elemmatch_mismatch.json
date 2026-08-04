@@ -1,0 +1,18 @@
+{
+  "entity": "Order",
+  "backends": {
+    "mongo": {
+      "collection": "orders"
+    }
+  },
+  "fields": [
+    {
+      "name": "itemSku",
+      "type": "string",
+      "mapping": {
+        "mongo": "items.sku"
+      },
+      "elemMatch": "lines"
+    }
+  ]
+}

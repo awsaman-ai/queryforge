@@ -1,0 +1,144 @@
+{
+  "entity": "Order",
+  "version": 1,
+  "model": {
+    "provider": "gemini",
+    "baseURL": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "model": "gemini-3.5-flash",
+    "apiKeyEnv": "QF_API_KEY",
+    "temperature": 0,
+    "maxTokens": 4096
+  },
+  "backends": {
+    "mongo": {
+      "collection": "orders"
+    }
+  },
+  "fields": [
+    {
+      "name": "status",
+      "type": "enum",
+      "values": [
+        "PLACED",
+        "SHIPPED",
+        "DELIVERED",
+        "CANCELLED"
+      ],
+      "synonyms": [
+        "state",
+        "order status"
+      ],
+      "mapping": {
+        "mongo": "status"
+      },
+      "indexed": true,
+      "priority": 10
+    },
+    {
+      "name": "city",
+      "type": "string",
+      "operators": [
+        "equals",
+        "in",
+        "contains"
+      ],
+      "synonyms": [
+        "shipping city"
+      ],
+      "mapping": {
+        "mongo": "shippingAddress.city"
+      }
+    },
+    {
+      "name": "itemSku",
+      "type": "string",
+      "operators": [
+        "equals",
+        "in",
+        "startsWith"
+      ],
+      "synonyms": [
+        "sku",
+        "product code"
+      ],
+      "mapping": {
+        "mongo": "items.sku"
+      },
+      "elemMatch": "items",
+      "indexed": true,
+      "priority": 6
+    },
+    {
+      "name": "itemQty",
+      "type": "number",
+      "synonyms": [
+        "quantity",
+        "units"
+      ],
+      "mapping": {
+        "mongo": "items.qty"
+      },
+      "elemMatch": "items",
+      "validators": {
+        "min": 0
+      }
+    },
+    {
+      "name": "itemWidth",
+      "type": "number",
+      "synonyms": [
+        "item width"
+      ],
+      "mapping": {
+        "mongo": "items.dims.w"
+      },
+      "elemMatch": "items"
+    },
+    {
+      "name": "payMethod",
+      "type": "enum",
+      "values": [
+        "CARD",
+        "UPI",
+        "COD"
+      ],
+      "synonyms": [
+        "payment method"
+      ],
+      "mapping": {
+        "mongo": "payments.method"
+      },
+      "elemMatch": "payments"
+    },
+    {
+      "name": "payAmount",
+      "type": "number",
+      "synonyms": [
+        "amount paid"
+      ],
+      "mapping": {
+        "mongo": "payments.amount"
+      },
+      "elemMatch": "payments",
+      "validators": {
+        "min": 0
+      }
+    },
+    {
+      "name": "internalNote",
+      "type": "string",
+      "mapping": {
+        "mongo": "ops.internalNote"
+      },
+      "queryable": false,
+      "returnable": false
+    }
+  ],
+  "defaults": {
+    "limit": 25,
+    "maxLimit": 200
+  },
+  "policy": {
+    "maxNestingDepth": 5
+  }
+}

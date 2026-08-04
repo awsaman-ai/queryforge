@@ -1,0 +1,213 @@
+{
+  "entity": "Order",
+  "version": 1,
+  "model": {
+    "provider": "gemini",
+    "baseURL": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "model": "gemini-3.5-flash",
+    "apiKeyEnv": "QF_API_KEY",
+    "temperature": 0,
+    "maxTokens": 4096
+  },
+  "backends": {
+    "mongo": {
+      "collection": "orders"
+    }
+  },
+  "fields": [
+    {
+      "name": "status",
+      "type": "enum",
+      "values": [
+        "PLACED",
+        "SHIPPED",
+        "DELIVERED",
+        "CANCELLED"
+      ],
+      "synonyms": [
+        "state",
+        "order status"
+      ],
+      "indexed": true,
+      "priority": 10,
+      "mapping": {
+        "mongo": "status"
+      }
+    },
+    {
+      "name": "placedAt",
+      "type": "date",
+      "operators": [
+        "before",
+        "after",
+        "between"
+      ],
+      "synonyms": [
+        "ordered on",
+        "order date"
+      ],
+      "indexed": true,
+      "priority": 8,
+      "mapping": {
+        "mongo": "placedAt"
+      }
+    },
+    {
+      "name": "city",
+      "type": "string",
+      "operators": [
+        "equals",
+        "in",
+        "contains"
+      ],
+      "synonyms": [
+        "shipping city",
+        "delivery city"
+      ],
+      "mapping": {
+        "mongo": "shippingAddress.city"
+      }
+    },
+    {
+      "name": "country",
+      "type": "enum",
+      "values": [
+        "IN",
+        "US",
+        "GB",
+        "DE"
+      ],
+      "synonyms": [
+        "shipping country"
+      ],
+      "indexed": true,
+      "mapping": {
+        "mongo": "shippingAddress.country"
+      }
+    },
+    {
+      "name": "itemSku",
+      "type": "string",
+      "operators": [
+        "equals",
+        "in",
+        "startsWith"
+      ],
+      "synonyms": [
+        "sku",
+        "product code",
+        "item code"
+      ],
+      "indexed": true,
+      "priority": 6,
+      "elemMatch": "items",
+      "mapping": {
+        "mongo": "items.sku"
+      }
+    },
+    {
+      "name": "itemQty",
+      "type": "number",
+      "operators": [
+        "equals",
+        "gt",
+        "lt",
+        "gte",
+        "lte",
+        "between"
+      ],
+      "synonyms": [
+        "quantity",
+        "units",
+        "how many"
+      ],
+      "validators": {
+        "min": 0
+      },
+      "elemMatch": "items",
+      "mapping": {
+        "mongo": "items.qty"
+      }
+    },
+    {
+      "name": "itemPrice",
+      "type": "number",
+      "operators": [
+        "equals",
+        "gt",
+        "lt",
+        "gte",
+        "lte",
+        "between"
+      ],
+      "synonyms": [
+        "unit price",
+        "item price",
+        "price per item"
+      ],
+      "validators": {
+        "min": 0
+      },
+      "elemMatch": "items",
+      "mapping": {
+        "mongo": "items.price"
+      }
+    },
+    {
+      "name": "payMethod",
+      "type": "enum",
+      "values": [
+        "CARD",
+        "UPI",
+        "COD",
+        "WALLET"
+      ],
+      "synonyms": [
+        "payment method",
+        "paid with"
+      ],
+      "elemMatch": "payments",
+      "mapping": {
+        "mongo": "payments.method"
+      }
+    },
+    {
+      "name": "payAmount",
+      "type": "number",
+      "operators": [
+        "gt",
+        "lt",
+        "gte",
+        "lte",
+        "between"
+      ],
+      "synonyms": [
+        "payment amount",
+        "amount paid"
+      ],
+      "validators": {
+        "min": 0
+      },
+      "elemMatch": "payments",
+      "mapping": {
+        "mongo": "payments.amount"
+      }
+    },
+    {
+      "name": "internalNote",
+      "type": "string",
+      "queryable": false,
+      "returnable": false,
+      "mapping": {
+        "mongo": "ops.internalNote"
+      }
+    }
+  ],
+  "defaults": {
+    "limit": 25,
+    "maxLimit": 200
+  },
+  "policy": {
+    "maxNestingDepth": 5
+  }
+}

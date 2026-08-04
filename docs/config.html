@@ -171,6 +171,7 @@
     <a href="#backends">backends</a>
     <a href="#fields">fields</a>
     <a href="#types">Field types</a>
+    <a href="#nested">Nested fields (Mongo)</a>
     <a href="#capabilities">Capability flags</a>
     <a href="#hints">indexed &amp; priority</a>
     <a href="#operators">Operator catalogue</a>
@@ -317,7 +318,8 @@ ORDER BY created_at DESC LIMIT 20
     <tr><td><code>itemType</code></td><td>string</td><td class="default">string</td><td>Element type for <code>array</code> fields.</td></tr>
     <tr><td><code>operators</code></td><td>string[]</td><td class="default">type default</td><td>Whitelist of comparison operators this field permits. Empty = a sensible default set for the type.</td></tr>
     <tr><td><code>synonyms</code></td><td>string[]</td><td class="default">[]</td><td>Alternate phrasings that resolve to this field (fed to the model and used for "did you mean" suggestions).</td></tr>
-    <tr><td><code>mapping</code></td><td>object</td><td class="default">{}</td><td>Backend → physical column/field name, e.g. <code>{"sql":"customer_name","mongo":"customerName"}</code>. Falls back to <code>name</code>.</td></tr>
+    <tr><td><code>mapping</code></td><td>object</td><td class="default">{}</td><td>Backend → physical column/field name, e.g. <code>{"sql":"customer_name","mongo":"customerName"}</code>. Falls back to <code>name</code>. For Mongo the value may be a dot path — see <a href="#nested">nested fields</a>.</td></tr>
+    <tr><td><code>elemMatch</code></td><td>string</td><td class="default">""</td><td>Mongo only. The array of sub-documents this field lives inside, e.g. <code>"items"</code> for a field mapped to <code>"items.sku"</code>. See <a href="#nested">nested fields</a>.</td></tr>
     <tr><td><code>queryable</code></td><td>boolean</td><td class="default">true</td><td>Include/exclude from the NL surface. <code>false</code> hides the field from the model and rejects any AST that references it.</td></tr>
     <tr><td><code>filterable</code></td><td>boolean</td><td class="default">true</td><td>May appear in filter predicates (WHERE / find).</td></tr>
     <tr><td><code>searchable</code></td><td>boolean</td><td class="default">string→true, else false</td><td>May use text-search operators (<code>contains, startsWith, endsWith, regex</code>).</td></tr>
@@ -340,6 +342,64 @@ ORDER BY created_at DESC LIMIT 20
     <tr><td><code>date</code></td><td>before, after, between, equals, isNull, isNotNull</td><td>Accepts <code>date</code> and <code>relative_date</code> values. <code>after</code>/<code>before</code> are inclusive.</td></tr>
     <tr><td><code>array</code></td><td>contains, containsAny, containsAll, isNull, isNotNull</td><td>Not sortable by default. Elements typed by <code>itemType</code>.</td></tr>
   </table></div>
+
+  <h2 id="nested">Nested fields (MongoDB)</h2>
+  <p>Mongo documents are rarely flat. QueryForge handles nesting entirely in the <code>mapping</code> layer, so the
+    logical vocabulary stays flat: the model still asks about <code>itemSku</code> and never learns that the physical
+    path is <code>items.sku</code>. Two shapes need different treatment.</p>
+
+  <h3>Embedded documents — a dot path is enough</h3>
+  <p>When the parent is a single sub-document, a dot path in <code>mapping.mongo</code> is exact. Nothing else is
+    needed.</p>
+  <pre><code>{ "name": "city", "type": "string", "mapping": { "mongo": "shippingAddress.city" } }
+
+"orders shipping to Pune"
+→ { "shippingAddress.city": "Pune" }</code></pre>
+
+  <h3>Arrays of sub-documents — declare the array with <code>elemMatch</code></h3>
+  <p>When the parent is an <em>array</em>, dot paths alone are silently wrong. Mongo satisfies each dot-path predicate
+    independently, so two conditions can be met by two different elements. Given this order:</p>
+  <pre><code>{ "_id": 1, "items": [ { "sku": "ABC", "price": 20 },
+                       { "sku": "XYZ", "price": 900 } ] }</code></pre>
+  <p>the question <em>"orders containing item ABC costing over 100"</em> compiles two ways:</p>
+  <div class="tablewrap"><table>
+    <tr><th></th><th>Generated filter</th><th>Matches the order above?</th></tr>
+    <tr><td>Without <code>elemMatch</code></td>
+        <td><code>{"items.sku":"ABC","items.price":{"$gt":100}}</code></td>
+        <td><strong>Yes</strong> — sku from one element, price from another. Wrong.</td></tr>
+    <tr><td>With <code>elemMatch</code></td>
+        <td><code>{"items":{"$elemMatch":{"sku":"ABC","price":{"$gt":100}}}}</code></td>
+        <td>No — no single item is both. Correct.</td></tr>
+  </table></div>
+  <p>Declaring the array on each field is what selects the second form:</p>
+  <pre><code>{ "name": "itemSku",   "type": "string", "mapping": { "mongo": "items.sku" },   "elemMatch": "items" },
+{ "name": "itemPrice", "type": "number", "mapping": { "mongo": "items.price" }, "elemMatch": "items" }</code></pre>
+
+  <h3>Rules</h3>
+  <ul>
+    <li><code>elemMatch</code> must be a leading dot-path segment of the field's Mongo path, and cannot be the whole
+      path. <code>elemMatch: "items"</code> with <code>mongo: "items.sku"</code> is valid; with
+      <code>mongo: "lines.sku"</code> the config is <strong>rejected at load</strong>.</li>
+    <li>Paths deeper than one level work: <code>mongo: "items.dims.w"</code> with <code>elemMatch: "items"</code>
+      produces <code>{"items":{"$elemMatch":{"dims.w":…}}}</code>.</li>
+    <li>Grouping is per array. Predicates on <code>items</code> and on <code>payments</code> produce two independent
+      <code>$elemMatch</code> documents.</li>
+    <li>Grouping applies to <strong>AND</strong> only. Under <code>OR</code> each branch is satisfied independently
+      already, so the branches stay separate — folding them would change the question.</li>
+    <li>Two operators on one relative key merge into a range: <code>price &gt;= 100 AND price &lt;= 500</code> becomes
+      <code>{"price":{"$gte":100,"$lte":500}}</code>. Predicates that cannot merge without dropping one are kept in an
+      <code>$and</code> <em>inside</em> the <code>$elemMatch</code>, so the same-element guarantee holds either way.</li>
+    <li>Projection and sort keep the full path (<code>items.sku</code>). <code>$elemMatch</code> is a filter construct;
+      a projection keyed <code>sku</code> would name a field that does not exist at the document root.</li>
+    <li>A malformed path — an empty segment (<code>items..sku</code>), a leading or trailing dot, or a segment starting
+      with <code>$</code> — is rejected at load. Left in, it would build a filter key that simply matches nothing, with
+      no error to explain the empty result.</li>
+    <li><code>Explain</code> says which reading it picked: <em>"Conditions on items apply to the same array element."</em></li>
+  </ul>
+
+  <div class="note"><strong>Other backends ignore <code>elemMatch</code>.</strong> Nesting is a Mongo concept. For SQL,
+    give the field a flat <code>mapping.sql</code> column (<code>"item_sku"</code>); leave it out and the logical name is
+    used as the column, exactly as for any other field.</div>
 
   <h2 id="capabilities">Capability flags</h2>
   <p>Five boolean flags gate what a field can do. They sit <em>alongside</em> <code>operators</code>: <code>operators</code> bounds <em>which</em> comparison operators are legal; the flags bound <em>where</em> the field may appear.</p>
@@ -498,11 +558,12 @@ if errors.As(err, &amp;unsupported) {
   <p class="muted">Declining is reserved for genuinely missing vocabulary. A phrasing that matches a field's <code>synonyms</code> still resolves normally — "buyer" and "order value" map to <code>customerName</code> and <code>amount</code> without complaint. If you find legitimate questions being refused, the fix is usually to add <code>synonyms</code> to the field rather than to change the query.</p>
 
   <h2 id="examples">Full examples</h2>
-  <p>Three complete configs ship in <code>examples/</code>. Study them to see the patterns for each database family.</p>
+  <p>Four complete configs ship in <code>examples/</code>. Study them to see the patterns for each database family.</p>
   <ul>
     <li><code>examples/orders.config.json</code> — an e-commerce Order, mapped to <strong>both</strong> SQL and Mongo from one config.</li>
     <li><code>examples/sql_employees.config.json</code> — <strong>relational</strong> patterns: indexed + prioritized columns, snake_case mappings, RBAC on <code>salary</code>, an excluded <code>ssn</code>, numeric validators.</li>
     <li><code>examples/nosql_products.config.json</code> — <strong>document</strong> patterns: array fields (<code>categories</code>, <code>tags</code>) with contains operators, text search on <code>title</code>/<code>description</code>, rating bounds.</li>
+    <li><code>examples/mongo_nested.config.json</code> — <strong><a href="#nested">nested document</a></strong> patterns: an embedded address on a dot path, plus two arrays of sub-documents (<code>items</code>, <code>payments</code>) declared with <code>elemMatch</code>.</li>
   </ul>
   <h3>Annotated field</h3>
 <pre><code>{

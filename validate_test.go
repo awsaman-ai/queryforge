@@ -37,6 +37,12 @@ func comp(field string, op Operator, v *Value) *Condition {
 func and(children ...*Condition) *Condition {
 	return &Condition{Type: CondLogical, Op: OpAND, Children: children}
 }
+func or(children ...*Condition) *Condition {
+	return &Condition{Type: CondLogical, Op: OpOR, Children: children}
+}
+func not(child *Condition) *Condition {
+	return &Condition{Type: CondLogical, Op: OpNOT, Children: []*Condition{child}}
+}
 func vEnum(s string) *Value       { return &Value{Kind: KindEnum, V: s} }
 func vStr(s string) *Value        { return &Value{Kind: KindString, V: s} }
 func vBool(b bool) *Value         { return &Value{Kind: KindBoolean, V: b} }

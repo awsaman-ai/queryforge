@@ -101,6 +101,65 @@
   .check { display: flex; align-items: center; gap: .4rem; font-size: .9rem; font-weight: 400; margin: 0; }
   .check input { width: auto; }
 
+  /* Info bubbles. Every setting carries one: an ⓘ that explains what the key
+     does and shows a worked example, so the form can stay short without the
+     reader having to hold the reference doc open beside it.
+
+     Hover shows it; so does keyboard focus (the marker is focusable), because a
+     hover-only explanation is invisible to anyone not using a mouse. */
+  /* text-transform and letter-spacing are reset explicitly on both the marker
+     and the bubble: several of the places a marker sits — subgroup titles, the
+     Advanced summary — are uppercased, and without this the explanation inside
+     inherits it and renders as a wall of capitals. */
+  .i { position: relative; display: inline-flex; align-items: center; justify-content: center;
+       width: 15px; height: 15px; margin-left: .3rem; border-radius: 50%; cursor: help;
+       border: 1px solid var(--border); color: var(--muted); background: var(--bg);
+       font-size: .68rem; font-weight: 700; font-style: normal; line-height: 1; vertical-align: middle;
+       font-family: ui-sans-serif, system-ui, sans-serif; user-select: none; flex: 0 0 auto;
+       text-transform: none; letter-spacing: normal; }
+  .i:hover, .i:focus { border-color: var(--accent); color: var(--accent); outline: none; }
+  .i > .tip { display: none; position: absolute; top: calc(100% + 6px); left: 0; z-index: 40;
+              width: 300px; max-width: 78vw; padding: .6rem .7rem; text-align: left;
+              background: var(--card); border: 1px solid var(--accent); border-radius: 8px;
+              box-shadow: 0 8px 24px rgba(0,0,0,.28);
+              font-size: .82rem; font-weight: 400; font-style: normal; line-height: 1.45;
+              color: var(--fg); cursor: auto; white-space: normal;
+              text-transform: none; letter-spacing: normal; text-align: left;
+              font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }
+  .i:hover > .tip, .i:focus > .tip, .i:focus-within > .tip { display: block; }
+  .i > .tip b { display: block; font-family: ui-monospace, Menlo, monospace; font-size: .82rem;
+                margin-bottom: .25rem; color: var(--accent); }
+  .i > .tip .ex { display: block; margin-top: .45rem; padding-top: .4rem; border-top: 1px dashed var(--border);
+                  font-family: ui-monospace, Menlo, monospace; font-size: .76rem; color: var(--muted);
+                  white-space: pre-wrap; word-break: break-word; }
+  /* The last cell of a grid row would push its bubble past the panel edge, so
+     that one opens leftwards instead. */
+  .row > div:last-child .i > .tip { left: auto; right: 0; }
+
+  /* Progressive disclosure. The four blocks most configs never touch live
+     behind this, so a field card opens showing four controls instead of forty. */
+  details.adv { margin-top: .7rem; border-top: 1px dashed var(--border); padding-top: .5rem; }
+  details.adv > summary { cursor: pointer; font-size: .8rem; font-weight: 700; letter-spacing: .04em;
+                          text-transform: uppercase; color: var(--muted); list-style: none;
+                          display: flex; align-items: center; gap: .4rem; }
+  details.adv > summary::-webkit-details-marker { display: none; }
+  details.adv > summary::before { content: "▸"; }
+  details.adv[open] > summary::before { content: "▾"; }
+  details.adv > summary:hover { color: var(--accent); }
+  details.adv > summary .lbl { font-weight: 400; text-transform: none; letter-spacing: 0; font-size: .82rem; }
+  details.adv > .advbody { padding-top: .2rem; }
+  /* Inside a disclosure the first subgroup's own rule would double the divider. */
+  details.adv > .advbody > .subgroup:first-child { border-top: 0; margin-top: .2rem; padding-top: 0; }
+
+  /* A whole panel can fold too, for the two steps most users leave alone. */
+  details.foldpanel > summary { cursor: pointer; list-style: none; display: flex; align-items: baseline;
+                                gap: .6rem; flex-wrap: wrap; margin-bottom: .35rem; }
+  details.foldpanel > summary::-webkit-details-marker { display: none; }
+  details.foldpanel > summary::before { content: "▸"; color: var(--muted); align-self: center; }
+  details.foldpanel[open] > summary::before { content: "▾"; }
+  details.foldpanel > summary h2 { margin: 0; }
+  details.foldpanel > summary:hover h2 { color: var(--accent); }
+
   button { font: inherit; font-size: .88rem; cursor: pointer; border-radius: 6px;
            border: 1px solid var(--border); background: var(--bg); color: var(--fg); padding: .35rem .7rem; }
   button:hover { border-color: var(--accent); color: var(--accent); }
@@ -245,10 +304,13 @@
 <div class="wrap">
 
   <h1>QueryForge — Config Builder</h1>
-  <p class="lead">Fill in the form, watch the JSON build itself, download the file. Every option here is a real key
-  in the loader (<code>ParseConfig</code>), documented in the
-  <a href="config.html">configuration reference</a>. Nothing leaves your browser — there is no server, no upload,
-  and no analytics on this page.</p>
+  <p class="lead">Fill in the form, watch the JSON build itself, download the file. Each field starts with the four
+  settings that matter and folds the rest behind <strong>Advanced</strong>; hover any <span class="i" tabindex="0"
+  role="note" aria-label="Example help bubble">i<span class="tip"><b>this is an ⓘ</b>Every setting has one. It says what
+  the key does and shows a worked example of the behaviour it produces, so you can stay on this page.<span class="ex">Try the one next to elemMatch on a nested Mongo field: it shows both filters side by side.</span></span></span>
+  for what a setting does and an example. Every option here is a real key in the loader (<code>ParseConfig</code>),
+  documented in the <a href="config.html">configuration reference</a>. Nothing leaves your browser — there is no server,
+  no upload, and no analytics on this page.</p>
 
   <div class="note"><strong>Your API key never belongs in a config file.</strong> The <code>apiKeyEnv</code> box takes the
   <em>name</em> of an environment variable (e.g. <code>QF_API_KEY</code>); the key itself stays in your environment.
@@ -266,20 +328,25 @@
           <code>entity</code> matches this exactly, so pick the name you will use in code.</p>
         <div class="row c3">
           <div>
-            <label>entity <span class="q">· required</span></label>
+            <label>entity <span class="q">· required</span><span data-info="entity"></span></label>
             <input type="text" data-path="entity" data-kind="text" placeholder="Order">
           </div>
           <div>
-            <label>version <span class="q">· optional</span></label>
+            <label>version <span class="q">· optional</span><span data-info="version"></span></label>
             <input type="number" data-path="version" data-kind="text" placeholder="1" min="0" step="1">
           </div>
         </div>
       </section>
 
-      <!-- 2. Model ----------------------------------------------------------- -->
+      <!-- 2. Model -----------------------------------------------------------
+           Folded by default. Nothing here is needed to produce a valid config,
+           and the deterministic path never calls a model at all — so the two
+           required steps (entity, fields) stay adjacent on first load. Picking a
+           preset opens it, as does importing a config that already has one. -->
       <section class="panel">
-        <div class="hdr"><span class="step">STEP 2</span><h2>Model</h2>
-          <span class="pill">needed only for natural language</span></div>
+        <details class="foldpanel" id="modelPanel">
+        <summary><span class="step">STEP 2</span><h2>Model</h2>
+          <span class="pill">needed only for natural language</span></summary>
         <p class="hint">Which AI planner turns English into an AST. Leave it empty if you only ever hand QueryForge a
           ready-made AST (<code>GenerateFrom</code> / <code>POST /api/generate</code>) — that path is deterministic and
           calls no model at all.</p>
@@ -299,13 +366,14 @@
         <div id="modelBox"></div>
 
         <div class="subgroup">
-          <div class="t">Fallback chain · <code>models[]</code></div>
+          <div class="t">Fallback chain · <code>models[]</code><span data-info="chain"></span></div>
           <p class="hint">Optional. QueryForge tries <code>model</code> first, then each entry here in order, and uses
             the first that answers — so a rate limit, quota block, or outage on one provider falls through to the next.
             Chains can mix providers freely.</p>
           <div id="chainBox"></div>
           <div class="btnbar"><button type="button" data-act="addFallback">+ Add fallback model</button></div>
         </div>
+        </details>
       </section>
 
       <!-- 3. Backends -------------------------------------------------------- -->
@@ -336,27 +404,32 @@
           <button type="button" data-act="expandAll">Expand all</button>
           <button type="button" data-act="collapseAll">Collapse all</button>
         </div>
-        <p class="hint" style="margin-top:.6rem">A <strong>tenancy / scope field</strong> is one your application forces
-          on every query (subscriptionId, userId, enterpriseId). It is added as <code>queryable: false</code> so the
-          model never sees it; you pass the value per call as a
+        <p class="hint" style="margin-top:.6rem">A <strong>tenancy / scope field</strong><span data-info="scopeField"></span>
+          is one your application forces on every query (subscriptionId, userId, enterpriseId). It is added as
+          <code>queryable: false</code> so the model never sees it; you pass the value per call as a
           <a href="config.html#scope">scope</a>.</p>
       </section>
 
-      <!-- 5. Defaults & policy ---------------------------------------------- -->
+      <!-- 5. Defaults & policy ----------------------------------------------
+           Folded by default: every key in here is optional and has a working
+           default, so a first-time config never has to open it. The panel
+           opens itself on import when the file already sets any of them. -->
       <section class="panel">
-        <div class="hdr"><span class="step">STEP 5</span><h2>Defaults &amp; policy</h2></div>
+        <details class="foldpanel" id="policyPanel">
+        <summary><span class="step">STEP 5</span><h2>Defaults &amp; policy</h2>
+          <span class="pill">optional · result window and guardrails</span></summary>
         <p class="hint">The result window and the deterministic guardrails. All optional, all cheap insurance.</p>
         <div class="row c4">
           <div>
-            <label>defaults.limit</label>
+            <label>defaults.limit<span data-info="defLimit"></span></label>
             <input type="number" data-path="defaults.limit" data-kind="text" placeholder="50" min="0" step="1">
           </div>
           <div>
-            <label>defaults.maxLimit</label>
+            <label>defaults.maxLimit<span data-info="maxLimit"></span></label>
             <input type="number" data-path="defaults.maxLimit" data-kind="text" placeholder="500" min="0" step="1">
           </div>
           <div>
-            <label>policy.maxNestingDepth</label>
+            <label>policy.maxNestingDepth<span data-info="maxNestingDepth"></span></label>
             <input type="number" data-path="policy.maxNestingDepth" data-kind="text" placeholder="5" min="0" step="1">
           </div>
         </div>
@@ -365,14 +438,14 @@
           <code>0</code> means unlimited.</p>
 
         <div class="subgroup">
-          <div class="t">policy.denyRegexOn</div>
+          <div class="t">policy.denyRegexOn<span data-info="denyRegexOn"></span></div>
           <p class="hint">Fields on which the <code>regex</code> operator is forbidden, for ReDoS and PII safety.
             Worth setting on any free-text column a user can steer.</p>
           <div id="denyBox" class="opgrid"></div>
         </div>
 
         <div class="subgroup">
-          <div class="t">policy.requireTenantPredicate</div>
+          <div class="t">policy.requireTenantPredicate<span data-info="requireTenantPredicate"></span></div>
           <label class="check">
             <input type="checkbox" data-path="policy.requireTenantPredicate" data-kind="checkbox">
             <span>requireTenantPredicate <span class="pill">reserved / no effect yet</span></span>
@@ -381,6 +454,7 @@
             <a href="config.html#scope">scope</a> — it is applied after validation, at the root of the filter tree, so
             nothing the model emits can escape it.</p>
         </div>
+        </details>
       </section>
 
       <!-- 6. Import / reset -------------------------------------------------- -->
@@ -498,16 +572,123 @@ var QFLogic = (function () {
   // type-aware default each takes when left unset.
   var CAPABILITIES = [
     { key: "queryable",  def: function () { return true; },
-      help: "Exposed to the model and referenceable at all. false hides the field from the prompt and rejects any AST that names it." },
+      help: "Exposed to the model and referenceable at all. false hides the field from the prompt and rejects any AST that names it.",
+      ex: "queryable: false on internalCost\n→ the model is never told the field exists, and an AST naming it is rejected.\nThis is how a tenancy column is declared." },
     { key: "filterable", def: function () { return true; },
-      help: "May appear in filter predicates (WHERE / find)." },
+      help: "May appear in filter predicates (the WHERE clause / the find document).",
+      ex: "filterable: false on description\n→ \"orders whose description mentions x\" is rejected,\n   but the column can still be returned and sorted." },
     { key: "searchable", def: function (t) { return t === "string"; },
-      help: "May use the text-search operators contains / startsWith / endsWith / regex. Only gates string and enum fields." },
+      help: "May use the text-search operators contains / startsWith / endsWith / regex. Only gates string and enum fields.",
+      ex: "searchable: false on sku\n→ \"sku starting with AB\" is rejected;\n   \"sku equals ABC-1\" still works." },
     { key: "sortable",   def: function (t) { return t !== "array"; },
-      help: "May appear in sort[]. Ordering by an array is ill-defined, so arrays default to false." },
+      help: "May appear in sort[]. Ordering by an array is ill-defined, so arrays default to false.",
+      ex: "sortable: false on description\n→ \"newest first\" still works on createdAt,\n   \"sorted by description\" is rejected." },
     { key: "returnable", def: function () { return true; },
-      help: "May appear in the results. false also removes it from the default projection, so SELECT * is replaced by an explicit allow-list." }
+      help: "May appear in the results. false also removes it from the default projection, so SELECT * is replaced by an explicit allow-list.",
+      ex: "returnable: false on salary\n→ SELECT * becomes SELECT id, name, dept …\n   The column cannot leak, even by omission." }
   ];
+
+  // ---- Help catalogue ---------------------------------------------------
+  // The text behind every ⓘ marker: what the key does, and one worked
+  // example of the behaviour it produces. It lives here, beside the rules it
+  // describes, rather than in the markup — the same reason the catalogues above
+  // do. `what` is prose; `ex` is shown in a monospace block underneath.
+  var HELP = {
+    entity: { t: "entity",
+      what: "The logical name of the thing being queried. An AST is only accepted when its entity matches this string exactly, so it is also the name you use in code.",
+      ex: "entity: \"Order\"\n→ qf.NewQuery(\"Order\") is accepted;\n   an AST for \"Orders\" is rejected." },
+    version: { t: "version",
+      what: "Your own revision number for this file. QueryForge stores it and never acts on it — it is there so you can tell two deployed configs apart.",
+      ex: "version: 2\n→ no effect on any query; useful in logs and reviews." },
+
+    provider: { t: "model.provider",
+      what: "Which client speaks to the endpoint. Anything but \"anthropic\" uses the OpenAI-compatible /chat/completions client, so most hosts work under any label.",
+      ex: "provider: \"gemini\" + a baseURL → OpenAI-compatible client.\nprovider: \"anthropic\"  → native Messages API client." },
+    baseURL: { t: "model.baseURL",
+      what: "The API root, without the /chat/completions suffix. Required for every provider except anthropic, which resolves its own.",
+      ex: "baseURL: \"https://api.groq.com/openai/v1\"\n→ calls …/openai/v1/chat/completions" },
+    modelName: { t: "model.model",
+      what: "The model id as the provider spells it. Swapping models is a config change, never a code change.",
+      ex: "model: \"gemini-3.5-flash\"\nA retired id fails at the first call with a 404 from the provider." },
+    apiKeyEnv: { t: "model.apiKeyEnv",
+      what: "The NAME of the environment variable holding your key — never the key. A pasted key is rejected at load, because it would otherwise travel wherever this file travels.",
+      ex: "apiKeyEnv: \"QF_API_KEY\"\nexport QF_API_KEY=<your-key>   ← the key lives here\nLeave empty for a keyless local server (Ollama)." },
+    temperature: { t: "model.temperature",
+      what: "Sampling randomness for the planner. Query planning wants the same answer every time, so 0 is the right setting; anything higher makes the same question compile differently on different days.",
+      ex: "temperature: 0\n→ \"orders over 500 last week\" plans identically on every run." },
+    maxTokens: { t: "model.maxTokens",
+      what: "Ceiling on the reply. Reasoning models bill hidden thinking tokens against this budget, and a truncated reply arrives as malformed JSON, so keep it generous.",
+      ex: "maxTokens: 4096\nToo low → the AST is cut mid-object and the request is retried\n   as a parse failure." },
+    jsonMode: { t: "model.jsonMode",
+      what: "Sends response_format=json_object. Off by default because it is not uniformly implemented — Gemini's OpenAI-compatible endpoint returns brace-unbalanced JSON with it set. Turn it on only for an endpoint you have tested.",
+      ex: "jsonMode: unset → off (the safe default)\nThe prompt already demands a bare JSON object, so nothing is lost." },
+    chain: { t: "models[]",
+      what: "An ordered fallback chain. QueryForge tries model first, then each entry here, and uses the first that answers — so a rate limit, quota block, or outage falls through instead of failing the request. Entries may mix providers.",
+      ex: "model  = Gemini      (rate-limited today)\nmodels[0] = Groq       ← answers, and is reported as ProviderUsed\nmodels[1] = local Ollama" },
+
+    backendKey: { t: "backends.<key>",
+      what: "The backend id you pass to Translate/Generate. \"sql\" and \"mongo\" ship with generators; any other key is a mapping namespace you can read yourself.",
+      ex: "backends: { \"sql\": …, \"mongo\": … }\n→ engine.Translate(ctx, q, \"mongo\", nil)" },
+    backendSource: { t: "table / collection / index",
+      what: "The physical name of the table, collection, or index. Omit it and the entity name is used as-is.",
+      ex: "entity \"Order\" + collection \"orders_v2\"\n→ db.orders_v2.find(…)" },
+
+    fieldName: { t: "field.name",
+      what: "The logical name used in the AST and in every question. It never has to match the column: that is what mapping is for.",
+      ex: "name: \"customerName\", mapping.sql: \"cust_nm\"\n→ the model says customerName, the SQL says cust_nm." },
+    fieldType: { t: "field.type",
+      what: "Bounds which operators and which value kinds are legal for the field. The validator enforces it deterministically, so a wrong type here shows up as rejected queries.",
+      ex: "type: \"number\" → gt / lt / between accept numbers;\n   a string value on it is rejected before any query is built." },
+    itemType: { t: "field.itemType",
+      what: "The element type of an array field. Values are checked against this, not against \"array\".",
+      ex: "type: \"array\", itemType: \"string\"\n→ tags contains \"premium\" is checked as a string." },
+    values: { t: "field.values",
+      what: "The complete enum domain. A value outside it is rejected before any query is built, so the model cannot invent a status your data has never held.",
+      ex: "values: [PLACED, DELIVERED, CANCELLED]\n→ \"cancelled orders\" → status = CANCELLED\n→ \"refunded orders\" → refused, not guessed." },
+    synonyms: { t: "field.synonyms",
+      what: "Alternate phrasings that resolve to this field. This is what makes ordinary questions work — put in what people actually type, not tidy aliases.",
+      ex: "name: \"createdAt\", synonyms: [ordered on, order date, placed]\n→ \"orders placed last week\" resolves to createdAt." },
+    operators: { t: "field.operators",
+      what: "The comparison whitelist. Leave it inherited and the field takes its type's defaults; narrowing it is a real restriction — an operator you leave out is rejected at validation.",
+      ex: "operators: [equals, in]  on status\n→ \"status is DELIVERED\" works;\n   \"status contains DELI\" is rejected." },
+    mapping: { t: "field.mapping",
+      what: "The physical column or document path, per backend. Unmapped backends fall back to the logical name. For Mongo the value may be a dot path into an embedded document.",
+      ex: "mapping: { \"sql\": \"cust_nm\", \"mongo\": \"customer.name\" }\n→ SQL:   WHERE cust_nm = $1\n→ Mongo: { \"customer.name\": \"…\" }" },
+    elemMatch: { t: "field.elemMatch",
+      what: "Names the Mongo array of sub-documents this field lives inside. Without it, two conditions on the same array are checked independently and can match two different elements; with it they are folded into one $elemMatch, meaning one element must satisfy them all. Leave it empty for a plain embedded document — there is only one sub-document there, so a dot path is already exact.",
+      ex: "items: [ {sku:\"ABC\", price: 20}, {sku:\"XYZ\", price: 900} ]\n\"item ABC costing over 100\"\n\noff → {\"items.sku\":\"ABC\", \"items.price\":{\"$gt\":100}}\n      MATCHES this order — two different items. Wrong.\n\non  → {\"items\":{\"$elemMatch\":{\"sku\":\"ABC\",\"price\":{\"$gt\":100}}}}\n      does not match. Correct." },
+    indexed: { t: "field.indexed",
+      what: "Tells QueryForge this field is backed by a database index. It never rejects anything: indexed predicates are ordered first, and filtering on a non-indexed field raises a soft warning.",
+      ex: "status indexed, note not indexed\n→ WHERE (status = $1 AND note LIKE $2)\n   + warning: filtering on non-indexed field \"note\" may be slow." },
+    priority: { t: "field.priority",
+      what: "Relative importance. Higher sorts earlier among predicates and earlier in the prompt. A hint only — it gates nothing.",
+      ex: "status priority 10, amount priority 2\n→ status is evaluated first in the generated query." },
+    permRead: { t: "field.permissions.read",
+      what: "The roles allowed to see and query this field. Empty means everyone. Pass the caller's roles to the engine and the field disappears for anyone else.",
+      ex: "permissions.read: [hr, admin]\n→ an \"intern\" caller cannot filter on or return salary." },
+    validators: { t: "field.validators",
+      what: "Deterministic numeric bounds, checked before any query is built. They apply to number fields and to arrays of numbers.",
+      ex: "min 0, max 5 on rating\n→ \"rating above 9\" is rejected as out of bounds,\n   instead of quietly returning nothing." },
+
+    defLimit: { t: "defaults.limit",
+      what: "The page size used when the question names no limit. Without it a query can come back unbounded.",
+      ex: "defaults.limit: 50\n→ \"show me delivered orders\" → … LIMIT 50" },
+    maxLimit: { t: "defaults.maxLimit",
+      what: "The hard ceiling on any explicit limit. A larger request is clamped to this, so no phrasing can pull the whole table.",
+      ex: "maxLimit: 500\n→ \"give me the first 10000 orders\" → … LIMIT 500" },
+    maxNestingDepth: { t: "policy.maxNestingDepth",
+      what: "Caps how deeply the filter tree may nest. 0 means unlimited. It bounds the cost of a single pathological question.",
+      ex: "maxNestingDepth: 5\n→ A AND (B OR (C AND D)) is fine;\n   a tree ten groups deep is rejected." },
+    denyRegexOn: { t: "policy.denyRegexOn",
+      what: "Fields on which the regex operator is refused. A user-supplied pattern over a free-text column is a denial-of-service surface, so free-text fields belong here.",
+      ex: "denyRegexOn: [description]\n→ a crafted pattern like (a+)+$ on description is refused\n   before it ever reaches the database." },
+    requireTenantPredicate: { t: "policy.requireTenantPredicate",
+      what: "Parsed but not yet enforced. For real tenancy today use the scope argument: it is applied after validation and at the root of the filter, so no model output can escape it.",
+      ex: "engine.Translate(ctx, q, \"sql\", qf.Scope{\"tenantId\": 42})\n→ tenantId = 42 AND (whatever the question asked)" },
+    scopeField: { t: "tenancy / scope field",
+      what: "A field your application forces onto every query — subscriptionId, userId, enterpriseId. Declared queryable: false so the model never learns it exists; you pass the value at call time instead.",
+      ex: "qf.Scope{\"subscriptionId\": \"sub_123\"}\n→ injected at the filter root, so A OR B becomes\n   subscriptionId = … AND (A OR B)" }
+  };
 
   // Physical-source key per backend — BackendConfig in config.go. Source()
   // returns whichever one is set, in this order.
@@ -622,6 +803,52 @@ var QFLogic = (function () {
 
   // ---- Blank state constructors ----------------------------------------
 
+  // ---- Mongo path helpers ----------------------------------------------
+  // Mirrors validDotPath / validateMongoPaths in config.go. These rules are
+  // worth enforcing in the form because their failure mode is silent: a filter
+  // key with an empty segment matches no document, and nothing downstream is
+  // able to say why the result set came back empty.
+
+  // mongoPath is the physical Mongo path for a field: its mapping when set,
+  // otherwise the logical name — the same fallback PhysicalName() makes.
+  function mongoPath(f) {
+    var m = str((f.mapping || {}).mongo);
+    return m || str(f.name);
+  }
+
+  // validDotPath accepts one or more non-empty dot-separated segments, none of
+  // which starts with "$" (that is an operator, not a field).
+  function validDotPath(p) {
+    if (!p) return false;
+    var segs = String(p).split(".");
+    for (var i = 0; i < segs.length; i++) {
+      if (segs[i] === "") return false;               // leading, trailing or doubled dot
+      if (segs[i].charAt(0) === "$") return false;    // would be read as an operator
+    }
+    return true;
+  }
+
+  // isElemMatchPrefix reports whether `arr` is the array path containing
+  // `path`. Prefix matching is done segment-wise, so "items" does not claim
+  // "itemsold.sku", and the array may not be the whole path (nothing would be
+  // left to match inside the element).
+  function isElemMatchPrefix(arr, path) {
+    if (!arr || !path) return false;
+    if (path.length <= arr.length + 1) return false;
+    return path.slice(0, arr.length + 1) === arr + ".";
+  }
+
+  // elemMatchCandidates lists the paths that could be the array for a given
+  // field path: every proper prefix, shortest first. "items.dims.w" offers
+  // "items" and "items.dims" — one of which is the array, and the picker exists
+  // so nobody has to retype it.
+  function elemMatchCandidates(path) {
+    var out = [], segs = String(path || "").split(".");
+    if (segs.length < 2) return out;                  // no dot: nothing to nest inside
+    for (var i = 1; i < segs.length; i++) out.push(segs.slice(0, i).join("."));
+    return out;
+  }
+
   function blankModel() {
     return { provider: "", baseURL: "", model: "", apiKeyEnv: "", temperature: "", maxTokens: "", jsonMode: "" };
   }
@@ -634,11 +861,13 @@ var QFLogic = (function () {
       operators: [],     // [] means "use the type defaults"
       synonyms: "",
       mapping: {},       // backend key -> physical name
+      elemMatch: "",     // Mongo array of sub-documents this field sits inside
       queryable: "", filterable: "", searchable: "", sortable: "", returnable: "",
       indexed: false, priority: "",
       permRead: "",      // permissions.read roles, comma-separated
       min: "", max: "",  // validators
-      open: true         // UI only; never serialized
+      open: true,        // UI only; never serialized
+      advOpen: false     // UI only; the "Advanced" disclosure inside the card
     };
     if (overrides) { for (var k in overrides) { if (overrides.hasOwnProperty(k)) f[k] = overrides[k]; } }
     return f;
@@ -709,6 +938,13 @@ var QFLogic = (function () {
       if (phys) { mapping[mkeys[i]] = phys; hasMapping = true; }
     }
     if (hasMapping) out.mapping = mapping;
+
+    // elemMatch declares the Mongo array this path sits inside. It is written
+    // out exactly as typed, even when it does not match the mongo path: the
+    // diagnostics panel reports that as a hard error, and quietly dropping it
+    // instead would hand back a file that loads and silently loses the
+    // same-element guarantee — the one failure this key exists to prevent.
+    if (str(f.elemMatch)) out.elemMatch = str(f.elemMatch);
 
     // Capability flags: only explicit choices are written, so an untouched
     // field inherits the type-aware default rather than freezing today's one.
@@ -942,6 +1178,33 @@ var QFLogic = (function () {
           ", so every such predicate is rejected at query time. Set searchable: true or drop the operators.");
       }
 
+      // --- Mongo paths and nesting. These mirror validateMongoPaths() in
+      //     config.go, and matter more than most rules here because every one
+      //     of them fails silently: the config loads (or the query builds) and
+      //     simply returns nothing, with no error naming the cause.
+      var mpath = mongoPath(f), em = str(f.elemMatch);
+      if (name && !validDotPath(mpath)) {
+        err(at, "\"" + mpath + "\" is not a usable Mongo path. Expected dot-separated segments (items.sku) with no " +
+          "empty segment and no leading \"$\". The loader rejects this.");
+      } else if (em && !isElemMatchPrefix(em, mpath)) {
+        err(at, "elemMatch \"" + em + "\" does not contain the mongo path \"" + mpath + "\". The array path must be " +
+          "a leading part of it — elemMatch \"items\" with mongo \"items.sku\". The loader rejects this.");
+      }
+      if (em && !validDotPath(em)) {
+        err(at, "elemMatch \"" + em + "\" is not a usable path. Expected the dot path of the array, e.g. \"items\".");
+      }
+      // A dotted path with no elemMatch is legitimate for an embedded document
+      // and wrong for an array of sub-documents, and the two are
+      // indistinguishable from here — so say what the difference costs.
+      if (name && !em && mpath.indexOf(".") !== -1 && validDotPath(mpath)) {
+        warn(at, "\"" + mpath + "\" is a nested path with no elemMatch. Correct for a single embedded document. If " +
+          mpath.split(".")[0] + " is an array of sub-documents, declare it: without that, two conditions on this " +
+          "array are matched independently and can be satisfied by two different elements.");
+      }
+      if (em && !anyBackendNamed(state, "mongo")) {
+        warn(at, "elemMatch is a Mongo-only key and no mongo backend is declared, so it currently affects nothing.");
+      }
+
       // Numeric bounds that exclude everything.
       var mn = num(f.min), mx = num(f.max);
       if (mn !== null && mx !== null && mn > mx) {
@@ -1044,6 +1307,14 @@ var QFLogic = (function () {
     return { errors: errors, warnings: warnings };
   }
 
+  // anyBackendNamed reports whether the config declares a backend under this key.
+  function anyBackendNamed(state, backendKey) {
+    for (var i = 0; i < state.backends.length; i++) {
+      if (str(state.backends[i].key) === backendKey) return true;
+    }
+    return false;
+  }
+
   // anyFieldMaps reports whether any field declares a physical name for a backend.
   function anyFieldMaps(state, backendKey) {
     for (var i = 0; i < state.fields.length; i++) {
@@ -1072,7 +1343,7 @@ var QFLogic = (function () {
 
   var KNOWN_TOP    = ["entity", "version", "model", "models", "backends", "fields", "defaults", "policy"];
   var KNOWN_MODEL  = ["provider", "baseURL", "model", "apiKeyEnv", "temperature", "maxTokens", "jsonMode"];
-  var KNOWN_FIELD  = ["name", "type", "values", "itemType", "operators", "synonyms", "mapping",
+  var KNOWN_FIELD  = ["name", "type", "values", "itemType", "operators", "synonyms", "mapping", "elemMatch",
                       "queryable", "filterable", "searchable", "sortable", "returnable",
                       "indexed", "priority", "permissions", "validators"];
   var KNOWN_POLICY = ["requireTenantPredicate", "maxNestingDepth", "denyRegexOn"];
@@ -1138,6 +1409,7 @@ var QFLogic = (function () {
           var mk = Object.keys(src.mapping);
           for (var m = 0; m < mk.length; m++) f.mapping[mk[m]] = String(src.mapping[mk[m]]);
         }
+        f.elemMatch = src.elemMatch === undefined ? "" : String(src.elemMatch);
         for (var c = 0; c < CAPABILITIES.length; c++) {
           f[CAPABILITIES[c].key] = triOf(src[CAPABILITIES[c].key]);
         }
@@ -1202,7 +1474,9 @@ var QFLogic = (function () {
   return {
     FIELD_TYPES: FIELD_TYPES, ALL_OPERATORS: ALL_OPERATORS, DEFAULT_OPERATORS: DEFAULT_OPERATORS,
     PLAUSIBLE_OPERATORS: PLAUSIBLE_OPERATORS, CAPABILITIES: CAPABILITIES, BACKEND_KINDS: BACKEND_KINDS,
-    PRESETS: PRESETS,
+    PRESETS: PRESETS, HELP: HELP,
+    mongoPath: mongoPath, validDotPath: validDotPath,
+    isElemMatchPrefix: isElemMatchPrefix, elemMatchCandidates: elemMatchCandidates,
     str: str, num: num, list: list, tri: tri, triOf: triOf,
     validEnvVarName: validEnvVarName, looksLikeSecret: looksLikeSecret,
     effectiveOperators: effectiveOperators, effectiveCapability: effectiveCapability,
@@ -1244,6 +1518,43 @@ if (typeof window !== "undefined") { window.QFLogic = QFLogic; }
   // attr renders one HTML attribute, or nothing when the value is empty.
   function attr(name, value) { return value === "" || value === null || value === undefined ? "" : " " + name + "=\"" + esc(value) + "\""; }
 
+  // info renders the ⓘ marker for a help key: the key's name, what it does, and
+  // a worked example. tabindex makes it reachable without a mouse, since a
+  // hover-only explanation is no explanation for a keyboard user; role="note"
+  // and the aria-label let a screen reader announce it rather than read out a
+  // bare circled letter.
+  //
+  // Content comes from the DOM-free HELP catalogue, so the explanations sit
+  // beside the rules they describe and stay testable outside a browser.
+  function info(key) {
+    var h = L.HELP[key];
+    if (!h) return "";                       // unknown key: render nothing rather than an empty bubble
+    return '<span class="i" tabindex="0" role="note" aria-label="What ' + esc(h.t) + ' does">i' +
+      '<span class="tip"><b>' + esc(h.t) + '</b>' + esc(h.what) +
+      (h.ex ? '<span class="ex">' + esc(h.ex) + '</span>' : "") +
+      '</span></span>';
+  }
+
+  // infoText builds a bubble from literal text, for the handful of explanations
+  // that describe a control on this page rather than a key in the file.
+  function infoText(title, what, ex) {
+    return '<span class="i" tabindex="0" role="note" aria-label="What ' + esc(title) + ' does">i' +
+      '<span class="tip"><b>' + esc(title) + '</b>' + esc(what) +
+      (ex ? '<span class="ex">' + esc(ex) + '</span>' : "") +
+      '</span></span>';
+  }
+
+  // hydrateInfo fills in the markers written into the static markup as
+  // <span data-info="key">. Building them here rather than inlining the text
+  // keeps every explanation in the one catalogue, so a rule and its description
+  // cannot drift apart across two files' worth of markup.
+  function hydrateInfo(root) {
+    var marks = root.querySelectorAll("[data-info]");
+    for (var i = 0; i < marks.length; i++) {
+      marks[i].outerHTML = info(marks[i].getAttribute("data-info"));
+    }
+  }
+
   // getPath / setPath address nested state by a dotted string, which is what
   // lets a single delegated listener serve every input on the page.
   function getPath(path) {
@@ -1266,21 +1577,21 @@ if (typeof window !== "undefined") { window.QFLogic = QFLogic; }
   function modelFields(base, m) {
     return '' +
       '<div class="row c3">' +
-        '<div><label>provider <span class="q">· label; "anthropic" also selects the native API</span></label>' +
+        '<div><label>provider <span class="q">· label</span>' + info("provider") + '</label>' +
           '<input type="text" data-path="' + base + '.provider" data-kind="text" placeholder="gemini"' + attr("value", m.provider) + '></div>' +
-        '<div><label>model <span class="q">· model id</span></label>' +
+        '<div><label>model <span class="q">· model id</span>' + info("modelName") + '</label>' +
           '<input type="text" data-path="' + base + '.model" data-kind="text" placeholder="gemini-3.5-flash"' + attr("value", m.model) + '></div>' +
       '</div>' +
-      '<div class="row"><div><label>baseURL <span class="q">· /chat/completions is appended</span></label>' +
+      '<div class="row"><div><label>baseURL <span class="q">· /chat/completions is appended</span>' + info("baseURL") + '</label>' +
         '<input type="text" data-path="' + base + '.baseURL" data-kind="text" placeholder="https://…/v1beta/openai"' + attr("value", m.baseURL) + '></div></div>' +
       '<div class="row c4">' +
-        '<div><label>apiKeyEnv <span class="q">· variable NAME</span></label>' +
+        '<div><label>apiKeyEnv <span class="q">· variable NAME</span>' + info("apiKeyEnv") + '</label>' +
           '<input type="text" data-path="' + base + '.apiKeyEnv" data-kind="text" placeholder="QF_API_KEY"' + attr("value", m.apiKeyEnv) + '></div>' +
-        '<div><label>temperature</label>' +
+        '<div><label>temperature' + info("temperature") + '</label>' +
           '<input type="number" step="0.1" min="0" data-path="' + base + '.temperature" data-kind="text" placeholder="0"' + attr("value", m.temperature) + '></div>' +
-        '<div><label>maxTokens</label>' +
+        '<div><label>maxTokens' + info("maxTokens") + '</label>' +
           '<input type="number" step="1" min="0" data-path="' + base + '.maxTokens" data-kind="text" placeholder="4096"' + attr("value", m.maxTokens) + '></div>' +
-        '<div><label>jsonMode</label>' + triSelect(base + ".jsonMode", m.jsonMode, "false") + '</div>' +
+        '<div><label>jsonMode' + info("jsonMode") + '</label>' + triSelect(base + ".jsonMode", m.jsonMode, "false") + '</div>' +
       '</div>';
   }
 
@@ -1323,11 +1634,11 @@ if (typeof window !== "undefined") { window.QFLogic = QFLogic; }
         kindOpts += '<option value="' + kk + '"' + (b.kind === kk ? " selected" : "") + '>' + kk + '</option>';
       }
       html += '<div class="row c4" style="align-items:end">' +
-        '<div><label>backend key</label>' +
+        '<div><label>backend key' + info("backendKey") + '</label>' +
           '<input type="text" data-path="backends.' + i + '.key" data-kind="structural" placeholder="sql"' + attr("value", b.key) + '></div>' +
         '<div><label>source kind</label>' +
           '<select data-path="backends.' + i + '.kind" data-kind="text">' + kindOpts + '</select></div>' +
-        '<div><label>physical name</label>' +
+        '<div><label>physical name' + info("backendSource") + '</label>' +
           '<input type="text" data-path="backends.' + i + '.source" data-kind="text" placeholder="orders"' + attr("value", b.source) + '></div>' +
         '<div><button type="button" class="danger" data-act="delBackend" data-i="' + i + '">Remove</button></div>' +
       '</div>';
@@ -1355,6 +1666,10 @@ if (typeof window !== "undefined") { window.QFLogic = QFLogic; }
     }
     if (f.indexed) badges.push("indexed");
     if (L.num(f.priority)) badges.push("priority " + L.num(f.priority));
+    // Nesting is set deep inside Advanced but changes what the query means, so
+    // it earns a place on the collapsed summary line.
+    if (L.str(f.elemMatch)) badges.push("in " + L.str(f.elemMatch) + "[]");
+    else if (L.mongoPath(f).indexOf(".") !== -1) badges.push("nested path");
 
     var needsDomain = f.type === "enum" || (f.type === "array" && f.itemType === "enum");
     var summaryBad = !name || (needsDomain && L.list(f.values).length === 0);
@@ -1379,7 +1694,8 @@ if (typeof window !== "undefined") { window.QFLogic = QFLogic; }
     }
 
     // Per-backend physical name, for every backend declared in step 3 plus any
-    // extra keys an imported config carried.
+    // extra keys an imported config carried. The mongo box accepts a dot path
+    // into an embedded document, so it is labelled differently.
     var mapKeys = [];
     for (var bb = 0; bb < state.backends.length; bb++) {
       var bk = L.str(state.backends[bb].key);
@@ -1389,21 +1705,61 @@ if (typeof window !== "undefined") { window.QFLogic = QFLogic; }
     for (var e = 0; e < extra.length; e++) if (mapKeys.indexOf(extra[e]) === -1) mapKeys.push(extra[e]);
     var mapHtml = "";
     for (var mk = 0; mk < mapKeys.length; mk++) {
-      mapHtml += '<div><label>' + esc(mapKeys[mk]) + '</label>' +
-        '<input type="text" data-path="fields.' + i + '.mapping.' + esc(mapKeys[mk]) + '" data-kind="text" placeholder="' + esc(name || "physical name") + '"' +
+      var isMongo = mapKeys[mk] === "mongo";
+      mapHtml += '<div><label>' + esc(mapKeys[mk]) +
+        (isMongo ? ' <span class="q">· dot paths allowed</span>' : "") + info("mapping") + '</label>' +
+        '<input type="text" data-path="fields.' + i + '.mapping.' + esc(mapKeys[mk]) + '" data-kind="' +
+        (isMongo ? "structural" : "text") + '" placeholder="' + esc(isMongo ? (name || "items.sku") : (name || "physical name")) + '"' +
         attr("value", (f.mapping || {})[mapKeys[mk]] || "") + '></div>';
     }
     if (!mapHtml) mapHtml = '<p class="hint" style="margin:0">Declare a backend in step 3 to map physical names.</p>';
+
+    // Mongo nesting. Offered whenever the mongo path has a dot (there is
+    // something it could be nested inside) or the field already declares an
+    // array — so an imported config never hides a setting it carries.
+    var mongoDeclared = false;
+    for (var mb = 0; mb < mapKeys.length; mb++) if (mapKeys[mb] === "mongo") mongoDeclared = true;
+    var mpath = L.mongoPath(f);
+    var cands = L.elemMatchCandidates(mpath);
+    var nestingHtml = "";
+    if (mongoDeclared && (cands.length > 0 || L.str(f.elemMatch))) {
+      // A select rather than a text box: every legal value is a prefix of the
+      // path already typed, so offering the list makes the mismatch the loader
+      // rejects impossible to type in the first place.
+      var opts = '<option value="">not inside an array — plain embedded document</option>';
+      var seen = false;
+      for (var ci = 0; ci < cands.length; ci++) {
+        if (cands[ci] === L.str(f.elemMatch)) seen = true;
+        opts += '<option value="' + esc(cands[ci]) + '"' + (cands[ci] === L.str(f.elemMatch) ? " selected" : "") + '>' +
+          esc(cands[ci]) + '[] — one element must match every condition</option>';
+      }
+      // Keep an imported value that no longer fits the path: dropping it would
+      // silently change what the file means, and validation is about to say so.
+      if (L.str(f.elemMatch) && !seen) {
+        opts += '<option value="' + esc(f.elemMatch) + '" selected>' + esc(f.elemMatch) + ' — does not match this path</option>';
+      }
+      nestingHtml = '<div class="subgroup"><div class="t">Mongo nesting · <code>elemMatch</code>' + info("elemMatch") + '</div>' +
+        '<div class="row"><div><label>Is <code>' + esc(mpath) + '</code> inside an array of sub-documents?</label>' +
+        '<select data-path="fields.' + i + '.elemMatch" data-kind="structural">' + opts + '</select>' +
+        '<p class="hint" style="margin:.3rem 0 0">Pick the array only when the parent really is a list. ' +
+        'Declaring it makes two conditions on this array apply to <strong>one element</strong>; leaving it off lets ' +
+        'them be satisfied by two different elements.</p></div></div></div>';
+    }
 
     // Capability selects, each labelled with the default it would take.
     var capHtml = "";
     for (var cc = 0; cc < L.CAPABILITIES.length; cc++) {
       var cp = L.CAPABILITIES[cc];
-      capHtml += '<div><label title="' + esc(cp.help) + '">' + cp.key + ' <span class="q">· ?</span></label>' +
+      capHtml += '<div><label>' + cp.key + infoText(cp.key, cp.help, cp.ex) + '</label>' +
         triSelect("fields." + i + "." + cp.key, f[cp.key], String(cp.def(f.type))) + '</div>';
     }
 
     var boundsApply = f.type === "number" || (f.type === "array" && f.itemType === "number");
+
+    // What the Advanced disclosure is hiding, named on its own summary so the
+    // reader can tell whether it is worth opening without opening it.
+    var advBits = ["operators", "mapping", "capabilities", "hints"];
+    if (nestingHtml) advBits.splice(2, 0, "nesting");
 
     return '<details class="fieldcard"' + (f.open ? " open" : "") + ' data-fi="' + i + '">' +
       '<summary class="' + (summaryBad ? "bad" : "") + '">' +
@@ -1418,11 +1774,11 @@ if (typeof window !== "undefined") { window.QFLogic = QFLogic; }
       '</summary>' +
       '<div class="cardbody">' +
         '<div class="row c3">' +
-          '<div><label>name <span class="q">· required</span></label>' +
+          '<div><label>name <span class="q">· required</span>' + info("fieldName") + '</label>' +
             '<input type="text" data-path="fields.' + i + '.name" data-kind="structural" placeholder="status"' + attr("value", f.name) + '></div>' +
-          '<div><label>type</label><select data-path="fields.' + i + '.type" data-kind="type">' + typeOpts + '</select></div>' +
+          '<div><label>type' + info("fieldType") + '</label><select data-path="fields.' + i + '.type" data-kind="type">' + typeOpts + '</select></div>' +
           (f.type === "array"
-            ? '<div><label>itemType <span class="q">· element type</span></label>' +
+            ? '<div><label>itemType <span class="q">· element type</span>' + info("itemType") + '</label>' +
               '<select data-path="fields.' + i + '.itemType" data-kind="itemtype">' +
               '<option value=""' + (f.itemType === "" ? " selected" : "") + '>default (string)</option>' +
               '<option value="string"' + (f.itemType === "string" ? " selected" : "") + '>string</option>' +
@@ -1436,14 +1792,20 @@ if (typeof window !== "undefined") { window.QFLogic = QFLogic; }
         // An array of enums needs a domain too: elements are checked against
         // the element type, so `values` applies there exactly as on an enum.
         (f.type === "enum" || (f.type === "array" && f.itemType === "enum")
-          ? '<div class="row"><div><label>values <span class="q">· required for enum, comma-separated</span></label>' +
+          ? '<div class="row"><div><label>values <span class="q">· required for enum, comma-separated</span>' + info("values") + '</label>' +
             '<input type="text" data-path="fields.' + i + '.values" data-kind="structural" placeholder="PLACED, DELIVERED, CANCELLED"' + attr("value", f.values) + '>' +
             '<p class="hint" style="margin:.2rem 0 0">A value outside this domain is rejected before any query is built.</p></div></div>'
           : '') +
-        '<div class="row"><div><label>synonyms <span class="q">· comma-separated; what people actually say</span></label>' +
+        '<div class="row"><div><label>synonyms <span class="q">· comma-separated; what people actually say</span>' + info("synonyms") + '</label>' +
           '<input type="text" data-path="fields.' + i + '.synonyms" data-kind="structural" placeholder="state, order status"' + attr("value", f.synonyms) + '></div></div>' +
 
-        '<div class="subgroup"><div class="t">Operators</div>' +
+        // Everything below is optional. Four controls answer most fields, so
+        // the rest folds away rather than making every card forty lines long.
+        '<details class="adv"' + (f.advOpen ? " open" : "") + ' data-fi="' + i + '">' +
+        '<summary>Advanced <span class="lbl">· ' + esc(advBits.join(", ")) + '</span></summary>' +
+        '<div class="advbody">' +
+
+        '<div class="subgroup"><div class="t">Operators' + info("operators") + '</div>' +
           '<label class="check" style="margin-bottom:.4rem"><input type="checkbox" data-path="fields.' + i + '.operators" data-kind="opdefault"' + (usingDefaults ? " checked" : "") + '>' +
             '<span>Use the ' + esc(f.type) + ' defaults (emit no <code>operators</code> key)</span></label>' +
           '<fieldset' + (usingDefaults ? " disabled" : "") + '><div class="opgrid">' + opGrid + '</div></fieldset>' +
@@ -1453,26 +1815,30 @@ if (typeof window !== "undefined") { window.QFLogic = QFLogic; }
 
         '<div class="subgroup"><div class="t">Physical names · mapping</div><div class="row c3">' + mapHtml + '</div></div>' +
 
+        nestingHtml +
+
         '<div class="subgroup"><div class="t">Capability flags</div><div class="row c3">' + capHtml + '</div>' +
-          '<p class="hint" style="margin:.3rem 0 0">Hover a label for what it gates. Leave one on <em>default</em> and the' +
-            ' library keeps deciding by type — the safer choice.</p></div>' +
+          '<p class="hint" style="margin:.3rem 0 0">Each ⓘ shows what the flag gates and what changes when you set it.' +
+            ' Leave one on <em>default</em> and the library keeps deciding by type — the safer choice.</p></div>' +
 
         '<div class="subgroup"><div class="t">Hints, permissions &amp; bounds</div>' +
           '<div class="row c4">' +
-            '<div><label class="check"><input type="checkbox" data-path="fields.' + i + '.indexed" data-kind="checkbox"' + (f.indexed ? " checked" : "") + '><span>indexed</span></label></div>' +
-            '<div><label>priority</label><input type="number" step="1" data-path="fields.' + i + '.priority" data-kind="structural" placeholder="0"' + attr("value", f.priority) + '></div>' +
-            '<div><label>permissions.read <span class="q">· roles</span></label>' +
+            '<div><label class="check"><input type="checkbox" data-path="fields.' + i + '.indexed" data-kind="checkbox"' + (f.indexed ? " checked" : "") + '><span>indexed</span></label>' + info("indexed") + '</div>' +
+            '<div><label>priority' + info("priority") + '</label><input type="number" step="1" data-path="fields.' + i + '.priority" data-kind="structural" placeholder="0"' + attr("value", f.priority) + '></div>' +
+            '<div><label>permissions.read <span class="q">· roles</span>' + info("permRead") + '</label>' +
               '<input type="text" data-path="fields.' + i + '.permRead" data-kind="text" placeholder="hr, admin"' + attr("value", f.permRead) + '></div>' +
           '</div>' +
           (boundsApply
             ? '<div class="row c4">' +
-              '<div><label>validators.min</label><input type="number" data-path="fields.' + i + '.min" data-kind="text" placeholder="0"' + attr("value", f.min) + '></div>' +
-              '<div><label>validators.max</label><input type="number" data-path="fields.' + i + '.max" data-kind="text" placeholder="10000000"' + attr("value", f.max) + '></div>' +
+              '<div><label>validators.min' + info("validators") + '</label><input type="number" data-path="fields.' + i + '.min" data-kind="text" placeholder="0"' + attr("value", f.min) + '></div>' +
+              '<div><label>validators.max' + info("validators") + '</label><input type="number" data-path="fields.' + i + '.max" data-kind="text" placeholder="10000000"' + attr("value", f.max) + '></div>' +
               '</div>'
             : '') +
           '<p class="hint" style="margin:.3rem 0 0"><code>indexed</code> and <code>priority</code> never reject anything: they' +
             ' order predicates (indexed first, then higher priority) and steer the prompt.</p>' +
         '</div>' +
+
+        '</div></details>' +
       '</div></details>';
   }
 
@@ -1543,7 +1909,28 @@ if (typeof window !== "undefined") { window.QFLogic = QFLogic; }
     }
   }
 
-  function renderAll() { renderModel(); renderBackends(); renderFields(); renderOutput(); }
+  function renderAll() { renderModel(); renderBackends(); renderFields(); renderOutput(); syncFoldPanels(); }
+
+  // syncFoldPanels opens a folded step once it actually holds something —
+  // importing a config with a model, or a policy, must not leave those settings
+  // hidden behind a closed disclosure where nobody would look for them.
+  //
+  // It only ever opens. Closing a panel the user deliberately opened, on the
+  // next keystroke, would make the page feel like it was fighting them.
+  function syncFoldPanels() {
+    var mp = el("modelPanel");
+    if (mp && !mp.open) {
+      var hasModel = Object.keys(L.buildModel(state.model)).length > 0 || state.models.length > 0;
+      if (hasModel) mp.open = true;
+    }
+    var pp = el("policyPanel");
+    if (pp && !pp.open) {
+      var hasPolicy = L.str(state.defaults.limit) !== "" || L.str(state.defaults.maxLimit) !== "" ||
+        L.str(state.policy.maxNestingDepth) !== "" || L.list(state.policy.denyRegexOn).length > 0 ||
+        state.policy.requireTenantPredicate === true;
+      if (hasPolicy) pp.open = true;
+    }
+  }
 
   // ---- input handling ---------------------------------------------------
   // One delegated listener for the whole form. data-kind decides what the
@@ -1629,12 +2016,19 @@ if (typeof window !== "undefined") { window.QFLogic = QFLogic; }
     }
   }
 
-  // Remember which cards are open so a re-render does not fold everything.
+  // Remember which cards — and which Advanced disclosures inside them — are
+  // open, so a re-render does not fold away the section being worked on.
   document.addEventListener("toggle", function (ev) {
     var d = ev.target;
-    if (!d || !d.classList || !d.classList.contains("fieldcard")) return;
+    if (!d || !d.classList) return;
     var fi = parseInt(d.getAttribute("data-fi"), 10);
-    if (state.fields[fi]) state.fields[fi].open = d.open;
+    if (d.classList.contains("fieldcard")) {
+      if (state.fields[fi]) state.fields[fi].open = d.open;
+      return;
+    }
+    if (d.classList.contains("adv")) {
+      if (state.fields[fi]) state.fields[fi].advOpen = d.open;
+    }
   }, true);
 
   // The filename is only auto-derived from the entity until the user edits it.
@@ -1924,6 +2318,7 @@ if (typeof window !== "undefined") { window.QFLogic = QFLogic; }
   // Start with something to look at rather than an empty page: one field, and
   // an sql backend, both of which are what almost every config begins with.
   state.fields.push(L.blankField({ name: "", type: "string", open: true }));
+  hydrateInfo(document);
   renderAll();
 })();
 </script>

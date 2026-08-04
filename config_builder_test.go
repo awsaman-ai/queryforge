@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -31,6 +32,7 @@ func TestBuilderOutputLoads(t *testing.T) {
 		"docs/testdata/builder_minimal.config.json",          // the smallest config that loads
 		"docs/testdata/builder_full.config.json",             // every documented key, all six field types
 		"docs/testdata/builder_roundtrip_orders.config.json", // examples/orders.config.json, imported and re-emitted
+		"docs/testdata/builder_nested.config.json",           // embedded documents and arrays of sub-documents
 	}
 	for _, p := range paths {
 		t.Run(filepath.Base(p), func(t *testing.T) {
@@ -173,6 +175,53 @@ func TestBuilderFullConfigSemantics(t *testing.T) {
 	}
 }
 
+// TestBuilderNestedConfigCompiles closes the loop on the nesting UI. The
+// fixture is what the builder emits for a Mongo collection with an embedded
+// address and two arrays of sub-documents; this asserts that the file it writes
+// actually produces the same-element query the page promises. A builder that
+// emitted elemMatch in the wrong place, or dropped it, would still load — and
+// would silently return the cross-element rows the whole feature exists to
+// prevent.
+func TestBuilderNestedConfigCompiles(t *testing.T) {
+	c, err := LoadConfig("docs/testdata/builder_nested.config.json")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	// The embedded document carries a dot path and no array declaration.
+	city, ok := c.FieldByName("city")
+	if !ok {
+		t.Fatal("field city missing")
+	}
+	if city.ElemMatch != "" {
+		t.Errorf("city.elemMatch = %q, want empty — it is a plain embedded document", city.ElemMatch)
+	}
+	if got := c.PhysicalName("city", "mongo"); got != "shippingAddress.city" {
+		t.Errorf("city mongo path = %q, want shippingAddress.city", got)
+	}
+
+	// The array fields split into the two halves $elemMatch needs.
+	arr, rel, nested := c.MongoElemMatch("itemWidth")
+	if !nested || arr != "items" || rel != "dims.w" {
+		t.Errorf("itemWidth = (%q,%q,%v), want (items, dims.w, true)", arr, rel, nested)
+	}
+
+	// Two conditions on one array must compile to one $elemMatch.
+	q := NewQuery("Order")
+	q.Filter = and(
+		comp("itemSku", OpEquals, vStr("ABC")),
+		comp("itemQty", OpGte, vNum(2)),
+	)
+	if err := Validate(q, c); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	got := filterJSON(t, genMongo(t, c, q))
+	want := `{"items":{"$elemMatch":{"qty":{"$gte":2},"sku":"ABC"}}}`
+	if got != want {
+		t.Errorf("filter = %s, want %s", got, want)
+	}
+}
+
 // TestBuilderRoundTripPreservesConfig proves the builder's import path is
 // lossless. The fixture is examples/orders.config.json after a trip through
 // stateFromConfig -> buildConfig in the page, so if the two parse to the same
@@ -220,6 +269,8 @@ func TestBuilderInvalidOutputIsRejected(t *testing.T) {
 		{"dup_field.json", "duplicate field"},
 		{"enum_no_values.json", "must list values"},
 		{"unknown_operator.json", "unknown operator"},
+		{"elemmatch_mismatch.json", "must sit inside that array"},
+		{"bad_mongo_path.json", "invalid mongo path"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.file, func(t *testing.T) {
@@ -280,4 +331,39 @@ func TestBuilderPageShipsWithTheLibrary(t *testing.T) {
 			t.Errorf("secret prefix %q is missing from the builder", p)
 		}
 	}
+
+	// Every JSON key on Field must be listed in the page's KNOWN_FIELD array.
+	// That array drives both the import path and the unknown-key report, so a
+	// key added here and forgotten there is silently dropped on import — the
+	// exact failure mode that lost an array-of-enum domain once already
+	// (BUG-011). Reflection means the check cannot go stale.
+	known := between(html, "var KNOWN_FIELD", "];")
+	if known == "" {
+		t.Fatal("could not find KNOWN_FIELD in the builder page")
+	}
+	ft := reflect.TypeOf(Field{})
+	for i := 0; i < ft.NumField(); i++ {
+		key := strings.Split(ft.Field(i).Tag.Get("json"), ",")[0]
+		if key == "" || key == "-" {
+			continue
+		}
+		if !strings.Contains(known, `"`+key+`"`) {
+			t.Errorf("field key %q is missing from the builder's KNOWN_FIELD list, so importing a config that uses it would drop it", key)
+		}
+	}
+}
+
+// between returns the text after the first occurrence of start up to the next
+// end, or "" when either marker is absent.
+func between(s, start, end string) string {
+	i := strings.Index(s, start)
+	if i < 0 {
+		return ""
+	}
+	rest := s[i+len(start):]
+	j := strings.Index(rest, end)
+	if j < 0 {
+		return ""
+	}
+	return rest[:j]
 }

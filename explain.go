@@ -77,7 +77,61 @@ func Explain(q *Query, c *Config) string {
 		sb.WriteString(strings.Join(parts, ", "))
 		sb.WriteString(".")
 	}
+
+	// Same-element clause. When two predicates land on one array of
+	// sub-documents, "sku ABC and price over 100" has two readings — one item
+	// that is both, or two items that are each one — and the prose above cannot
+	// tell them apart. The Mongo compilation picks the same-element reading, so
+	// an explain-before-execute readback has to say which one it picked.
+	for _, path := range sameElementArrays(q.Filter, c) {
+		fmt.Fprintf(&sb, " Conditions on %s apply to the same array element.", path)
+	}
 	return sb.String()
+}
+
+// sameElementArrays returns, in stable order, the arrays of sub-documents that
+// carry more than one ANDed predicate — exactly the groups the Mongo generator
+// folds into a single $elemMatch. Only AND is considered: an OR branch is
+// satisfied independently, so nothing is being grouped there.
+func sameElementArrays(cond *Condition, c *Config) []string {
+	if cond == nil || c == nil {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{} // report each array once, however deep it recurs
+
+	var walk func(*Condition)
+	walk = func(n *Condition) {
+		if n == nil || n.Type != CondLogical {
+			return
+		}
+		if n.Op == OpAND {
+			counts := map[string]int{} // array path -> ANDed predicates on it
+			var order []string         // first-seen order, so output is stable
+			for _, ch := range n.Children {
+				if ch == nil || ch.Type != CondComparison {
+					continue
+				}
+				if path, _, ok := c.MongoElemMatch(ch.Field); ok {
+					if counts[path] == 0 {
+						order = append(order, path)
+					}
+					counts[path]++
+				}
+			}
+			for _, path := range order {
+				if counts[path] > 1 && !seen[path] {
+					seen[path] = true
+					out = append(out, path)
+				}
+			}
+		}
+		for _, ch := range n.Children { // grouping can occur in any nested AND
+			walk(ch)
+		}
+	}
+	walk(cond)
+	return out
 }
 
 // describeCondition renders one node of the filter tree as prose, parenthesizing

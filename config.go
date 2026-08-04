@@ -199,8 +199,25 @@ type Field struct {
 	Synonyms  []string   `json:"synonyms,omitempty"`  // alternate phrasings that resolve to this field
 
 	// mapping decouples the logical name from the physical column/field per
-	// backend, e.g. {"sql":"customer_name","mongo":"customerName"}.
+	// backend, e.g. {"sql":"customer_name","mongo":"customerName"}. For Mongo the
+	// value may be a dot path into an embedded document ("address.city"), which
+	// is written straight into the filter key.
 	Mapping map[string]string `json:"mapping,omitempty"`
+
+	// ElemMatch names the Mongo array-of-sub-documents this field lives inside,
+	// as a dot path from the document root (e.g. "items" for a field mapped to
+	// "items.sku"). It is Mongo-only; every other backend ignores it.
+	//
+	// It exists because dot notation alone is silently wrong on an array of
+	// sub-documents. {"items.sku":"ABC","items.price":{"$gt":100}} matches a
+	// document where one element has the sku and a *different* element has the
+	// price — the caller asked for one item that is both. Declaring the array
+	// makes the generator group sibling AND predicates into a single
+	// {"items":{"$elemMatch":{…}}}, which is the same-element reading.
+	//
+	// Leave it empty for a plain embedded document (address.city): there is only
+	// ever one sub-document there, so dot notation is already exact.
+	ElemMatch string `json:"elemMatch,omitempty"`
 
 	// --- Capability flags: what operations this field may take part in. ---
 	Queryable  *bool `json:"queryable,omitempty"`  // include/exclude from the NLP surface; false = hidden + rejected if referenced (default true)
@@ -307,6 +324,11 @@ func (c *Config) finalize() error {
 				return fmt.Errorf("config: field %q lists unknown operator %q", f.Name, op)
 			}
 		}
+		// Nested Mongo paths: a malformed dot path or an elemMatch that does not
+		// contain the field yields a query matching nothing, so reject it here.
+		if err := c.validateMongoPaths(f); err != nil {
+			return err
+		}
 		if _, dup := c.fieldByName[f.Name]; dup {
 			return fmt.Errorf("config: duplicate field %q", f.Name)
 		}
@@ -352,6 +374,79 @@ func (c *Config) PhysicalName(fieldName, backend string) string {
 		return phys
 	}
 	return fieldName
+}
+
+// MongoElemMatch reports whether the named field lives inside an array of
+// sub-documents and, when it does, returns the array's path plus the field's
+// path *relative* to one array element.
+//
+// For a field mapped to "items.sku" with elemMatch "items" it returns
+// ("items", "sku", true) — the two halves the $elemMatch document needs. The
+// relative path keeps its own dots, so "items.dims.w" under "items" yields
+// "dims.w" and still addresses the right leaf inside the element.
+func (c *Config) MongoElemMatch(fieldName string) (arrayPath, relPath string, ok bool) {
+	f, found := c.fieldByName[fieldName]
+	if !found || f.ElemMatch == "" { // unregistered or a plain (non-array) path
+		return "", "", false
+	}
+	full := c.PhysicalName(fieldName, "mongo") // the complete dot path
+	rel := strings.TrimPrefix(full, f.ElemMatch+".")
+	if rel == full || rel == "" { // finalize guarantees the prefix; belt and braces
+		return "", "", false
+	}
+	return f.ElemMatch, rel, true
+}
+
+// validDotPath reports whether s is a usable Mongo field path: one or more
+// non-empty, dot-separated segments, none of which starts with "$" (reserved
+// for operators) or contains a NUL. A typo like "items..sku" or a stray leading
+// dot would otherwise become a filter key that matches nothing, with no error
+// anywhere to explain the empty result set.
+func validDotPath(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, seg := range strings.Split(s, ".") {
+		if seg == "" { // leading, trailing, or doubled dot
+			return false
+		}
+		if strings.HasPrefix(seg, "$") { // would be read as an operator
+			return false
+		}
+		if strings.ContainsRune(seg, 0) { // NUL is illegal in a BSON key
+			return false
+		}
+	}
+	return true
+}
+
+// validateMongoPaths checks the field's Mongo dot path and its elemMatch
+// declaration against each other, so a mismatch fails at load rather than
+// producing a filter that quietly matches nothing.
+func (c *Config) validateMongoPaths(f *Field) error {
+	full := f.Name // the path used when no mongo mapping is declared
+	if m, ok := f.Mapping["mongo"]; ok && m != "" {
+		full = m
+	}
+	if !validDotPath(full) {
+		return fmt.Errorf("config: field %q has an invalid mongo path %q "+
+			"(expected dot-separated segments, e.g. \"items.sku\"; no empty segments, no leading \"$\")", f.Name, full)
+	}
+	if f.ElemMatch == "" { // nothing further to check for a plain path
+		return nil
+	}
+	if !validDotPath(f.ElemMatch) {
+		return fmt.Errorf("config: field %q has an invalid elemMatch path %q "+
+			"(expected the dot path of the array, e.g. \"items\")", f.Name, f.ElemMatch)
+	}
+	// The array path must actually contain the field, otherwise the generated
+	// $elemMatch would search the wrong sub-document.
+	if rel := strings.TrimPrefix(full, f.ElemMatch+"."); rel == full || rel == "" {
+		return fmt.Errorf("config: field %q declares elemMatch %q but its mongo path is %q — "+
+			"the mongo path must sit inside that array (e.g. elemMatch \"items\" with mongo \"items.sku\")",
+			f.Name, f.ElemMatch, full)
+	}
+	return nil
 }
 
 // EffectiveOperators returns the operators a field permits. When the config
