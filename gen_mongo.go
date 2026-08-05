@@ -165,56 +165,64 @@ func mongoPredicate(c *Config, cond *Condition, field string, now time.Time) (ma
 		}
 	}
 
+	// The field's declared value-case rule, resolved once for every branch
+	// below. OpRegex is the one operator that must not use it: its value is a
+	// pattern whose escapes change meaning with case (\d vs \D).
+	vc := c.valueCaseFor(cond.Field)
+
 	switch cond.Operator {
 	case OpIsNull:
 		return map[string]any{field: nil}, nil
 	case OpIsNotNull:
 		return map[string]any{field: map[string]any{"$ne": nil}}, nil
 	case OpEquals:
-		return map[string]any{field: mongoScalar(cond.Value, now)}, nil
+		return map[string]any{field: mongoScalar(cond.Value, now, vc)}, nil
 	case OpNotEquals:
-		return expr(field, "$ne", mongoScalar(cond.Value, now)), nil
+		return expr(field, "$ne", mongoScalar(cond.Value, now, vc)), nil
 	case OpGt:
-		return expr(field, "$gt", mongoScalar(cond.Value, now)), nil
+		return expr(field, "$gt", mongoScalar(cond.Value, now, vc)), nil
 	case OpLt:
-		return expr(field, "$lt", mongoScalar(cond.Value, now)), nil
+		return expr(field, "$lt", mongoScalar(cond.Value, now, vc)), nil
 	case OpGte:
-		return expr(field, "$gte", mongoScalar(cond.Value, now)), nil
+		return expr(field, "$gte", mongoScalar(cond.Value, now, vc)), nil
 	case OpLte:
-		return expr(field, "$lte", mongoScalar(cond.Value, now)), nil
+		return expr(field, "$lte", mongoScalar(cond.Value, now, vc)), nil
 	case OpAfter:
-		return expr(field, "$gte", mongoScalar(cond.Value, now)), nil // inclusive, per design doc
+		return expr(field, "$gte", mongoScalar(cond.Value, now, vc)), nil // inclusive, per design doc
 	case OpBefore:
-		return expr(field, "$lte", mongoScalar(cond.Value, now)), nil
+		return expr(field, "$lte", mongoScalar(cond.Value, now, vc)), nil
 	case OpBetween:
 		elems, _ := cond.Value.AsSlice()
-		conv := mongoElems(elems, elemType)
+		conv := mongoElems(elems, elemType, vc)
 		return map[string]any{field: map[string]any{"$gte": conv[0], "$lte": conv[1]}}, nil
 	case OpIn:
 		elems, _ := cond.Value.AsSlice()
-		return expr(field, "$in", mongoElems(elems, elemType)), nil
+		return expr(field, "$in", mongoElems(elems, elemType, vc)), nil
 	case OpNotIn:
 		elems, _ := cond.Value.AsSlice()
-		return expr(field, "$nin", mongoElems(elems, elemType)), nil
+		return expr(field, "$nin", mongoElems(elems, elemType, vc)), nil
 	case OpContainsAll:
 		elems, _ := cond.Value.AsSlice()
-		return expr(field, "$all", mongoElems(elems, elemType)), nil
+		return expr(field, "$all", mongoElems(elems, elemType, vc)), nil
 	case OpContainsAny:
 		elems, _ := cond.Value.AsSlice()
-		return expr(field, "$in", mongoElems(elems, elemType)), nil
+		return expr(field, "$in", mongoElems(elems, elemType, vc)), nil
 	case OpContains:
 		// Array field: membership. String field: case-insensitive substring.
 		if f, ok := c.FieldByName(cond.Field); ok && f.Type == FieldArray {
-			return map[string]any{field: mongoScalar(cond.Value, now)}, nil
+			return map[string]any{field: mongoScalar(cond.Value, now, vc)}, nil
 		}
+		// Fold before quoting, so the pattern is built from the physical form.
+		// The "i" option already makes this branch case-blind; applying the rule
+		// anyway keeps one behaviour across backends (Postgres LIKE is not).
 		s, _ := cond.Value.AsString()
-		return regexExpr(field, regexp.QuoteMeta(s), "i"), nil
+		return regexExpr(field, regexp.QuoteMeta(vc.apply(s)), "i"), nil
 	case OpStartsWith:
 		s, _ := cond.Value.AsString()
-		return regexExpr(field, "^"+regexp.QuoteMeta(s), ""), nil
+		return regexExpr(field, "^"+regexp.QuoteMeta(vc.apply(s)), ""), nil
 	case OpEndsWith:
 		s, _ := cond.Value.AsString()
-		return regexExpr(field, regexp.QuoteMeta(s)+"$", ""), nil
+		return regexExpr(field, regexp.QuoteMeta(vc.apply(s))+"$", ""), nil
 	case OpRegex:
 		s, _ := cond.Value.AsString()
 		return regexExpr(field, s, ""), nil // raw pattern; policy denyRegexOn gates this upstream
@@ -423,8 +431,11 @@ func toAnySlice(parts []map[string]any) []any {
 }
 
 // mongoScalar converts a scalar Value into its Mongo Go value. Dates (absolute
-// and relative) become time.Time so the driver stores a real Date.
-func mongoScalar(v *Value, now time.Time) any {
+// and relative) become time.Time so the driver stores a real Date. The field's
+// value-case rule reaches only the string-bearing kinds; a date has already
+// stopped being text by the time it is written, and numbers/booleans have no
+// case to force.
+func mongoScalar(v *Value, now time.Time, vc ValueCase) any {
 	switch v.Kind {
 	case KindRelativeDate:
 		return resolveRelative(now, v.Unit, v.Amount)
@@ -439,13 +450,15 @@ func mongoScalar(v *Value, now time.Time) any {
 		return b
 	default: // string, enum
 		s, _ := v.AsString()
-		return s
+		return vc.apply(s)
 	}
 }
 
 // mongoElems converts raw array elements, turning date strings into time.Time
-// when the element type is date and leaving all others untouched.
-func mongoElems(elems []any, elemType FieldType) []any {
+// when the element type is date and applying the field's value-case rule to
+// every remaining string. Date elements are converted first, so a date array is
+// never recased — it never stays a string long enough to matter.
+func mongoElems(elems []any, elemType FieldType, vc ValueCase) []any {
 	out := make([]any, len(elems))
 	for i, e := range elems {
 		if elemType == FieldDate {
@@ -454,7 +467,7 @@ func mongoElems(elems []any, elemType FieldType) []any {
 				continue
 			}
 		}
-		out[i] = e
+		out[i] = vc.applyAny(e)
 	}
 	return out
 }

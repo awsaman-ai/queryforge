@@ -310,6 +310,22 @@ An **array of sub-documents** needs one more key, because dot paths alone are si
 
 One element must now satisfy every condition. `elemMatch` must be a leading segment of the field's Mongo path — a mismatch is rejected at load, not discovered in production. Grouping applies to `AND` only, is per-array, and other backends ignore the key entirely (give the field a flat `mapping.sql` column). Full rules: [`docs/config.html#nested`](docs/config.html).
 
+### Value case
+
+When a column stores `SHIPPED` but people say "shipped", say so once on the field rather than teaching the model to shout:
+
+```json
+{ "name": "status", "type": "enum", "values": ["shipped", "cancelled"], "valueCase": "upper" }
+```
+
+```
+"orders that shipped"
+→ SQL    status = $1   args: ["SHIPPED"]
+→ Mongo  {"status": "SHIPPED"}
+```
+
+The fold happens only when the query is built. The model never sees the key and still emits the `values` as written, validation still checks that exact spelling, and the AST stays round-trippable — so one AST compiles correctly for a second backend that cases things differently. It covers every string a predicate carries, including scope filters and fields inside an `elemMatch` array; numbers, booleans and dates are untouched, and a raw `regex` value is deliberately exempt (upper-casing `\d` would give `\D`). Only `string`, `enum` and arrays of them may set it — anywhere else the key could never fire, so the config is rejected at load. Full rules: [`docs/config.html#valuecase`](docs/config.html).
+
 ## Observability
 
 QueryForge never writes a log line. It reports facts through one optional

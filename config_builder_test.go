@@ -64,6 +64,34 @@ func TestBuilderFullConfigSemantics(t *testing.T) {
 			ssn.EffectiveQueryable(), ssn.EffectiveFilterable(), ssn.EffectiveReturnable())
 	}
 
+	// valueCase must arrive on the two fields that declare it and on no other,
+	// in both directions: the key is the physical case of the stored column, so
+	// leaking it onto a neighbouring field would silently recase that column's
+	// values, and losing it would silently stop recasing this one's.
+	name, ok := c.FieldByName("name")
+	if !ok {
+		t.Fatal("field name missing")
+	}
+	if name.ValueCase != CaseLower {
+		t.Errorf("name.valueCase = %q, want %q", name.ValueCase, CaseLower)
+	}
+	department, ok := c.FieldByName("department")
+	if !ok {
+		t.Fatal("field department missing")
+	}
+	if department.ValueCase != CaseUpper {
+		t.Errorf("department.valueCase = %q, want %q", department.ValueCase, CaseUpper)
+	}
+	for _, other := range []string{"salary", "active", "hiredAt", "skills"} {
+		f, ok := c.FieldByName(other)
+		if !ok {
+			t.Fatalf("field %s missing", other)
+		}
+		if f.ValueCase != CaseAsIs {
+			t.Errorf("%s.valueCase = %q, want no rule at all", other, f.ValueCase)
+		}
+	}
+
 	// A flag left on "default" must emit nothing, so the library keeps deciding
 	// by type. An array is not sortable by default.
 	scores, ok := c.FieldByName("scores")
@@ -271,6 +299,7 @@ func TestBuilderInvalidOutputIsRejected(t *testing.T) {
 		{"unknown_operator.json", "unknown operator"},
 		{"elemmatch_mismatch.json", "must sit inside that array"},
 		{"bad_mongo_path.json", "invalid mongo path"},
+		{"valuecase_wrong_type.json", "not strings"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.file, func(t *testing.T) {

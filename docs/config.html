@@ -173,6 +173,7 @@
     <a href="#types">Field types</a>
     <a href="#nested">Nested fields (Mongo)</a>
     <a href="#capabilities">Capability flags</a>
+    <a href="#valuecase">Value case</a>
     <a href="#hints">indexed &amp; priority</a>
     <a href="#operators">Operator catalogue</a>
     <a href="#values">Value kinds</a>
@@ -320,6 +321,7 @@ ORDER BY created_at DESC LIMIT 20
     <tr><td><code>synonyms</code></td><td>string[]</td><td class="default">[]</td><td>Alternate phrasings that resolve to this field (fed to the model and used for "did you mean" suggestions).</td></tr>
     <tr><td><code>mapping</code></td><td>object</td><td class="default">{}</td><td>Backend → physical column/field name, e.g. <code>{"sql":"customer_name","mongo":"customerName"}</code>. Falls back to <code>name</code>. For Mongo the value may be a dot path — see <a href="#nested">nested fields</a>.</td></tr>
     <tr><td><code>elemMatch</code></td><td>string</td><td class="default">""</td><td>Mongo only. The array of sub-documents this field lives inside, e.g. <code>"items"</code> for a field mapped to <code>"items.sku"</code>. See <a href="#nested">nested fields</a>.</td></tr>
+    <tr><td><code>valueCase</code></td><td>string</td><td class="default">""</td><td>Force the case of this field's values in the built query: <code>"upper"</code>, <code>"lower"</code>, or omit for none. String-valued fields only. See <a href="#valuecase">value case</a>.</td></tr>
     <tr><td><code>queryable</code></td><td>boolean</td><td class="default">true</td><td>Include/exclude from the NL surface. <code>false</code> hides the field from the model and rejects any AST that references it.</td></tr>
     <tr><td><code>filterable</code></td><td>boolean</td><td class="default">true</td><td>May appear in filter predicates (WHERE / find).</td></tr>
     <tr><td><code>searchable</code></td><td>boolean</td><td class="default">string→true, else false</td><td>May use text-search operators (<code>contains, startsWith, endsWith, regex</code>).</td></tr>
@@ -413,6 +415,27 @@ ORDER BY created_at DESC LIMIT 20
   </table></div>
   <p class="muted">Use <code>queryable: false</code> + <code>returnable: false</code> together to fully hide a sensitive column (e.g. an SSN) from both querying and results.</p>
   <div class="note"><strong>How <code>returnable: false</code> is enforced.</strong> It is not only a guard on explicit <code>select</code> lists. As soon as any field in the config is non-returnable, QueryForge stops emitting the wide form (<code>SELECT *</code>, or an unprojected Mongo <code>find</code>) and instead emits an explicit allow-list of the returnable columns — because <code>SELECT *</code> would return the hidden column straight from the database and silently defeat the exclusion. Configs that hide nothing keep the compact <code>SELECT *</code>. If <em>every</em> field is non-returnable the projection would be empty, which is invalid SQL and means "return everything" in Mongo, so QueryForge reports an error instead.</div>
+
+  <h2 id="valuecase">Value case — matching a column that stores UPPERCASE <span class="pill">v0.0.9</span></h2>
+  <p>Databases and people rarely agree on case. A <code>status</code> column holding <code>SHIPPED</code> will never match the <code>shipped</code> someone typed, and asking the model to shout is both unreliable and beside the point: the case belongs to the storage, not to the question. <code>valueCase</code> states it once, per field:</p>
+  <pre><code>{ "name": "status", "type": "enum", "values": ["shipped", "cancelled"], "valueCase": "upper" }</code></pre>
+  <div class="tablewrap"><table>
+    <tr><th>Question</th><th>AST</th><th>SQL</th><th>Mongo</th></tr>
+    <tr><td>"orders that shipped"</td>
+        <td><code>status equals "shipped"</code></td>
+        <td><code>status = $1</code> · args <code>["SHIPPED"]</code></td>
+        <td><code>{"status":"SHIPPED"}</code></td></tr>
+  </table></div>
+  <p>The conversion happens <strong>only when the query is built</strong>. Everything above the generator keeps the spelling you wrote:</p>
+  <ul>
+    <li>The model never learns the key exists, and still emits the <code>values</code> exactly as listed.</li>
+    <li>Validation still checks that spelling verbatim — with the config above, an AST carrying <code>"SHIPPED"</code> is <em>rejected</em> as out of domain. Your enum stays one readable vocabulary rather than two.</li>
+    <li>The AST stays round-trippable, so the same AST compiles correctly for a second backend that cases things differently.</li>
+    <li>Application-supplied <a href="#scope">scope filters</a> are cased too — they reach the generator like any other predicate, and a tenant column stored upper-case needs it just as much.</li>
+  </ul>
+  <p>It applies to every string a predicate carries — <code>equals, notEquals, in, notIn, between, contains, startsWith, endsWith, containsAny, containsAll</code> — on both backends, including fields inside an <a href="#nested"><code>elemMatch</code></a> array. Values that are not text are never touched: numbers, booleans and dates pass through unchanged.</p>
+  <div class="note"><strong><code>regex</code> is deliberately exempt.</strong> A pattern is not a word. Upper-casing <code>\d</code> gives <code>\D</code> — "any digit" silently becomes "anything but a digit" — so a raw <code>regex</code> value reaches the query exactly as written, whatever the field declares.</div>
+  <p class="muted">Only fields whose values are text may set it: <code>string</code>, <code>enum</code>, or an <code>array</code> of either. On a number, date or boolean the key would do nothing, so the config is rejected at load rather than loading with a setting that quietly never fires. A misspelt setting (<code>"uppercase"</code>, <code>"UPPER"</code>) is rejected for the same reason — the only accepted values are <code>"upper"</code> and <code>"lower"</code>.</p>
 
   <h2 id="hints">indexed &amp; priority</h2>
   <p>These two are <strong>hints</strong>, not gates — they never reject a query. They steer deterministic behavior:</p>

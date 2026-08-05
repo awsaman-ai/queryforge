@@ -219,6 +219,26 @@ type Field struct {
 	// ever one sub-document there, so dot notation is already exact.
 	ElemMatch string `json:"elemMatch,omitempty"`
 
+	// ValueCase forces the letter case of the string values this field compiles
+	// into the final query: "upper", "lower", or "" (leave exactly as written).
+	//
+	// It exists for the common mismatch where the stored column does not use the
+	// same case as the words people say. A status column holding "SHIPPED" will
+	// not match the "shipped" the user typed, and teaching the model to shout is
+	// both unreliable and pointless — the case is a property of the storage, not
+	// of the question. Declaring it here keeps the config's `values` as the one
+	// spoken vocabulary (the model still sees and must emit those exact strings,
+	// and validation still checks them verbatim) while the generator writes the
+	// physical form. The conversion is therefore invisible to the model and
+	// happens only on the way out, per backend.
+	//
+	// Only string-valued fields may set it: string, enum, and array whose
+	// itemType is one of those. Numbers, booleans and dates have no case, and
+	// silently ignoring the flag on them would hide a config mistake, so load
+	// rejects it there. Raw `regex` values are also left untouched — recasing a
+	// pattern would turn \d into \D and invert its meaning.
+	ValueCase ValueCase `json:"valueCase,omitempty"`
+
 	// --- Capability flags: what operations this field may take part in. ---
 	Queryable  *bool `json:"queryable,omitempty"`  // include/exclude from the NLP surface; false = hidden + rejected if referenced (default true)
 	Filterable *bool `json:"filterable,omitempty"` // may appear in structured filter predicates (default true)
@@ -323,6 +343,19 @@ func (c *Config) finalize() error {
 			if !isKnownOperator(op) {
 				return fmt.Errorf("config: field %q lists unknown operator %q", f.Name, op)
 			}
+		}
+		// The value-case rule is rejected rather than ignored when it cannot
+		// apply, because both mistakes it catches are invisible at runtime: a
+		// misspelt setting and a case rule on a field that has no letters would
+		// each leave the query silently uncased.
+		if !validValueCase(f.ValueCase) {
+			return fmt.Errorf("config: field %q has invalid valueCase %q (allowed: %q, %q, or omit the key)",
+				f.Name, f.ValueCase, CaseLower, CaseUpper)
+		}
+		if f.ValueCase != CaseAsIs && !f.carriesStrings() {
+			return fmt.Errorf("config: field %q declares valueCase %q but its values are not strings (type %q) — "+
+				"valueCase applies to string and enum fields, or arrays of them",
+				f.Name, f.ValueCase, f.Type)
 		}
 		// Nested Mongo paths: a malformed dot path or an elemMatch that does not
 		// contain the field yields a query matching nothing, so reject it here.

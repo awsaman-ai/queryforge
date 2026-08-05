@@ -657,6 +657,10 @@ var QFLogic = (function () {
     elemMatch: { t: "field.elemMatch",
       what: "Names the Mongo array of sub-documents this field lives inside. Without it, two conditions on the same array are checked independently and can match two different elements; with it they are folded into one $elemMatch, meaning one element must satisfy them all. Leave it empty for a plain embedded document — there is only one sub-document there, so a dot path is already exact.",
       ex: "items: [ {sku:\"ABC\", price: 20}, {sku:\"XYZ\", price: 900} ]\n\"item ABC costing over 100\"\n\noff → {\"items.sku\":\"ABC\", \"items.price\":{\"$gt\":100}}\n      MATCHES this order — two different items. Wrong.\n\non  → {\"items\":{\"$elemMatch\":{\"sku\":\"ABC\",\"price\":{\"$gt\":100}}}}\n      does not match. Correct." },
+
+    valueCase: { t: "field.valueCase",
+      what: "Forces the letter case of the values this field puts into the final query — for a column that stores SHIPPED while people say \"shipped\". It changes nothing above the generator: the model still sees and emits the values exactly as you wrote them here, and validation still checks that spelling, so your enum domain stays readable. Only the compiled SQL argument or Mongo value is recased. Raw regex values are left alone, because recasing a pattern would turn \\d into \\D.",
+      ex: "values: [\"shipped\", \"cancelled\"]   valueCase: upper\n\"orders that shipped\"\n\nAST    → {field:\"status\", op:\"equals\", value:\"shipped\"}\nSQL    → status = $1   args: [\"SHIPPED\"]\nMongo  → {\"status\":\"SHIPPED\"}\n\nWith valueCase left on default the argument stays \"shipped\"." },
     indexed: { t: "field.indexed",
       what: "Tells QueryForge this field is backed by a database index. It never rejects anything: indexed predicates are ordered first, and filtering on a non-indexed field raises a soft warning.",
       ex: "status indexed, note not indexed\n→ WHERE (status = $1 AND note LIKE $2)\n   + warning: filtering on non-indexed field \"note\" may be slow." },
@@ -784,6 +788,16 @@ var QFLogic = (function () {
     return field.type === "enum" || (field.type === "array" && field.itemType === "enum");
   }
 
+  // carriesStrings reports whether a field's values are text, and so whether a
+  // case rule can mean anything for it. Arrays answer for their element type;
+  // an array with no itemType defaults to string, exactly as the loader reads
+  // it. Mirrors Field.carriesStrings in the library.
+  function carriesStrings(field) {
+    var t = field.type;
+    if (t === "array") t = str(field.itemType) || "string";
+    return t === "string" || t === "enum";
+  }
+
   // effectiveOperators is what the field really permits: its explicit list, or
   // the type default when the list is empty.
   function effectiveOperators(field) {
@@ -862,6 +876,7 @@ var QFLogic = (function () {
       synonyms: "",
       mapping: {},       // backend key -> physical name
       elemMatch: "",     // Mongo array of sub-documents this field sits inside
+      valueCase: "",     // "", "lower" or "upper" — case forced on emitted values
       queryable: "", filterable: "", searchable: "", sortable: "", returnable: "",
       indexed: false, priority: "",
       permRead: "",      // permissions.read roles, comma-separated
@@ -945,6 +960,11 @@ var QFLogic = (function () {
     // instead would hand back a file that loads and silently loses the
     // same-element guarantee — the one failure this key exists to prevent.
     if (str(f.elemMatch)) out.elemMatch = str(f.elemMatch);
+
+    // valueCase forces the case of the values written into the query. Emitted
+    // only when a case was chosen, so an untouched field carries no key and
+    // values reach the query exactly as the AST spelled them.
+    if (str(f.valueCase)) out.valueCase = str(f.valueCase);
 
     // Capability flags: only explicit choices are written, so an untouched
     // field inherits the type-aware default rather than freezing today's one.
@@ -1205,6 +1225,15 @@ var QFLogic = (function () {
         warn(at, "elemMatch is a Mongo-only key and no mongo backend is declared, so it currently affects nothing.");
       }
 
+      // A case rule on a field with no letters. The loader rejects this rather
+      // than ignoring it, so catching it here saves a failed load; it happens
+      // most often by changing a field's type after picking the case.
+      var vcase = str(f.valueCase);
+      if (vcase && !carriesStrings(f)) {
+        err(at, "valueCase \"" + vcase + "\" is set on a " + f.type + " field, whose values have no letter case. " +
+          "It applies to string and enum fields, or arrays of them. The loader rejects this.");
+      }
+
       // Numeric bounds that exclude everything.
       var mn = num(f.min), mx = num(f.max);
       if (mn !== null && mx !== null && mn > mx) {
@@ -1343,7 +1372,7 @@ var QFLogic = (function () {
 
   var KNOWN_TOP    = ["entity", "version", "model", "models", "backends", "fields", "defaults", "policy"];
   var KNOWN_MODEL  = ["provider", "baseURL", "model", "apiKeyEnv", "temperature", "maxTokens", "jsonMode"];
-  var KNOWN_FIELD  = ["name", "type", "values", "itemType", "operators", "synonyms", "mapping", "elemMatch",
+  var KNOWN_FIELD  = ["name", "type", "values", "itemType", "operators", "synonyms", "mapping", "elemMatch", "valueCase",
                       "queryable", "filterable", "searchable", "sortable", "returnable",
                       "indexed", "priority", "permissions", "validators"];
   var KNOWN_POLICY = ["requireTenantPredicate", "maxNestingDepth", "denyRegexOn"];
@@ -1410,6 +1439,7 @@ var QFLogic = (function () {
           for (var m = 0; m < mk.length; m++) f.mapping[mk[m]] = String(src.mapping[mk[m]]);
         }
         f.elemMatch = src.elemMatch === undefined ? "" : String(src.elemMatch);
+        f.valueCase = src.valueCase === undefined ? "" : String(src.valueCase);
         for (var c = 0; c < CAPABILITIES.length; c++) {
           f[CAPABILITIES[c].key] = triOf(src[CAPABILITIES[c].key]);
         }
@@ -1480,6 +1510,7 @@ var QFLogic = (function () {
     str: str, num: num, list: list, tri: tri, triOf: triOf,
     validEnvVarName: validEnvVarName, looksLikeSecret: looksLikeSecret,
     effectiveOperators: effectiveOperators, effectiveCapability: effectiveCapability,
+    carriesStrings: carriesStrings,
     blankModel: blankModel, blankField: blankField, blankState: blankState,
     buildModel: buildModel, buildField: buildField, buildConfig: buildConfig,
     validateState: validateState, stateFromConfig: stateFromConfig,
@@ -1670,6 +1701,9 @@ if (typeof window !== "undefined") { window.QFLogic = QFLogic; }
     // it earns a place on the collapsed summary line.
     if (L.str(f.elemMatch)) badges.push("in " + L.str(f.elemMatch) + "[]");
     else if (L.mongoPath(f).indexOf(".") !== -1) badges.push("nested path");
+    // Value case changes the literal that reaches the database, so it belongs
+    // on the summary line too rather than only inside the open card.
+    if (L.str(f.valueCase)) badges.push(f.valueCase === "upper" ? "UPPERCASE values" : "lowercase values");
 
     var needsDomain = f.type === "enum" || (f.type === "array" && f.itemType === "enum");
     var summaryBad = !name || (needsDomain && L.list(f.values).length === 0);
@@ -1795,6 +1829,19 @@ if (typeof window !== "undefined") { window.QFLogic = QFLogic; }
           ? '<div class="row"><div><label>values <span class="q">· required for enum, comma-separated</span>' + info("values") + '</label>' +
             '<input type="text" data-path="fields.' + i + '.values" data-kind="structural" placeholder="PLACED, DELIVERED, CANCELLED"' + attr("value", f.values) + '>' +
             '<p class="hint" style="margin:.2rem 0 0">A value outside this domain is rejected before any query is built.</p></div></div>'
+          : '') +
+        // Value case sits next to the domain it rewrites, and only on fields
+        // whose values are text — on a number or a date there is nothing to
+        // recase and the loader would reject the key.
+        (L.carriesStrings(f)
+          ? '<div class="row"><div><label>value case <span class="q">· case used in the built query</span>' + info("valueCase") + '</label>' +
+            '<select data-path="fields.' + i + '.valueCase" data-kind="structural">' +
+            '<option value=""' + (f.valueCase === "" ? " selected" : "") + '>default — leave values exactly as written</option>' +
+            '<option value="lower"' + (f.valueCase === "lower" ? " selected" : "") + '>lowercase — the column stores lower case</option>' +
+            '<option value="upper"' + (f.valueCase === "upper" ? " selected" : "") + '>UPPERCASE — the column stores upper case</option>' +
+            '</select>' +
+            '<p class="hint" style="margin:.2rem 0 0">Applies when the query is built, not before: the model still uses the ' +
+            'spelling above and validation still checks it. A <code>regex</code> value is never recased.</p></div></div>'
           : '') +
         '<div class="row"><div><label>synonyms <span class="q">· comma-separated; what people actually say</span>' + info("synonyms") + '</label>' +
           '<input type="text" data-path="fields.' + i + '.synonyms" data-kind="structural" placeholder="state, order status"' + attr("value", f.synonyms) + '></div></div>' +

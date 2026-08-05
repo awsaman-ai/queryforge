@@ -146,8 +146,15 @@ func (b *sqlBuilder) logical(c *Config, cond *Condition) (string, error) {
 
 // comparison renders a single predicate. Date semantics follow the design doc:
 // after/before are inclusive (>= / <=).
+//
+// The field's declared value-case rule is resolved once here and threaded into
+// every value-rendering helper, so a single lookup covers scalars, list
+// elements and LIKE patterns alike. OpRegex deliberately passes CaseAsIs: the
+// value there is a pattern, and recasing it would rewrite escapes (\d means
+// "digit", \D means "not a digit") into a different query.
 func (b *sqlBuilder) comparison(c *Config, cond *Condition) (string, error) {
 	field := c.PhysicalName(cond.Field, "sql") // logical -> physical column
+	vc := c.valueCaseFor(cond.Field)           // "" unless the config asked for a case
 
 	switch cond.Operator {
 	case OpIsNull:
@@ -155,47 +162,47 @@ func (b *sqlBuilder) comparison(c *Config, cond *Condition) (string, error) {
 	case OpIsNotNull:
 		return field + " IS NOT NULL", nil
 	case OpEquals:
-		return b.scalar(field, "=", cond.Value)
+		return b.scalar(field, "=", cond.Value, vc)
 	case OpNotEquals:
-		return b.scalar(field, "<>", cond.Value)
+		return b.scalar(field, "<>", cond.Value, vc)
 	case OpGt:
-		return b.scalar(field, ">", cond.Value)
+		return b.scalar(field, ">", cond.Value, vc)
 	case OpLt:
-		return b.scalar(field, "<", cond.Value)
+		return b.scalar(field, "<", cond.Value, vc)
 	case OpGte:
-		return b.scalar(field, ">=", cond.Value)
+		return b.scalar(field, ">=", cond.Value, vc)
 	case OpLte:
-		return b.scalar(field, "<=", cond.Value)
+		return b.scalar(field, "<=", cond.Value, vc)
 	case OpAfter:
-		return b.scalar(field, ">=", cond.Value)
+		return b.scalar(field, ">=", cond.Value, vc)
 	case OpBefore:
-		return b.scalar(field, "<=", cond.Value)
+		return b.scalar(field, "<=", cond.Value, vc)
 	case OpRegex:
-		return b.scalar(field, "~", cond.Value)
+		return b.scalar(field, "~", cond.Value, CaseAsIs) // pattern, never recased
 	case OpBetween:
-		return b.between(field, cond.Value)
+		return b.between(field, cond.Value, vc)
 	case OpIn:
-		return b.inList(field, "IN", cond.Value)
+		return b.inList(field, "IN", cond.Value, vc)
 	case OpNotIn:
-		return b.inList(field, "NOT IN", cond.Value)
+		return b.inList(field, "NOT IN", cond.Value, vc)
 	case OpStartsWith:
-		return b.like(field, "", "%", cond.Value) // value%
+		return b.like(field, "", "%", cond.Value, vc) // value%
 	case OpEndsWith:
-		return b.like(field, "%", "", cond.Value) // %value
+		return b.like(field, "%", "", cond.Value, vc) // %value
 	case OpContains:
-		return b.contains(c, field, cond)
+		return b.contains(c, field, cond, vc)
 	case OpContainsAny:
-		return b.arrayOp(field, "&&", cond.Value) // array overlap
+		return b.arrayOp(field, "&&", cond.Value, vc) // array overlap
 	case OpContainsAll:
-		return b.arrayOp(field, "@>", cond.Value) // array contains
+		return b.arrayOp(field, "@>", cond.Value, vc) // array contains
 	default:
 		return "", fmt.Errorf("sql: unsupported operator %q", cond.Operator)
 	}
 }
 
 // scalar renders "field <op> $N" for a single bound value.
-func (b *sqlBuilder) scalar(field, sqlOp string, v *Value) (string, error) {
-	arg, err := b.value(v)
+func (b *sqlBuilder) scalar(field, sqlOp string, v *Value, vc ValueCase) (string, error) {
+	arg, err := b.value(v, vc)
 	if err != nil {
 		return "", err
 	}
@@ -203,14 +210,16 @@ func (b *sqlBuilder) scalar(field, sqlOp string, v *Value) (string, error) {
 }
 
 // between renders "field BETWEEN $a AND $b" from a 2-element array value.
-func (b *sqlBuilder) between(field string, v *Value) (string, error) {
+func (b *sqlBuilder) between(field string, v *Value, vc ValueCase) (string, error) {
 	elems, _ := v.AsSlice() // validator guaranteed a 2-element array
+	elems = vc.applyElems(elems)
 	return fmt.Sprintf("%s BETWEEN %s AND %s", field, b.bind(elems[0]), b.bind(elems[1])), nil
 }
 
 // inList renders "field IN ($1, $2, …)" (or NOT IN) from an array value.
-func (b *sqlBuilder) inList(field, keyword string, v *Value) (string, error) {
+func (b *sqlBuilder) inList(field, keyword string, v *Value, vc ValueCase) (string, error) {
 	elems, _ := v.AsSlice()
+	elems = vc.applyElems(elems)
 	phs := make([]string, len(elems))
 	for i, e := range elems {
 		phs[i] = b.bind(e)
@@ -220,8 +229,9 @@ func (b *sqlBuilder) inList(field, keyword string, v *Value) (string, error) {
 
 // arrayOp renders a Postgres array operator against an ARRAY[...] literal of
 // bound placeholders, e.g. "tags @> ARRAY[$1, $2]".
-func (b *sqlBuilder) arrayOp(field, sqlOp string, v *Value) (string, error) {
+func (b *sqlBuilder) arrayOp(field, sqlOp string, v *Value, vc ValueCase) (string, error) {
 	elems, _ := v.AsSlice()
+	elems = vc.applyElems(elems)
 	phs := make([]string, len(elems))
 	for i, e := range elems {
 		phs[i] = b.bind(e)
@@ -230,32 +240,39 @@ func (b *sqlBuilder) arrayOp(field, sqlOp string, v *Value) (string, error) {
 }
 
 // like renders a LIKE predicate, wrapping the bound value with the given
-// prefix/suffix wildcards.
-func (b *sqlBuilder) like(field, pre, post string, v *Value) (string, error) {
+// prefix/suffix wildcards. The case rule is applied to the value only: the
+// wildcards are punctuation and the pattern is built after folding, so a
+// prefix search still anchors where the caller meant.
+func (b *sqlBuilder) like(field, pre, post string, v *Value, vc ValueCase) (string, error) {
 	s, ok := v.AsString()
 	if !ok {
 		return "", fmt.Errorf("sql: LIKE requires a string value on %s", field)
 	}
-	return fmt.Sprintf("%s LIKE %s", field, b.bind(pre+s+post)), nil
+	return fmt.Sprintf("%s LIKE %s", field, b.bind(pre+vc.apply(s)+post)), nil
 }
 
 // contains behaves differently by field type: array membership uses the
 // Postgres @> operator; a string "contains" is a %substring% LIKE.
-func (b *sqlBuilder) contains(c *Config, field string, cond *Condition) (string, error) {
+func (b *sqlBuilder) contains(c *Config, field string, cond *Condition, vc ValueCase) (string, error) {
 	if f, ok := c.FieldByName(cond.Field); ok && f.Type == FieldArray {
-		arg, err := b.value(cond.Value)
+		arg, err := b.value(cond.Value, vc)
 		if err != nil {
 			return "", err
 		}
 		return fmt.Sprintf("%s @> ARRAY[%s]", field, b.bind(arg)), nil
 	}
-	return b.like(field, "%", "%", cond.Value) // %value% substring match
+	return b.like(field, "%", "%", cond.Value, vc) // %value% substring match
 }
 
-// value converts a scalar AST Value into the Go argument bound to a placeholder.
-func (b *sqlBuilder) value(v *Value) (any, error) {
+// value converts a scalar AST Value into the Go argument bound to a
+// placeholder, applying the field's case rule to the kinds that carry letters.
+// A date string keeps its own spelling — it is a timestamp, not a word.
+func (b *sqlBuilder) value(v *Value, vc ValueCase) (any, error) {
 	switch v.Kind {
-	case KindString, KindEnum, KindDate:
+	case KindString, KindEnum:
+		s, _ := v.AsString()
+		return vc.apply(s), nil
+	case KindDate:
 		s, _ := v.AsString()
 		return s, nil
 	case KindNumber:
