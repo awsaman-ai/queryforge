@@ -83,8 +83,8 @@ func TestBuilderFullConfigSemantics(t *testing.T) {
 		t.Errorf("department.valueCase = %q, want %q", department.ValueCase, CaseUpper)
 	}
 	for _, other := range []string{"salary", "active", "hiredAt", "skills"} {
-		f, ok := c.FieldByName(other)
-		if !ok {
+		f, found := c.FieldByName(other) // not "ok": that would shadow the one above
+		if !found {
 			t.Fatalf("field %s missing", other)
 		}
 		if f.ValueCase != CaseAsIs {
