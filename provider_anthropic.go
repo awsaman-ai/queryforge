@@ -24,7 +24,14 @@ type AnthropicProvider struct {
 	MaxTokens  int          // response cap (Messages API requires max_tokens)
 	Version    string       // anthropic-version header value
 	HTTPClient *http.Client // injectable for tests/timeouts
+
+	ProviderID string   // provider label for events; defaults to "anthropic"
+	Observe    Observer // optional; receives one EventModelCall per round trip
 }
+
+// SetObserver installs the Observer, satisfying observerSetter. See the twin
+// method on OpenAIProvider for why the seam is a separate interface.
+func (p *AnthropicProvider) SetObserver(o Observer) { p.Observe = o }
 
 // NewAnthropicProvider builds the provider from a config model block. The key is
 // read from the environment variable NAMED by apiKeyEnv, never stored in config.
@@ -45,6 +52,10 @@ func NewAnthropicProvider(m ModelConfig) *AnthropicProvider {
 	if maxTokens <= 0 {
 		maxTokens = 1024 // small structured output; plenty for an AST
 	}
+	providerID := m.Provider
+	if providerID == "" {
+		providerID = "anthropic" // this provider is only selected for Anthropic
+	}
 	return &AnthropicProvider{
 		BaseURL:    baseURL,
 		Model:      model,
@@ -52,6 +63,7 @@ func NewAnthropicProvider(m ModelConfig) *AnthropicProvider {
 		MaxTokens:  maxTokens,
 		Version:    "2023-06-01",
 		HTTPClient: &http.Client{Timeout: 60 * time.Second},
+		ProviderID: providerID,
 	}
 }
 
@@ -71,21 +83,41 @@ type anthropicMessage struct {
 	Content string `json:"content"`
 }
 
-// anthropicResponse is the subset of the Messages API response we consume.
+// anthropicResponse is the subset of the Messages API response we consume. The
+// usage block names its counts differently from the OpenAI dialect
+// (input/output rather than prompt/completion) and reports no total, so the
+// mapping onto Event happens in Complete rather than being assumed here.
 type anthropicResponse struct {
 	Content []struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
 	} `json:"content"`
 	StopReason string `json:"stop_reason"`
-	Error      *struct {
+	Usage      struct {
+		InputTokens  int `json:"input_tokens"`
+		OutputTokens int `json:"output_tokens"`
+	} `json:"usage"`
+	Error *struct {
 		Type    string `json:"type"`
 		Message string `json:"message"`
 	} `json:"error"`
 }
 
 // Complete performs one Messages API call and returns the concatenated text.
-func (p *AnthropicProvider) Complete(ctx context.Context, system, user string) (string, error) {
+func (p *AnthropicProvider) Complete(ctx context.Context, system, user string) (out string, err error) {
+	// One EventModelCall per round trip, on every return path — see the twin
+	// block in OpenAIProvider.Complete for the reasoning.
+	start := time.Now()
+	ev := Event{Kind: EventModelCall, Provider: p.ProviderID, Model: p.Model, Outcome: OutcomeOK}
+	defer func() {
+		ev.Latency = time.Since(start)
+		if err != nil {
+			ev.Outcome = OutcomeTransport
+			ev.Err = err
+		}
+		p.Observe.emit(ctx, ev)
+	}()
+
 	if p.APIKey == "" {
 		return "", fmt.Errorf("provider: no API key (set the env var named in the config's apiKeyEnv)")
 	}
@@ -133,6 +165,15 @@ func (p *AnthropicProvider) Complete(ctx context.Context, system, user string) (
 	if err := json.Unmarshal(data, &ar); err != nil {
 		return "", fmt.Errorf("provider: decode response: %w", err)
 	}
+	// Map this dialect's usage block onto the common event shape. Anthropic
+	// reports input/output separately and no total, so the total is derived;
+	// hidden reasoning tokens are not broken out by this API, which is why
+	// HiddenTokens stays zero here rather than being guessed.
+	ev.PromptTokens = ar.Usage.InputTokens
+	ev.CompletionTokens = ar.Usage.OutputTokens
+	ev.TotalTokens = ar.Usage.InputTokens + ar.Usage.OutputTokens
+	ev.FinishReason = ar.StopReason
+
 	if ar.Error != nil && ar.Error.Message != "" {
 		return "", fmt.Errorf("provider: model error: %s", ar.Error.Message)
 	}
@@ -147,7 +188,7 @@ func (p *AnthropicProvider) Complete(ctx context.Context, system, user string) (
 			b.WriteString(block.Text)
 		}
 	}
-	out := b.String()
+	out = b.String()
 	if out == "" {
 		return "", fmt.Errorf("provider: response contained no text content")
 	}

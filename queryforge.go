@@ -38,6 +38,17 @@ type Engine struct {
 	// Pick false for pipelines that re-compile ASTs; true for audit logs that
 	// store one object and must be able to prove what ran.
 	ScopeInAST bool
+
+	// Observe receives one Event per notable step of a translation — every model
+	// round trip, every repair attempt, and the final outcome. nil (the default)
+	// disables emission entirely.
+	//
+	// Set it directly for an engine built by New, which wires the same Observer
+	// into the providers it constructs so model-call events (latency, tokens,
+	// finish reason) are reported too. For NewWithProvider, call SetObserver on
+	// the engine instead of assigning this field, so a caller-supplied provider
+	// gets wired up the same way. See Observer for the implementer's contract.
+	Observe Observer
 }
 
 // TranslateResult is the full output of a translation: the AST, the compiled
@@ -80,6 +91,23 @@ func NewWithProvider(c *Config, p ModelProvider) *Engine {
 	}
 }
 
+// SetObserver installs an Observer on the engine AND pushes it down into the
+// provider, so model-call events (latency, token counts, finish reason) are
+// reported alongside the engine's own attempt/translate events.
+//
+// It is the preferred way to turn observability on, because assigning the
+// Observe field directly reaches only the engine: a provider built by the
+// caller and handed to NewWithProvider would then report nothing, and the
+// tokens and latency — the two facts worth watching — would be missing.
+// Providers that cannot report (a third-party ModelProvider implementation, or
+// a test stub) are skipped silently; the engine's own events still flow.
+func (e *Engine) SetObserver(o Observer) {
+	e.Observe = o
+	if s, ok := e.provider.(observerSetter); ok {
+		s.SetObserver(o)
+	}
+}
+
 // now returns the engine's reference time.
 func (e *Engine) now() time.Time {
 	if e.Now != nil {
@@ -98,9 +126,42 @@ func (e *Engine) now() time.Time {
 // root of the filter tree after validation, so they can only narrow the result
 // and the model never learns they exist. Pass nil for none. See Scope.
 func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scope) (*TranslateResult, error) {
+	start := time.Now() // wall clock for the EventTranslate duration
+
+	// base returns a fresh event pre-filled with the fields every kind carries.
+	// Building it here keeps each emission site to the facts it actually adds.
+	base := func(kind EventKind, attempt int) Event {
+		ev := Event{Kind: kind, Attempt: attempt, Backend: backend}
+		if e.config != nil {
+			ev.Entity = e.config.Entity
+		}
+		return ev
+	}
+
+	// done emits the single EventTranslate for this call. Every exit path below
+	// routes through it, so a caller counting events never sees a translation
+	// that started and never ended.
+	done := func(attempt int, outcome Outcome, err error, res *TranslateResult, filters []ScopeFilter) {
+		if e.Observe == nil {
+			return // skip the work entirely when nobody is listening
+		}
+		ev := base(EventTranslate, attempt)
+		ev.Outcome = outcome
+		ev.Err = err
+		ev.Duration = time.Since(start)
+		ev.RepairAttempts = attempt
+		ev.ScopeKeys = scopeKeys(filters)
+		if res != nil {
+			ev.Warnings = res.Warnings
+		}
+		e.Observe.emit(ctx, ev)
+	}
+
 	gen, ok := e.registry.Get(backend)
 	if !ok {
-		return nil, fmt.Errorf("unknown backend %q (registered: %s)", backend, strings.Join(e.registry.Backends(), ", "))
+		err := fmt.Errorf("unknown backend %q (registered: %s)", backend, strings.Join(e.registry.Backends(), ", "))
+		done(0, OutcomeCallerError, err, nil, nil)
+		return nil, err
 	}
 
 	// Normalize the scope up front. A bad scope is a bug in the calling code and
@@ -108,6 +169,7 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 	// call or leave the caller wondering whether the question was at fault.
 	filters, err := normalizeScope(scope, e.config)
 	if err != nil {
+		done(0, OutcomeCallerError, err, nil, nil)
 		return nil, err
 	}
 
@@ -119,6 +181,18 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 		ast, r, err := e.planner.Plan(ctx, text, hint)
 		raw = r
 		if err != nil {
+			// Report the failed attempt before deciding what to do with it. Raw
+			// travels with the event because it is the only record of WHAT the
+			// model said — the error alone says only that the reply was unusable.
+			outcome := classifyPlanError(err)
+			if e.Observe != nil {
+				ev := base(EventAttempt, attempt)
+				ev.Outcome = outcome
+				ev.Err = err
+				ev.Raw = raw
+				e.Observe.emit(ctx, ev)
+			}
+
 			// An unreadable reply is worth another ask — models occasionally
 			// emit truncated or double-brace JSON, and one nudge usually fixes
 			// it. Everything else (transport failure, or a deliberate refusal)
@@ -128,14 +202,32 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 				hint = RepairHint{Kind: RepairParse, Message: err.Error()}
 				continue
 			}
+			done(attempt, outcome, err, nil, filters)
 			return nil, err
 		}
 
 		if verr := Validate(ast, e.config); verr != nil {
 			lastErr = verr // remember why it failed
+			if e.Observe != nil {
+				ev := base(EventAttempt, attempt)
+				ev.Outcome = OutcomeValidation
+				ev.Err = verr
+				ev.Raw = raw
+				e.Observe.emit(ctx, ev)
+			}
 			// Feed the rule it broke back to the model.
 			hint = RepairHint{Kind: RepairValidation, Message: verr.Error()}
 			continue // try again within the budget
+		}
+
+		// The model's half succeeded: a parseable AST that satisfies every config
+		// rule. Report that before compiling, so the attempt event describes the
+		// model interaction only and a generator failure cannot be misread as the
+		// model's fault.
+		if e.Observe != nil {
+			ev := base(EventAttempt, attempt)
+			ev.Outcome = OutcomeOK
+			e.Observe.emit(ctx, ev)
 		}
 
 		// Valid AST: splice in the caller's scope, then compile deterministically
@@ -144,6 +236,7 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 		effective := applyScope(ast, filters)
 		res, gerr := gen.Generate(effective, e.config, GenOptions{Now: e.now()})
 		if gerr != nil {
+			done(attempt, OutcomeGenerate, gerr, nil, filters)
 			return nil, gerr
 		}
 		out := &TranslateResult{
@@ -162,6 +255,7 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 		if namer, ok := e.provider.(providerNamer); ok {
 			out.ProviderUsed = namer.LastUsed()
 		}
+		done(attempt, OutcomeOK, nil, out, filters)
 		return out, nil
 	}
 
@@ -169,9 +263,34 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 	// mismatch (fix the config or the phrasing) from a model that kept emitting
 	// unusable output (retry, or switch models).
 	if errors.Is(lastErr, ErrModelOutput) {
-		return nil, fmt.Errorf("model returned unparseable output on all %d attempt(s); last error: %w", e.MaxRepairs+1, lastErr)
+		err := fmt.Errorf("model returned unparseable output on all %d attempt(s); last error: %w", e.MaxRepairs+1, lastErr)
+		done(e.MaxRepairs, OutcomeBudgetSpent, err, nil, filters)
+		return nil, err
 	}
-	return nil, fmt.Errorf("translation failed validation after %d attempt(s); last error: %w", e.MaxRepairs+1, lastErr)
+	err = fmt.Errorf("translation failed validation after %d attempt(s); last error: %w", e.MaxRepairs+1, lastErr)
+	done(e.MaxRepairs, OutcomeBudgetSpent, err, nil, filters)
+	return nil, err
+}
+
+// classifyPlanError maps a Plan failure onto an Outcome. It mirrors, exactly,
+// the branching the repair loop already performs on the same error — a refusal
+// is a deliberate answer, a transport failure never reaches the model, and an
+// unreadable reply is the repairable case.
+func classifyPlanError(err error) Outcome {
+	var unsupported *UnsupportedRequestError
+	switch {
+	case errors.As(err, &unsupported):
+		return OutcomeRefusal
+	case errors.Is(err, ErrModelOutput):
+		return OutcomeParseError
+	case errors.Is(err, ErrModelTransport):
+		return OutcomeTransport
+	default:
+		// Plan tags everything it returns, so this is unreachable today. Report
+		// it as a transport failure rather than inventing a kind: an unclassified
+		// error means the model did not produce a usable answer.
+		return OutcomeTransport
+	}
 }
 
 // GenerateFrom is the deterministic half only: validate an existing AST, splice

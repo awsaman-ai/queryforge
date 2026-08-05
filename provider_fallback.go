@@ -60,6 +60,18 @@ func (f *FallbackProvider) Complete(ctx context.Context, system, user string) (s
 	return "", fmt.Errorf("all %d model(s) failed: %s", len(f.entries), strings.Join(failures, "; "))
 }
 
+// SetObserver forwards the Observer to every provider in the chain, so a
+// fallback run reports one EventModelCall per attempted model — which is the
+// only way to see that the primary failed before the secondary answered.
+// Entries that cannot report (a third-party ModelProvider) are skipped.
+func (f *FallbackProvider) SetObserver(o Observer) {
+	for _, e := range f.entries {
+		if s, ok := e.provider.(observerSetter); ok {
+			s.SetObserver(o)
+		}
+	}
+}
+
 // Size returns the number of providers in the chain.
 func (f *FallbackProvider) Size() int { return len(f.entries) }
 

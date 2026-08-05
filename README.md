@@ -310,6 +310,55 @@ An **array of sub-documents** needs one more key, because dot paths alone are si
 
 One element must now satisfy every condition. `elemMatch` must be a leading segment of the field's Mongo path — a mismatch is rejected at load, not discovered in production. Grouping applies to `AND` only, is per-array, and other backends ignore the key entirely (give the field a flat `mapping.sql` column). Full rules: [`docs/config.html#nested`](docs/config.html).
 
+## Observability
+
+QueryForge never writes a log line. It reports facts through one optional
+callback and lets you decide the destination, the format, and the severity:
+
+```go
+engine := qf.New(cfg)
+engine.SetObserver(func(ctx context.Context, e qf.Event) {
+    switch e.Kind {
+    case qf.EventModelCall: // one round trip: latency, tokens, finish reason
+        log.Info("model", "model", e.Model, "latency", e.Latency,
+            "prompt", e.PromptTokens, "hidden", e.HiddenTokens, "total", e.TotalTokens)
+    case qf.EventAttempt: // one plan+validate cycle; e.Raw on failure
+        if e.Outcome != qf.OutcomeOK {
+            log.Warn("attempt failed", "n", e.Attempt, "outcome", e.Outcome, "err", e.Err)
+        }
+    case qf.EventTranslate: // the whole call, on every exit path
+        log.Info("translate", "outcome", e.Outcome, "duration", e.Duration,
+            "repairs", e.RepairAttempts)
+    }
+})
+```
+
+**What it watches, and why only that.** A traced live request measured the entire
+deterministic half — parse, validate, compile, explain — at **0.5ms** against a
+**1,781ms** model call. Roughly **99.97%** of a translation is one HTTP round
+trip, so the seam reports the model interaction and leaves the deterministic
+core alone. There is nothing to watch there.
+
+Use `SetObserver` rather than assigning `engine.Observe`: only the former pushes
+the observer down into the provider, where latency and token counts live. A
+fallback chain reports one `EventModelCall` per attempted model, so a chain that
+is silently always falling back no longer looks identical to a healthy one.
+
+**Privacy is a design property, not a convention.** The question text is never
+in an `Event`. Scope **values** are never in an `Event` — only `ScopeKeys`, the
+field names — because those values are tenant, user, and enterprise ids. The API
+key is never in an `Event`. The one field that can echo caller data is `Raw`, the
+model's verbatim reply, populated **only on a failed attempt**; it is the only
+way to learn *what* an unusable reply actually said, and it should be logged at
+debug level and truncated. A test asserts the rest with a canary rather than
+trusting the convention.
+
+The `ctx` is passed through untouched so you can pull a request id or trace span
+off it and correlate every event with the request that caused it. The Observer
+is called **synchronously**, must be safe for concurrent use, and must not panic
+— a panicking Observer is not recovered, because a seam that silently stops
+reporting is worse than a loud failure.
+
 ## Architecture
 
 | File | Role | AI? |
@@ -322,6 +371,7 @@ One element must now satisfy every condition. `elemMatch` must be a leading segm
 | `explain.go` | AST → prose (dry-run, no execution) | No |
 | `provider.go` | `ModelProvider` interface + OpenAI-compatible default + test stub | Yes |
 | `planner.go` | Build prompt from config, parse model output → AST | Yes |
+| `observe.go` | `Observer` seam: `Event`, `EventKind`, `Outcome` — facts out, no logging | — |
 | `queryforge.go` | `Engine`: `New`, `Translate`, `GenerateFrom`, `Validate`, `Register` | — |
 
 Stages 1–5 (planner) are the only place a model runs. Stages 6–10 (validate → generate → explain) are pure Go — the guarantees live there.

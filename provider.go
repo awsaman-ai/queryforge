@@ -34,7 +34,16 @@ type OpenAIProvider struct {
 	MaxTokens   int          // response cap; 0 lets the server decide
 	JSONMode    bool         // request response_format=json_object when supported
 	HTTPClient  *http.Client // injectable for tests/timeouts
+
+	ProviderID string   // provider label for events, e.g. "gemini"; cosmetic only
+	Observe    Observer // optional; receives one EventModelCall per round trip
 }
+
+// SetObserver installs the Observer. It satisfies observerSetter, which is how
+// Engine.SetObserver reaches into a provider without ModelProvider — a public
+// one-method interface that third parties implement — having to grow a second
+// method.
+func (p *OpenAIProvider) SetObserver(o Observer) { p.Observe = o }
 
 // NewOpenAIProvider builds a provider from the config's model block. The API key
 // is read from the environment variable NAMED by apiKeyEnv — the key value
@@ -52,6 +61,7 @@ func NewOpenAIProvider(m ModelConfig) *OpenAIProvider {
 		MaxTokens:   m.MaxTokens,
 		JSONMode:    m.EffectiveJSONMode(), // off unless the config opts in; see ModelConfig.JSONMode
 		HTTPClient:  &http.Client{Timeout: 30 * time.Second},
+		ProviderID:  m.Provider, // may be empty; purely a label on events
 	}
 }
 
@@ -96,7 +106,23 @@ type chatResponse struct {
 }
 
 // Complete performs one chat completion and returns the assistant's text.
-func (p *OpenAIProvider) Complete(ctx context.Context, system, user string) (string, error) {
+func (p *OpenAIProvider) Complete(ctx context.Context, system, user string) (out string, err error) {
+	// This method is the only place that sees round-trip latency, token usage,
+	// and finish_reason — the three facts worth watching, since the model call
+	// is ~99.97% of a translation's wall time. Report them on EVERY return path
+	// via defer, so no early exit can silently drop the event; the outcome is
+	// derived from the named error return rather than repeated at each exit.
+	start := time.Now()
+	ev := Event{Kind: EventModelCall, Provider: p.ProviderID, Model: p.Model, Outcome: OutcomeOK}
+	defer func() {
+		ev.Latency = time.Since(start)
+		if err != nil {
+			ev.Outcome = OutcomeTransport // no usable text came back, whatever the cause
+			ev.Err = err
+		}
+		p.Observe.emit(ctx, ev)
+	}()
+
 	if p.BaseURL == "" {
 		return "", fmt.Errorf("provider: no baseURL configured")
 	}
@@ -153,6 +179,17 @@ func (p *OpenAIProvider) Complete(ctx context.Context, system, user string) (str
 	if err := json.Unmarshal(data, &cr); err != nil {
 		return "", fmt.Errorf("provider: decode response: %w", err)
 	}
+	// Record what the reply cost as soon as it is decoded, so the event carries
+	// the numbers even on the failure paths below — a truncated or empty reply
+	// still burned tokens, and those are exactly the cases worth costing.
+	ev.PromptTokens = cr.Usage.PromptTokens
+	ev.CompletionTokens = cr.Usage.CompletionTokens
+	ev.TotalTokens = cr.Usage.TotalTokens
+	ev.HiddenTokens = hiddenTokens(cr.Usage.TotalTokens, cr.Usage.PromptTokens, cr.Usage.CompletionTokens)
+	if len(cr.Choices) > 0 {
+		ev.FinishReason = cr.Choices[0].FinishReason
+	}
+
 	if cr.Error != nil && cr.Error.Message != "" {
 		return "", fmt.Errorf("provider: model error: %s", cr.Error.Message)
 	}
