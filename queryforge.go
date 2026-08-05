@@ -167,10 +167,14 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 	// Normalize the scope up front. A bad scope is a bug in the calling code and
 	// cannot be repaired by asking the model again, so it should not cost an API
 	// call or leave the caller wondering whether the question was at fault.
-	filters, err := normalizeScope(scope, e.config)
-	if err != nil {
-		done(0, OutcomeCallerError, err, nil, nil)
-		return nil, err
+	//
+	// Named scopeErr rather than err deliberately: the repair loop below declares
+	// its own err per iteration, and a function-scoped err here would be shadowed
+	// by it — which reads as though the loop were assigning the outer variable.
+	filters, scopeErr := normalizeScope(scope, e.config)
+	if scopeErr != nil {
+		done(0, OutcomeCallerError, scopeErr, nil, nil)
+		return nil, scopeErr
 	}
 
 	var hint RepairHint // repair hint; zero value on the first attempt
@@ -263,13 +267,13 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 	// mismatch (fix the config or the phrasing) from a model that kept emitting
 	// unusable output (retry, or switch models).
 	if errors.Is(lastErr, ErrModelOutput) {
-		err := fmt.Errorf("model returned unparseable output on all %d attempt(s); last error: %w", e.MaxRepairs+1, lastErr)
-		done(e.MaxRepairs, OutcomeBudgetSpent, err, nil, filters)
-		return nil, err
+		spent := fmt.Errorf("model returned unparseable output on all %d attempt(s); last error: %w", e.MaxRepairs+1, lastErr)
+		done(e.MaxRepairs, OutcomeBudgetSpent, spent, nil, filters)
+		return nil, spent
 	}
-	err = fmt.Errorf("translation failed validation after %d attempt(s); last error: %w", e.MaxRepairs+1, lastErr)
-	done(e.MaxRepairs, OutcomeBudgetSpent, err, nil, filters)
-	return nil, err
+	spent := fmt.Errorf("translation failed validation after %d attempt(s); last error: %w", e.MaxRepairs+1, lastErr)
+	done(e.MaxRepairs, OutcomeBudgetSpent, spent, nil, filters)
+	return nil, spent
 }
 
 // classifyPlanError maps a Plan failure onto an Outcome. It mirrors, exactly,

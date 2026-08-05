@@ -328,7 +328,7 @@ func TestObserverNeverLeaksQuestionOrScopeValues(t *testing.T) {
 					t.Errorf("event %d (%s) leaked a scope VALUE: %s", i, ev.Kind, dump)
 				}
 				// Raw must never appear on a successful attempt or on the final event.
-				if ev.Raw != "" && !(ev.Kind == EventAttempt && ev.Outcome != OutcomeOK) {
+				if ev.Raw != "" && (ev.Kind != EventAttempt || ev.Outcome == OutcomeOK) {
 					t.Errorf("event %d (%s/%s) carries Raw, which is only allowed on a failed attempt",
 						i, ev.Kind, ev.Outcome)
 				}
