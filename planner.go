@@ -55,6 +55,26 @@ const (
 	RepairParse                        // the reply was not usable JSON
 )
 
+// String names the kind for humans and for the wire. RepairKind is an int so
+// the zero value can mean "first attempt", but an integer in an API response
+// tells a caller nothing, so it is rendered as a word everywhere it escapes.
+func (k RepairKind) String() string {
+	switch k {
+	case RepairValidation:
+		return "validation"
+	case RepairParse:
+		return "parse"
+	default:
+		return "none"
+	}
+}
+
+// MarshalJSON emits the word rather than the integer, so RepairRecord.Kind
+// serializes as "validation" instead of 1.
+func (k RepairKind) MarshalJSON() ([]byte, error) {
+	return json.Marshal(k.String())
+}
+
 // RepairHint carries the previous failure into the next prompt.
 type RepairHint struct {
 	Kind    RepairKind // what went wrong last time
@@ -145,6 +165,13 @@ func (pl *Planner) SystemPrompt(now time.Time) string {
 	b.WriteString("AST shape (example):\n")
 	b.WriteString(astShapeExample)
 	b.WriteString("\nValue kinds: string, number, boolean, enum, array, date, relative_date.\n")
+	// The example above is one config's vocabulary, not this one's. Left to
+	// itself the model copies its predicates tag and all — emitting
+	// {"kind":"enum"} for a field this config declares as a string, purely
+	// because the example's status field was an enum. The validator repairs
+	// that tag rather than failing (kindnorm.go), but saying so here keeps the
+	// mistake out of the AST in the first place.
+	b.WriteString("Use the kind that matches the field's declared type above, not the kind the example happens to show: a string field takes {\"kind\":\"string\"}, and only a field listed as enum takes {\"kind\":\"enum\"}.\n")
 	b.WriteString("Combine predicates with logical nodes: {\"type\":\"logical\",\"op\":\"AND|OR|NOT\",\"children\":[...]}.\n")
 	b.WriteString("Omit any part you don't need (filter, sort, limit, select).\n\n")
 

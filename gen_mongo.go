@@ -152,18 +152,11 @@ func mongoComparison(c *Config, cond *Condition, now time.Time) (map[string]any,
 // top-level path ("items.sku") and an $elemMatch-relative one ("sku").
 func mongoPredicate(c *Config, cond *Condition, field string, now time.Time) (map[string]any, error) {
 
-	// Determine the element type (for arrays this is the item type) so date
-	// array elements can be converted to real Dates.
-	elemType := FieldString
-	if f, ok := c.FieldByName(cond.Field); ok {
-		elemType = f.Type
-		if f.Type == FieldArray {
-			elemType = f.ItemType
-			if elemType == "" {
-				elemType = FieldString
-			}
-		}
-	}
+	// The declared type every literal in this predicate is read as (for an
+	// array field, its item type) — it decides how scalars and list elements
+	// alike are converted, so a date becomes a real Date whatever kind tag the
+	// model put on it.
+	elemType := condScalarType(c, cond)
 
 	// The field's declared value-case rule, resolved once for every branch
 	// below. OpRegex is the one operator that must not use it: its value is a
@@ -176,21 +169,21 @@ func mongoPredicate(c *Config, cond *Condition, field string, now time.Time) (ma
 	case OpIsNotNull:
 		return map[string]any{field: map[string]any{"$ne": nil}}, nil
 	case OpEquals:
-		return map[string]any{field: mongoScalar(cond.Value, now, vc)}, nil
+		return map[string]any{field: mongoScalar(cond.Value, elemType, now, vc)}, nil
 	case OpNotEquals:
-		return expr(field, "$ne", mongoScalar(cond.Value, now, vc)), nil
+		return expr(field, "$ne", mongoScalar(cond.Value, elemType, now, vc)), nil
 	case OpGt:
-		return expr(field, "$gt", mongoScalar(cond.Value, now, vc)), nil
+		return expr(field, "$gt", mongoScalar(cond.Value, elemType, now, vc)), nil
 	case OpLt:
-		return expr(field, "$lt", mongoScalar(cond.Value, now, vc)), nil
+		return expr(field, "$lt", mongoScalar(cond.Value, elemType, now, vc)), nil
 	case OpGte:
-		return expr(field, "$gte", mongoScalar(cond.Value, now, vc)), nil
+		return expr(field, "$gte", mongoScalar(cond.Value, elemType, now, vc)), nil
 	case OpLte:
-		return expr(field, "$lte", mongoScalar(cond.Value, now, vc)), nil
+		return expr(field, "$lte", mongoScalar(cond.Value, elemType, now, vc)), nil
 	case OpAfter:
-		return expr(field, "$gte", mongoScalar(cond.Value, now, vc)), nil // inclusive, per design doc
+		return expr(field, "$gte", mongoScalar(cond.Value, elemType, now, vc)), nil // inclusive, per design doc
 	case OpBefore:
-		return expr(field, "$lte", mongoScalar(cond.Value, now, vc)), nil
+		return expr(field, "$lte", mongoScalar(cond.Value, elemType, now, vc)), nil
 	case OpBetween:
 		elems, _ := cond.Value.AsSlice()
 		conv := mongoElems(elems, elemType, vc)
@@ -210,7 +203,7 @@ func mongoPredicate(c *Config, cond *Condition, field string, now time.Time) (ma
 	case OpContains:
 		// Array field: membership. String field: case-insensitive substring.
 		if f, ok := c.FieldByName(cond.Field); ok && f.Type == FieldArray {
-			return map[string]any{field: mongoScalar(cond.Value, now, vc)}, nil
+			return map[string]any{field: mongoScalar(cond.Value, elemType, now, vc)}, nil
 		}
 		// Fold before quoting, so the pattern is built from the physical form.
 		// The "i" option already makes this branch case-blind; applying the rule
@@ -430,22 +423,25 @@ func toAnySlice(parts []map[string]any) []any {
 	return out
 }
 
-// mongoScalar converts a scalar Value into its Mongo Go value. Dates (absolute
-// and relative) become time.Time so the driver stores a real Date. The field's
-// value-case rule reaches only the string-bearing kinds; a date has already
-// stopped being text by the time it is written, and numbers/booleans have no
-// case to force.
-func mongoScalar(v *Value, now time.Time, vc ValueCase) any {
-	switch v.Kind {
-	case KindRelativeDate:
+// mongoScalar converts a scalar Value into its Mongo Go value, reading the
+// payload as the type the config declares rather than as the kind tag the model
+// wrote (valuetype.go) — a date the model tagged "string" must still reach the
+// driver as a Date, or it would be compared against ISODates as text and match
+// nothing. Dates (absolute and relative) therefore become time.Time. The
+// field's value-case rule reaches only the text types; a date has stopped being
+// text by the time it is written, and numbers/booleans have no case to force.
+func mongoScalar(v *Value, declared FieldType, now time.Time, vc ValueCase) any {
+	if v.Kind == KindRelativeDate { // no payload: unit/amount resolve against the clock
 		return resolveRelative(now, v.Unit, v.Amount)
-	case KindDate:
+	}
+	switch declared {
+	case FieldDate:
 		s, _ := v.AsString()
 		return parseDate(s)
-	case KindNumber:
+	case FieldNumber:
 		f, _ := v.AsFloat()
 		return f
-	case KindBoolean:
+	case FieldBoolean:
 		b, _ := v.AsBool()
 		return b
 	default: // string, enum

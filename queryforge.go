@@ -63,11 +63,47 @@ type TranslateResult struct {
 	RepairAttempts int      // number of validation repairs performed (0 = first try)
 	ProviderUsed   string   // which model answered, when a fallback chain is configured
 
+	// Repairs records why each earlier attempt was rejected, oldest first. It is
+	// empty on a first-try success, and has exactly RepairAttempts entries
+	// otherwise.
+	//
+	// It exists because RepairAttempts alone says a retry happened but not what
+	// provoked it, and that "what" is almost always a config problem rather than
+	// a model problem: a field typed `string` that the model insists is an enum,
+	// an operator the whitelist forbids, a value outside a declared domain. The
+	// engine computes each reason to build the retry prompt and, before this
+	// field existed, discarded it — leaving the only copy in an Observer event,
+	// which a caller reading an API response cannot see.
+	//
+	// Treat a non-empty Repairs on an otherwise successful translation as a
+	// signal worth surfacing: the answer was correct, but it cost an extra model
+	// round trip that a config change would remove.
+	Repairs []RepairRecord
+
 	// Scope lists the caller-supplied filters that were AND-ed into the query,
 	// normalized and in the order they were applied. It is always populated when
 	// a Scope was passed, whatever ScopeInAST is set to — an audit log should
 	// never have to infer which predicates were forced.
 	Scope []ScopeFilter
+}
+
+// RepairRecord is one rejected attempt in the bounded repair loop.
+//
+// Kind separates the two failure modes, because they call for different fixes:
+// a RepairParse means the model's reply was not usable JSON (a model or prompt
+// problem, usually transient), while a RepairValidation means the reply parsed
+// cleanly but broke a rule this config declares (almost always a config problem
+// that will recur on every similar question until the config changes).
+//
+// Errors is populated only for RepairValidation, and carries the structured
+// ValidationError list — Code, Path, Field — so a caller can classify the
+// failure without matching the prose in Message. Message is always set and is
+// the full rendered error, which is also exactly what was fed back to the model.
+type RepairRecord struct {
+	Attempt int              `json:"attempt"`          // 0-based attempt that was rejected
+	Kind    RepairKind       `json:"kind"`             // "validation" or "parse"
+	Message string           `json:"message"`          // the full error, as fed back to the model
+	Errors  ValidationErrors `json:"errors,omitempty"` // structured detail; validation failures only
 }
 
 // New builds an engine from a config, selecting the model provider(s) from the
@@ -177,9 +213,10 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 		return nil, scopeErr
 	}
 
-	var hint RepairHint // repair hint; zero value on the first attempt
-	var lastErr error   // last repairable error, for the fail-closed message
-	var raw string      // most recent raw model output
+	var hint RepairHint        // repair hint; zero value on the first attempt
+	var lastErr error          // last repairable error, for the fail-closed message
+	var raw string             // most recent raw model output
+	var repairs []RepairRecord // why each rejected attempt was rejected, oldest first
 
 	for attempt := 0; attempt <= e.MaxRepairs; attempt++ {
 		ast, r, err := e.planner.Plan(ctx, text, hint)
@@ -204,6 +241,11 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 			if errors.Is(err, ErrModelOutput) {
 				lastErr = err
 				hint = RepairHint{Kind: RepairParse, Message: err.Error()}
+				// No Errors slice: nothing parsed, so there is no AST to have
+				// structured findings about.
+				repairs = append(repairs, RepairRecord{
+					Attempt: attempt, Kind: RepairParse, Message: err.Error(),
+				})
 				continue
 			}
 			done(attempt, outcome, err, nil, filters)
@@ -221,6 +263,17 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 			}
 			// Feed the rule it broke back to the model.
 			hint = RepairHint{Kind: RepairValidation, Message: verr.Error()}
+
+			// Keep the structured findings for the caller. Validate returns a
+			// ValidationErrors, but it is typed as error, so assert rather than
+			// assume: a future validator returning some other error type must
+			// degrade to just the message, never panic.
+			rec := RepairRecord{Attempt: attempt, Kind: RepairValidation, Message: verr.Error()}
+			if ves, ok := verr.(ValidationErrors); ok {
+				rec.Errors = ves
+			}
+			repairs = append(repairs, rec)
+
 			continue // try again within the budget
 		}
 
@@ -250,6 +303,7 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 			Raw:            raw,
 			Warnings:       res.Warnings,
 			RepairAttempts: attempt,
+			Repairs:        repairs,
 			Scope:          filters,
 		}
 		if e.ScopeInAST {

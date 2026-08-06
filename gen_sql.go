@@ -155,6 +155,7 @@ func (b *sqlBuilder) logical(c *Config, cond *Condition) (string, error) {
 func (b *sqlBuilder) comparison(c *Config, cond *Condition) (string, error) {
 	field := c.PhysicalName(cond.Field, "sql") // logical -> physical column
 	vc := c.valueCaseFor(cond.Field)           // "" unless the config asked for a case
+	dt := condScalarType(c, cond)              // the declared type every literal is read as
 
 	switch cond.Operator {
 	case OpIsNull:
@@ -162,23 +163,24 @@ func (b *sqlBuilder) comparison(c *Config, cond *Condition) (string, error) {
 	case OpIsNotNull:
 		return field + " IS NOT NULL", nil
 	case OpEquals:
-		return b.scalar(field, "=", cond.Value, vc)
+		return b.scalar(field, "=", cond.Value, dt, vc)
 	case OpNotEquals:
-		return b.scalar(field, "<>", cond.Value, vc)
+		return b.scalar(field, "<>", cond.Value, dt, vc)
 	case OpGt:
-		return b.scalar(field, ">", cond.Value, vc)
+		return b.scalar(field, ">", cond.Value, dt, vc)
 	case OpLt:
-		return b.scalar(field, "<", cond.Value, vc)
+		return b.scalar(field, "<", cond.Value, dt, vc)
 	case OpGte:
-		return b.scalar(field, ">=", cond.Value, vc)
+		return b.scalar(field, ">=", cond.Value, dt, vc)
 	case OpLte:
-		return b.scalar(field, "<=", cond.Value, vc)
+		return b.scalar(field, "<=", cond.Value, dt, vc)
 	case OpAfter:
-		return b.scalar(field, ">=", cond.Value, vc)
+		return b.scalar(field, ">=", cond.Value, dt, vc)
 	case OpBefore:
-		return b.scalar(field, "<=", cond.Value, vc)
+		return b.scalar(field, "<=", cond.Value, dt, vc)
 	case OpRegex:
-		return b.scalar(field, "~", cond.Value, CaseAsIs) // pattern, never recased
+		// A pattern is text whatever the column holds, and is never recased.
+		return b.scalar(field, "~", cond.Value, FieldString, CaseAsIs)
 	case OpBetween:
 		return b.between(field, cond.Value, vc)
 	case OpIn:
@@ -201,8 +203,8 @@ func (b *sqlBuilder) comparison(c *Config, cond *Condition) (string, error) {
 }
 
 // scalar renders "field <op> $N" for a single bound value.
-func (b *sqlBuilder) scalar(field, sqlOp string, v *Value, vc ValueCase) (string, error) {
-	arg, err := b.value(v, vc)
+func (b *sqlBuilder) scalar(field, sqlOp string, v *Value, declared FieldType, vc ValueCase) (string, error) {
+	arg, err := b.value(v, declared, vc)
 	if err != nil {
 		return "", err
 	}
@@ -255,7 +257,8 @@ func (b *sqlBuilder) like(field, pre, post string, v *Value, vc ValueCase) (stri
 // Postgres @> operator; a string "contains" is a %substring% LIKE.
 func (b *sqlBuilder) contains(c *Config, field string, cond *Condition, vc ValueCase) (string, error) {
 	if f, ok := c.FieldByName(cond.Field); ok && f.Type == FieldArray {
-		arg, err := b.value(cond.Value, vc)
+		// The bound literal is one element, so it is read as the item type.
+		arg, err := b.value(cond.Value, scalarTypeOf(f), vc)
 		if err != nil {
 			return "", err
 		}
@@ -265,25 +268,44 @@ func (b *sqlBuilder) contains(c *Config, field string, cond *Condition, vc Value
 }
 
 // value converts a scalar AST Value into the Go argument bound to a
-// placeholder, applying the field's case rule to the kinds that carry letters.
+// placeholder, applying the field's case rule to the types that carry letters.
 // A date string keeps its own spelling — it is a timestamp, not a word.
-func (b *sqlBuilder) value(v *Value, vc ValueCase) (any, error) {
-	switch v.Kind {
-	case KindString, KindEnum:
-		s, _ := v.AsString()
+//
+// The conversion follows the type the config declares, not the value's kind
+// tag; the tag is the model's guess and may disagree (valuetype.go). Every
+// payload read here was type-checked by the validator, so a failed assertion
+// means the two stages disagree about the config — worth an error, not a
+// silently bound zero value.
+func (b *sqlBuilder) value(v *Value, declared FieldType, vc ValueCase) (any, error) {
+	if v.Kind == KindRelativeDate { // no payload to read: unit/amount resolve against the clock
+		return resolveRelative(b.now, v.Unit, v.Amount), nil
+	}
+	switch declared {
+	case FieldString, FieldEnum:
+		s, ok := v.AsString()
+		if !ok {
+			return nil, fmt.Errorf("sql: %s value is not text", declared)
+		}
 		return vc.apply(s), nil
-	case KindDate:
-		s, _ := v.AsString()
+	case FieldDate:
+		s, ok := v.AsString()
+		if !ok {
+			return nil, fmt.Errorf("sql: date value is not text")
+		}
 		return s, nil
-	case KindNumber:
-		f, _ := v.AsFloat()
+	case FieldNumber:
+		f, ok := v.AsFloat()
+		if !ok {
+			return nil, fmt.Errorf("sql: number value is not numeric")
+		}
 		return f, nil
-	case KindBoolean:
-		bb, _ := v.AsBool()
+	case FieldBoolean:
+		bb, ok := v.AsBool()
+		if !ok {
+			return nil, fmt.Errorf("sql: boolean value is not a boolean")
+		}
 		return bb, nil
-	case KindRelativeDate:
-		return resolveRelative(b.now, v.Unit, v.Amount), nil // absolute time, bound as a param
 	default:
-		return nil, fmt.Errorf("sql: cannot bind value of kind %q", v.Kind)
+		return nil, fmt.Errorf("sql: cannot bind a value for field type %q", declared)
 	}
 }
