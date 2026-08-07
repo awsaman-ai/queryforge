@@ -167,6 +167,10 @@
   button.primary:hover { color: #fff; opacity: .92; }
   button.danger:hover { border-color: var(--err-bd); color: var(--err-fg); }
   button.icon { padding: .2rem .45rem; line-height: 1.2; }
+  /* A backend with no generator behind it is shown greyed rather than hidden,
+     so the page answers "is Elasticsearch supported?" instead of leaving it open. */
+  button[disabled] { cursor: not-allowed; opacity: .5; }
+  button[disabled]:hover { border-color: var(--border); color: var(--fg); }
   .btnbar { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
 
   /* Field cards. */
@@ -379,15 +383,17 @@
       <!-- 3. Backends -------------------------------------------------------- -->
       <section class="panel">
         <div class="hdr"><span class="step">STEP 3</span><h2>Backends</h2></div>
-        <p class="hint">Maps the entity to a physical table / collection / index, one entry per database you target.
+        <p class="hint">Maps the entity to a physical table / collection, one entry per database you target.
           Omit it entirely and the entity name is used as the source. Each backend you add here also gets a
-          per-field <em>physical name</em> box in step 4.</p>
+          per-field <em>physical name</em> box in step 4. Three generators ship today — the backend id in
+          <code>code</code> is the string you pass to <code>Translate</code>, and <code>sql</code> means
+          <strong>PostgreSQL</strong> specifically, not SQL in general.</p>
         <div id="backendBox"></div>
         <div class="btnbar">
-          <button type="button" data-act="addBackend" data-key="sql">+ sql</button>
-          <button type="button" data-act="addBackend" data-key="mongo">+ mongo</button>
-          <button type="button" data-act="addBackend" data-key="es">+ es (index)</button>
-          <button type="button" data-act="addBackend" data-key="">+ custom</button>
+          <button type="button" data-act="addBackend" data-key="sql">+ PostgreSQL <code>sql</code></button>
+          <button type="button" data-act="addBackend" data-key="mysql">+ MySQL <code>mysql</code></button>
+          <button type="button" data-act="addBackend" data-key="mongo">+ MongoDB <code>mongo</code></button>
+          <button type="button" disabled title="No Elasticsearch generator ships yet.">Elasticsearch — coming soon</button>
         </div>
       </section>
 
@@ -616,10 +622,10 @@ var QFLogic = (function () {
       ex: "model  = Gemini      (rate-limited today)\nmodels[0] = Groq       ← answers, and is reported as ProviderUsed\nmodels[1] = local Ollama" },
 
     backendKey: { t: "backends.<key>",
-      what: "The backend id you pass to Translate/Generate. \"sql\" and \"mongo\" ship with generators; any other key is a mapping namespace you can read yourself.",
-      ex: "backends: { \"sql\": …, \"mongo\": … }\n→ engine.Translate(ctx, q, \"mongo\", nil)" },
-    backendSource: { t: "table / collection / index",
-      what: "The physical name of the table, collection, or index. Omit it and the entity name is used as-is.",
+      what: "The backend id you pass to Translate/Generate. Three ship with generators: \"sql\" is PostgreSQL, \"mysql\" is MySQL, \"mongo\" is MongoDB. Note that \"sql\" is Postgres specifically, not a generic SQL backend — MySQL is its own id because the placeholders and quoting differ. Any other key is a mapping namespace you can read yourself; nothing compiles to it.",
+      ex: "backends: { \"sql\": …, \"mysql\": …, \"mongo\": … }\n→ engine.Translate(ctx, q, \"mysql\", nil)\n\nsql   → WHERE \"status\" = $1\nmysql → WHERE `status` = ?" },
+    backendSource: { t: "table / collection",
+      what: "The physical name of the table or collection. Omit it and the entity name is used as-is.",
       ex: "entity \"Order\" + collection \"orders_v2\"\n→ db.orders_v2.find(…)" },
 
     fieldName: { t: "field.name",
@@ -680,6 +686,31 @@ var QFLogic = (function () {
   // Physical-source key per backend — BackendConfig in config.go. Source()
   // returns whichever one is set, in this order.
   var BACKEND_KINDS = ["table", "collection", "index", "name"];
+
+  // The generators registered in DefaultRegistry() (generate.go). The key is
+  // the backend id passed to Translate/Generate; the label is what a reader
+  // recognises, because "sql" on its own does not say Postgres — that is the
+  // one naming asymmetry in the whole config, so the builder never shows a bare
+  // id without its database name next to it.
+  var BACKENDS = [
+    { key: "sql",   label: "PostgreSQL", kind: "table",      note: "$1, $2 … placeholders, double-quoted identifiers" },
+    { key: "mysql", label: "MySQL",      kind: "table",      note: "? placeholders, backtick identifiers · MySQL 8.0+ / MariaDB 10.5+" },
+    { key: "mongo", label: "MongoDB",    kind: "collection", note: "document store · mappings may be dot paths" }
+  ];
+
+  // backendSpec returns the shipped generator for a key, or null for anything
+  // else. An imported config may legally carry other keys: they are mapping
+  // namespaces the caller reads itself, not databases QueryForge compiles to.
+  function backendSpec(key) {
+    for (var i = 0; i < BACKENDS.length; i++) if (BACKENDS[i].key === key) return BACKENDS[i];
+    return null;
+  }
+
+  // backendLabel is "PostgreSQL" for "sql", and "" for a key with no generator.
+  function backendLabel(key) {
+    var s = backendSpec(key);
+    return s ? s.label : "";
+  }
 
   // secretPrefixes — config.go. A value opening with one of these is a pasted
   // credential, never an environment variable name.
@@ -1089,9 +1120,16 @@ var QFLogic = (function () {
     for (var b = 0; b < state.backends.length; b++) {
       var bk = str(state.backends[b].key), bs = str(state.backends[b].source);
       if (!bk && !bs) continue;
-      if (!bk) { err("backends[" + b + "]", "backend has a source but no name (e.g. \"sql\")."); continue; }
+      if (!bk) { err("backends[" + b + "]", "backend has a source but no database selected."); continue; }
       if (!bs) { warn("backends." + bk, "no physical " + (state.backends[b].kind || "name") +
         " set, so this backend is skipped and the entity name is used instead."); }
+      // Only sql / mysql / mongo have generators. Anything else — usually a key
+      // an imported file carried — still loads, but nothing compiles to it.
+      if (!backendSpec(bk)) {
+        warn("backends." + bk, "no generator ships for \"" + bk + "\", so Translate/Generate with this id fails. " +
+          "It is only a mapping namespace your own code can read. The three that compile are " +
+          "\"sql\" (PostgreSQL), \"mysql\" (MySQL) and \"mongo\" (MongoDB).");
+      }
       if (seenBackend[bk]) err("backends." + bk, "duplicate backend \"" + bk + "\" — later entries overwrite earlier ones.");
       seenBackend[bk] = true;
     }
@@ -1473,6 +1511,7 @@ var QFLogic = (function () {
   return {
     FIELD_TYPES: FIELD_TYPES, ALL_OPERATORS: ALL_OPERATORS, DEFAULT_OPERATORS: DEFAULT_OPERATORS,
     PLAUSIBLE_OPERATORS: PLAUSIBLE_OPERATORS, CAPABILITIES: CAPABILITIES, BACKEND_KINDS: BACKEND_KINDS,
+    BACKENDS: BACKENDS, backendSpec: backendSpec, backendLabel: backendLabel,
     PRESETS: PRESETS, HELP: HELP,
     mongoPath: mongoPath, validDotPath: validDotPath,
     isElemMatchPrefix: isElemMatchPrefix, elemMatchCandidates: elemMatchCandidates,
@@ -1628,19 +1667,50 @@ if (typeof window !== "undefined") { window.QFLogic = QFLogic; }
     var html = "";
     for (var i = 0; i < state.backends.length; i++) {
       var b = state.backends[i];
-      var kindOpts = "";
-      for (var k = 0; k < L.BACKEND_KINDS.length; k++) {
-        var kk = L.BACKEND_KINDS[k];
-        kindOpts += '<option value="' + kk + '"' + (b.kind === kk ? " selected" : "") + '>' + kk + '</option>';
+      var key = L.str(b.key);
+      var spec = L.backendSpec(key);
+
+      // Database is a select over the three shipped generators rather than a
+      // free-text id: typing "postgres" or "psql" would silently produce a
+      // backend nothing compiles to. An imported config's own key is kept as a
+      // selected option so opening a file never rewrites what it declared.
+      var dbOpts = "";
+      for (var d = 0; d < L.BACKENDS.length; d++) {
+        var sp = L.BACKENDS[d];
+        dbOpts += '<option value="' + sp.key + '"' + (key === sp.key ? " selected" : "") + '>' +
+          sp.label + ' — ' + sp.key + '</option>';
       }
-      html += '<div class="row c4" style="align-items:end">' +
-        '<div><label>backend key' + info("backendKey") + '</label>' +
-          '<input type="text" data-path="backends.' + i + '.key" data-kind="structural" placeholder="sql"' + attr("value", b.key) + '></div>' +
-        '<div><label>source kind</label>' +
-          '<select data-path="backends.' + i + '.kind" data-kind="text">' + kindOpts + '</select></div>' +
-        '<div><label>physical name' + info("backendSource") + '</label>' +
-          '<input type="text" data-path="backends.' + i + '.source" data-kind="text" placeholder="orders"' + attr("value", b.source) + '></div>' +
-        '<div><button type="button" class="danger" data-act="delBackend" data-i="' + i + '">Remove</button></div>' +
+      if (!spec) {
+        dbOpts = '<option value="' + esc(key) + '" selected>' +
+          (key ? esc(key) + " — custom mapping namespace, no generator" : "— pick a database —") +
+          '</option>' + dbOpts;
+      }
+
+      // The source kind follows from the database — table for both SQL dialects,
+      // collection for Mongo — so a shipped backend spends no column on it and
+      // names it in the physical-name label instead. Only a key carried in from
+      // an imported file, which has no generator to imply a kind, keeps the picker.
+      var kindCell = "";
+      if (!spec) {
+        var kindOpts = "";
+        for (var k = 0; k < L.BACKEND_KINDS.length; k++) {
+          var kk = L.BACKEND_KINDS[k];
+          kindOpts += '<option value="' + kk + '"' + (b.kind === kk ? " selected" : "") + '>' + kk + '</option>';
+        }
+        kindCell = '<div><label>source kind</label>' +
+          '<select data-path="backends.' + i + '.kind" data-kind="text">' + kindOpts + '</select></div>';
+      }
+
+      html += '<div class="brow">' +
+        '<div class="row ' + (spec ? "c3" : "c4") + '" style="align-items:end;margin-bottom:.25rem">' +
+          '<div><label>database' + info("backendKey") + '</label>' +
+            '<select data-path="backends.' + i + '.key" data-kind="backendkey">' + dbOpts + '</select></div>' +
+          kindCell +
+          '<div><label>physical ' + (spec ? spec.kind : "name") + info("backendSource") + '</label>' +
+            '<input type="text" data-path="backends.' + i + '.source" data-kind="text" placeholder="orders"' + attr("value", b.source) + '></div>' +
+          '<div><button type="button" class="danger" data-act="delBackend" data-i="' + i + '">Remove</button></div>' +
+        '</div>' +
+        (spec ? '<p class="hint" style="margin:0 0 .7rem">Emitted as <code>' + spec.kind + '</code> · ' + esc(spec.note) + '</p>' : "") +
       '</div>';
     }
     if (!html) html = '<p class="hint">No backends yet — the entity name will be used as the table/collection.</p>';
@@ -1709,7 +1779,10 @@ if (typeof window !== "undefined") { window.QFLogic = QFLogic; }
     var mapHtml = "";
     for (var mk = 0; mk < mapKeys.length; mk++) {
       var isMongo = mapKeys[mk] === "mongo";
-      mapHtml += '<div><label>' + esc(mapKeys[mk]) +
+      // Label the database, not just the id: "sql" alone reads as "any SQL"
+      // and is the one place a reader can mistake Postgres for MySQL.
+      var mapLabel = L.backendLabel(mapKeys[mk]);
+      mapHtml += '<div><label>' + (mapLabel ? esc(mapLabel) + ' <span class="q">· ' + esc(mapKeys[mk]) + '</span>' : esc(mapKeys[mk])) +
         (isMongo ? ' <span class="q">· dot paths allowed</span>' : "") + info("mapping") + '</label>' +
         '<input type="text" data-path="fields.' + i + '.mapping.' + esc(mapKeys[mk]) + '" data-kind="' +
         (isMongo ? "structural" : "text") + '" placeholder="' + esc(isMongo ? (name || "items.sku") : (name || "physical name")) + '"' +
@@ -1967,6 +2040,17 @@ if (typeof window !== "undefined") { window.QFLogic = QFLogic; }
     }
     if (kind === "checkbox") { setPath(path, t.checked); renderOutput(); return; }
 
+    if (kind === "backendkey") {
+      // Switching database carries the source kind with it — a Mongo backend
+      // that kept "table" from its Postgres row would emit the wrong JSON key.
+      var bi = parseInt(path.split(".")[1], 10);
+      var bsp = L.backendSpec(t.value);
+      state.backends[bi].key = t.value;
+      if (bsp) state.backends[bi].kind = bsp.kind;
+      renderAll();                              // per-field mapping boxes are keyed off this
+      return;
+    }
+
     if (kind === "type") {
       // Changing the type invalidates the type-specific extras, so clear them
       // rather than emitting an itemType on a boolean or values on a date.
@@ -2100,7 +2184,8 @@ if (typeof window !== "undefined") { window.QFLogic = QFLogic; }
 
       case "addBackend":
         var key = t.getAttribute("data-key") || "";
-        var kind = key === "sql" ? "table" : key === "mongo" ? "collection" : key === "es" ? "index" : "name";
+        var addSpec = L.backendSpec(key);
+        var kind = addSpec ? addSpec.kind : "name";
         // Adding a backend that already exists would produce a duplicate key,
         // so re-adding is a no-op that just points at the existing row.
         for (var bx = 0; bx < state.backends.length; bx++) {
