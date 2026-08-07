@@ -500,6 +500,8 @@ ORDER BY created_at DESC LIMIT 20
     <tr><td><code>maxSuggestCalls</code></td><td>number</td><td>10</td><td>How many unknown fields get "did you mean" suggestions. Each suggestion runs an edit-distance pass over every field and synonym, so an AST full of nonsense is the most expensive thing to reject.</td></tr>
   </table></div>
 
+  <p><strong>One regex rule has no key and cannot be switched off.</strong> A pattern that nests an unbounded quantifier inside a quantified group — <code>(a+)+</code>, <code>(x+x+)+y</code>, <code>^(\w+\s?)*$</code> — is rejected with <code>regex_unsafe</code>, whatever <code>allowRegexOn</code> says. Those take exponential time <em>in the database process</em>, once per row, and are reachable from an ordinary English sentence; unlike the two gates above, there is no legitimate use to weigh against. Rewrite with a bounded repetition such as <code>{1,20}</code>. The check is structural and narrow on purpose — it does not catch alternation overlap like <code>(a|ab)*</code>, so <a href="https://github.com/awsaman-ai/queryforge/blob/main/SECURITY.md">set a statement timeout at the database</a> as well.</p>
+
   <h3 id="nulls">NULL and missing fields across backends</h3>
 
   <p>SQL uses three-valued logic: <code>status &lt;&gt; 'CANCELLED'</code> is <code>NULL</code> — not <code>TRUE</code> — for a row whose status is <code>NULL</code>, so that row is <em>excluded</em>. MongoDB has no such rule: <code>$ne</code>, <code>$nin</code> and <code>$nor</code> all <em>match</em> a document that lacks the field.</p>

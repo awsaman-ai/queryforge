@@ -699,6 +699,29 @@ func TestScopeRejectsBadInput(t *testing.T) {
 		{"below declared minimum", Scope{"amount": -5}, "below minimum"},
 		{"above declared maximum", Scope{"amount": 999999}, "above maximum"},
 		{"bad enum inside a list", Scope{"status": []string{"DELIVERED", "NOPE"}}, "not a valid value"},
+
+		// Scope KEYS, not values. Everything above this line checks the shape of
+		// a value; the key was checked only for emptiness and duplication, which
+		// is how SECURITY-T.md S-1 (and BUGS-T.md QF-T-001) got in: an undeclared
+		// key is passed through by PhysicalName and written into the statement as
+		// an identifier, where no placeholder can stand for it. The first case is
+		// the one that matters most — it does not merely inject, it comments out
+		// the rest of the WHERE clause, taking the forced tenant predicate with
+		// it.
+		{"sql injection in key", Scope{"tenant_id = 'X' OR 1=1 --": "T-1"}, "not a valid field name"},
+		{"quote in key", Scope{`userId" = "x`: "T-1"}, "not a valid field name"},
+		{"statement terminator in key", Scope{"userId; DROP TABLE orders": "T-1"}, "not a valid field name"},
+		{"comment opener in key", Scope{"userId/*": "T-1"}, "not a valid field name"},
+		{"space in key", Scope{"user id": "T-1"}, "not a valid field name"},
+		{"mongo operator key", Scope{"$where": "T-1"}, "not a valid field name"},
+		{"mongo operator in dotted key", Scope{"user.$ne": "T-1"}, "not a valid field name"},
+		{"NUL in key", Scope{"userId\x00": "T-1"}, "not a valid field name"},
+		{"newline in key", Scope{"userId\nOR 1=1": "T-1"}, "not a valid field name"},
+		{"leading digit in key", Scope{"1userId": "T-1"}, "not a valid field name"},
+		{"empty dot segment", Scope{"user..id": "T-1"}, "not a valid field name"},
+		{"trailing dot", Scope{"userId.": "T-1"}, "not a valid field name"},
+		{"hyphen in key", Scope{"user-id": "T-1"}, "not a valid field name"},
+		{"backtick in key", Scope{"userId`": "T-1"}, "not a valid field name"},
 	}
 
 	e := scopeEngine(t, nil)

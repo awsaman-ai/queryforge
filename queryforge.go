@@ -49,6 +49,22 @@ type Engine struct {
 	// the engine instead of assigning this field, so a caller-supplied provider
 	// gets wired up the same way. See Observer for the implementer's contract.
 	Observe Observer
+
+	// MaxRawLength caps Event.Raw — the model's verbatim reply, emitted on a
+	// failed attempt — before it reaches the Observer. Zero selects the built-in
+	// 4 KB default; a negative value disables the bound and emits the reply
+	// whole.
+	//
+	// Event.Raw is the only field on Event that can carry data derived from the
+	// user's question, and the Observer is usually a log. Bounding it here means
+	// a caller who wires up the obvious one-line Observer is protected without
+	// having read the advice on the field. Raise it when a debugging session
+	// needs the full text; set it negative only when the Observer is known not to
+	// be a shared log sink.
+	//
+	// It does not affect TranslateResult.Raw, which the caller asked for by
+	// reading the field and which is never emitted anywhere on its own.
+	MaxRawLength int
 }
 
 // TranslateResult is the full output of a translation: the AST, the compiled
@@ -239,7 +255,7 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 				ev := base(EventAttempt, attempt)
 				ev.Outcome = outcome
 				ev.Err = err
-				ev.Raw = raw
+				ev.Raw = truncateRaw(raw, e.MaxRawLength) // bounded before it leaves the library
 				e.Observe.emit(ctx, ev)
 			}
 
@@ -267,7 +283,7 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 				ev := base(EventAttempt, attempt)
 				ev.Outcome = OutcomeValidation
 				ev.Err = verr
-				ev.Raw = raw
+				ev.Raw = truncateRaw(raw, e.MaxRawLength) // bounded before it leaves the library
 				e.Observe.emit(ctx, ev)
 			}
 			// Feed the rule it broke back to the model.

@@ -2,6 +2,7 @@ package queryforge
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -116,8 +117,17 @@ type Event struct {
 	// (never on success, never on the other kinds). It is the single most useful
 	// debugging field here — without it a parse failure tells you THAT the reply
 	// was unusable but never WHAT it said — and it is also the only field that
-	// can echo caller data. Treat it as sensitive: log it at debug level, and
-	// truncate it.
+	// can echo caller data. Treat it as sensitive: log it at debug level.
+	//
+	// It is truncated before emission to Engine.MaxRawLength (4 KB by default),
+	// with an "… (N bytes truncated)" marker when anything was cut. That bound is
+	// the library's, not the caller's: the advice above used to be the only
+	// protection, and advice in a doc comment is not a control. An Observer that
+	// ships straight to a log aggregator is the expected configuration, and a
+	// model that answers a parse failure with 2 MB of repeated text should not be
+	// able to put 2 MB of caller-derived text into that log through the default
+	// path. Callers who want the untruncated reply still get it, on the success
+	// path, as TranslateResult.Raw.
 	Raw string
 
 	// ── EventTranslate only ──────────────────────────────────────────────────
@@ -136,6 +146,36 @@ func (o Observer) emit(ctx context.Context, e Event) {
 		return
 	}
 	o(ctx, e)
+}
+
+// defaultMaxRawLength bounds Event.Raw when Engine.MaxRawLength is left at zero.
+//
+// 4 KB is comfortably more than any well-formed AST for a realistic config, so a
+// reply that is merely wrong arrives whole and stays debuggable; only a reply
+// that is pathological gets cut, which is exactly the one no log needs in full.
+const defaultMaxRawLength = 4096
+
+// truncateRaw bounds a raw model reply for emission on an Event.
+//
+// A negative max disables the bound (the caller has taken responsibility);
+// zero selects the default. The marker states the byte count that was dropped,
+// so a reader of the log can tell "the model said this" from "the model said
+// this and 900 KB more" — a silent truncation would make a 4 KB prefix look
+// like the complete reply and send someone hunting for a parse bug in text that
+// was never the whole story.
+//
+// Cutting is by byte, and the cut can land inside a multi-byte rune. That is
+// accepted: this is a debugging string, not a value, and the alternative — rune
+// alignment — would still leave a truncated JSON document, which is what the
+// marker is there to announce.
+func truncateRaw(raw string, max int) string {
+	if max == 0 {
+		max = defaultMaxRawLength
+	}
+	if max < 0 || len(raw) <= max {
+		return raw
+	}
+	return fmt.Sprintf("%s… (%d bytes truncated)", raw[:max], len(raw)-max)
 }
 
 // hiddenTokens derives the reasoning-token count a provider does not report

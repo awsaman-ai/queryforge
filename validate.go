@@ -29,6 +29,7 @@ const (
 	CodeInvalidRelDate   ErrCode = "invalid_relative_date" // unknown unit, or an out-of-range amount
 	CodeRegexNotAllowed  ErrCode = "regex_not_allowed"     // policy.allowRegexOn does not name this field
 	CodeRegexPatternLong ErrCode = "regex_pattern_long"    // pattern exceeds policy.maxRegexLength
+	CodeRegexUnsafe      ErrCode = "regex_unsafe"          // pattern nests unbounded quantifiers (catastrophic backtracking)
 
 	// Field resolution and capability gates.
 	CodeUnknownField       ErrCode = "unknown_field"        // no such field in the config
@@ -699,6 +700,21 @@ func (c *Config) checkRegexPolicy(path string, cond *Condition) ValidationErrors
 			if max := c.Policy.maxRegexLength(); max > 0 && len(s) > max {
 				errs = append(errs, &ValidationError{Code: CodeRegexPatternLong, Path: path, Field: cond.Field,
 					Message: fmt.Sprintf("regex pattern is %d characters, above the limit of %d", len(s), max)})
+			} else if frag, unsafe := unsafeRegexShape(s); unsafe {
+				// Only when the length cap passed: on an over-long pattern the
+				// length is the finding, and running a second scan to report a
+				// second complaint about the same string just makes the repair
+				// hint harder for the model to act on.
+				//
+				// Unconditional, with no policy key to switch it off, unlike the
+				// two gates above. Those answer "should this FIELD be searchable
+				// by pattern", which is a config author's judgment. This one
+				// answers "is this pattern a denial of service", where there is
+				// no legitimate answer to weigh against — a nested unbounded
+				// quantifier is never what an English question meant. See
+				// regexguard.go for exactly how narrow the check is.
+				errs = append(errs, &ValidationError{Code: CodeRegexUnsafe, Path: path, Field: cond.Field,
+					Message: describeUnsafeRegex(frag)})
 			}
 		}
 	}
