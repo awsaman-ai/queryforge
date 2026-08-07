@@ -190,12 +190,8 @@ func TestBuilderFullConfigSemantics(t *testing.T) {
 		t.Error("synonym \"hire date\" should resolve to hiredAt")
 	}
 
-	// Permissions and policy.
-	salary, _ := c.FieldByName("salary")
-	if salary.ReadableBy([]string{"intern"}) || !salary.ReadableBy([]string{"hr"}) {
-		t.Error("salary permissions.read = [hr, admin] did not survive")
-	}
-	if c.Policy.MaxNestingDepth != 5 || len(c.Policy.DenyRegexOn) != 1 || !c.Policy.RequireTenantPredicate {
+	// Policy.
+	if c.Policy.MaxNestingDepth != 5 || len(c.Policy.DenyRegexOn) != 1 {
 		t.Errorf("policy did not survive: %+v", c.Policy)
 	}
 	if c.Defaults.Limit != 50 || c.Defaults.MaxLimit != 500 {

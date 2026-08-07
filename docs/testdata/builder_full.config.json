@@ -78,12 +78,6 @@
         "sql": "salary"
       },
       "searchable": false,
-      "permissions": {
-        "read": [
-          "hr",
-          "admin"
-        ]
-      },
       "validators": {
         "min": 0,
         "max": 10000000
@@ -204,7 +198,6 @@
     "maxLimit": 500
   },
   "policy": {
-    "requireTenantPredicate": true,
     "maxNestingDepth": 5,
     "denyRegexOn": [
       "name"

@@ -31,8 +31,7 @@ const fullConfigJSON = `{
       "operators": ["equals","notEquals","in","notIn"],
       "synonyms": ["state","order status"],
       "indexed": true, "priority": 10,
-      "mapping": { "sql": "status", "mongo": "status", "es": "status" },
-      "permissions": { "read": ["*"] }
+      "mapping": { "sql": "status", "mongo": "status", "es": "status" }
     },
     {
       "name": "createdAt", "type": "date",
@@ -54,8 +53,7 @@ const fullConfigJSON = `{
     {
       "name": "customerName", "type": "string",
       "operators": ["contains","startsWith","equals"],
-      "searchable": true,
-      "permissions": { "read": ["support","admin"] }
+      "searchable": true
     },
     {
       "name": "internalNote", "type": "string",
@@ -64,7 +62,6 @@ const fullConfigJSON = `{
   ],
   "defaults": { "limit": 50, "maxLimit": 500 },
   "policy": {
-    "requireTenantPredicate": true,
     "maxNestingDepth": 5,
     "denyRegexOn": ["customerName"]
   }
@@ -94,7 +91,7 @@ func TestFullConfigParses(t *testing.T) {
 	if c.Defaults.MaxLimit != 500 {
 		t.Errorf("defaults not parsed: %+v", c.Defaults)
 	}
-	if !c.Policy.RequireTenantPredicate {
+	if c.Policy.MaxNestingDepth != 5 || len(c.Policy.DenyRegexOn) != 1 {
 		t.Errorf("policy not parsed: %+v", c.Policy)
 	}
 }
@@ -191,20 +188,39 @@ func TestLoadConfigMissingFile(t *testing.T) {
 	}
 }
 
-// TestReadableBy exercises the field-level RBAC helper.
-func TestReadableBy(t *testing.T) {
-	c := mustParse(t, fullConfigJSON)
-	status, _ := c.FieldByName("status")     // read: ["*"]
-	cust, _ := c.FieldByName("customerName") // read: ["support","admin"]
+// TestRemovedKnobsAreRejected pins the removal of two config keys that parsed
+// but were never enforced: field-level `permissions.read` and
+// `policy.requireTenantPredicate`. Both read as access control in review and
+// applied none at runtime, which is strictly worse than absence.
+//
+// The strict loader turning them into a hard parse error is the point of this
+// test. A config author who relied on either one must find out at load, not
+// discover months later that the restriction never existed — so a future
+// re-introduction of the keys as no-ops has to fail here first.
+func TestRemovedKnobsAreRejected(t *testing.T) {
+	const withPermissions = `{
+	  "entity": "Order",
+	  "fields": [{ "name": "salary", "type": "number", "permissions": { "read": ["hr"] } }]
+	}`
+	const withTenantPredicate = `{
+	  "entity": "Order",
+	  "fields": [{ "name": "amount", "type": "number" }],
+	  "policy": { "requireTenantPredicate": true }
+	}`
 
-	if !status.ReadableBy(nil) {
-		t.Errorf("wildcard field should be readable by anyone")
-	}
-	if cust.ReadableBy([]string{"guest"}) {
-		t.Errorf("guest must not read customerName")
-	}
-	if !cust.ReadableBy([]string{"admin"}) {
-		t.Errorf("admin must read customerName")
+	for _, tc := range []struct{ name, js, key string }{
+		{"field permissions", withPermissions, "permissions"},
+		{"policy requireTenantPredicate", withTenantPredicate, "requireTenantPredicate"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseConfig([]byte(tc.js))
+			if err == nil {
+				t.Fatalf("%q must be rejected, not silently ignored", tc.key)
+			}
+			if !strings.Contains(err.Error(), tc.key) {
+				t.Errorf("error should name the offending key %q, got: %v", tc.key, err)
+			}
+		})
 	}
 }
 

@@ -190,8 +190,8 @@ sequenceDiagram
 | 3. Operator resolution | phrase + field type | operator per predicate | AI | Constrained to operators the config permits for that field. |
 | 4. Value extraction | text spans | typed, normalized values | AI propose → code normalize | Dates/enums normalized by code, not the model. |
 | 5. AST assembly | resolved parts | Query AST | AI (structured output) | Emitted as schema-shaped JSON. |
-| 6. **Validation** | AST + config | validated AST or errors | **No** | Field existence, type/operator legality, enum domain, nesting depth, permissions. |
-| 7. **Permissions** | AST + role/tenant | narrowed/blocked AST | **No** | Drops forbidden fields; injects tenant predicate. |
+| 6. **Validation** | AST + config | validated AST or errors | **No** | Field existence, type/operator legality, enum domain, nesting depth, capability flags. |
+| 7. **Scope injection** | AST + caller scope | narrowed AST | **No** | AND-s the caller's tenant/user predicates onto the filter root, after validation. Role-based field hiding is *not* implemented; use `queryable: false` / `returnable: false`, which are. |
 | 8. **Optimization** (optional) | AST | AST | **No** | Constant folding, predicate reordering. |
 | 9. **Generation** | AST + backend | backend query | **No** | One generator per backend. |
 | 10. **Explain / dry-run** | AST | prose, no execution | **No** | Deterministic rendering of the AST. |
@@ -347,14 +347,12 @@ fields:
   - name: customerName
     type: string
     operators: [contains, startsWith, endsWith, equals]
-    permissions: { read: ["support", "admin"] }     # field-level RBAC
 
 defaults:
   limit: 50
   maxLimit: 500
 
 policy:
-  requireTenantPredicate: true        # auto-inject tenantId = <caller tenant>
   maxNestingDepth: 5
   denyRegexOn: [customerName]         # ReDoS / PII safety
 ```
@@ -407,7 +405,7 @@ Registration is explicit (a registry), not magic auto-discovery — friendlier f
 
 | Feature | Home | Mechanism |
 |---|---|---|
-| Multi-tenancy | Registry + permissions | Config namespaced per tenant; `requireTenantPredicate` auto-injects `tenantId`. |
+| Multi-tenancy | `Scope` argument | Per-call `qf.Scope{"tenantId": …}`, AND-ed at the filter root after validation. Not a config key: the model must never see the field. |
 | Plugin architecture | Registries | §11. |
 | Schema versioning | Config (`version`) | Pin a version per request; migrations additive. |
 | Prompt versioning | Planner | Named templates; A/B + rollback; logged per request. |

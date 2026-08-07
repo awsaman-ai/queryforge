@@ -443,17 +443,6 @@
             Worth setting on any free-text column a user can steer.</p>
           <div id="denyBox" class="opgrid"></div>
         </div>
-
-        <div class="subgroup">
-          <div class="t">policy.requireTenantPredicate<span data-info="requireTenantPredicate"></span></div>
-          <label class="check">
-            <input type="checkbox" data-path="policy.requireTenantPredicate" data-kind="checkbox">
-            <span>requireTenantPredicate <span class="pill">reserved / no effect yet</span></span>
-          </label>
-          <p class="hint">Parsed but not yet enforced. For real multi-tenancy today, use a
-            <a href="config.html#scope">scope</a> — it is applied after validation, at the root of the filter tree, so
-            nothing the model emits can escape it.</p>
-        </div>
         </details>
       </section>
 
@@ -667,9 +656,6 @@ var QFLogic = (function () {
     priority: { t: "field.priority",
       what: "Relative importance. Higher sorts earlier among predicates and earlier in the prompt. A hint only — it gates nothing.",
       ex: "status priority 10, amount priority 2\n→ status is evaluated first in the generated query." },
-    permRead: { t: "field.permissions.read",
-      what: "The roles allowed to see and query this field. Empty means everyone. Pass the caller's roles to the engine and the field disappears for anyone else.",
-      ex: "permissions.read: [hr, admin]\n→ an \"intern\" caller cannot filter on or return salary." },
     validators: { t: "field.validators",
       what: "Deterministic numeric bounds, checked before any query is built. They apply to number fields and to arrays of numbers.",
       ex: "min 0, max 5 on rating\n→ \"rating above 9\" is rejected as out of bounds,\n   instead of quietly returning nothing." },
@@ -686,9 +672,6 @@ var QFLogic = (function () {
     denyRegexOn: { t: "policy.denyRegexOn",
       what: "Fields on which the regex operator is refused. A user-supplied pattern over a free-text column is a denial-of-service surface, so free-text fields belong here.",
       ex: "denyRegexOn: [description]\n→ a crafted pattern like (a+)+$ on description is refused\n   before it ever reaches the database." },
-    requireTenantPredicate: { t: "policy.requireTenantPredicate",
-      what: "Parsed but not yet enforced. For real tenancy today use the scope argument: it is applied after validation and at the root of the filter, so no model output can escape it.",
-      ex: "engine.Translate(ctx, q, \"sql\", qf.Scope{\"tenantId\": 42})\n→ tenantId = 42 AND (whatever the question asked)" },
     scopeField: { t: "tenancy / scope field",
       what: "A field your application forces onto every query — subscriptionId, userId, enterpriseId. Declared queryable: false so the model never learns it exists; you pass the value at call time instead.",
       ex: "qf.Scope{\"subscriptionId\": \"sub_123\"}\n→ injected at the filter root, so A OR B becomes\n   subscriptionId = … AND (A OR B)" }
@@ -879,7 +862,6 @@ var QFLogic = (function () {
       valueCase: "",     // "", "lower" or "upper" — case forced on emitted values
       queryable: "", filterable: "", searchable: "", sortable: "", returnable: "",
       indexed: false, priority: "",
-      permRead: "",      // permissions.read roles, comma-separated
       min: "", max: "",  // validators
       open: true,        // UI only; never serialized
       advOpen: false     // UI only; the "Advanced" disclosure inside the card
@@ -896,7 +878,7 @@ var QFLogic = (function () {
       backends: [],      // [{ key, kind, source }]
       fields: [],
       defaults: { limit: "", maxLimit: "" },
-      policy: { maxNestingDepth: "", denyRegexOn: [], requireTenantPredicate: false }
+      policy: { maxNestingDepth: "", denyRegexOn: [] }
     };
   }
 
@@ -978,9 +960,6 @@ var QFLogic = (function () {
     var p = num(f.priority);
     if (p !== null && p !== 0) out.priority = p;
 
-    var roles = list(f.permRead);
-    if (roles.length) out.permissions = { read: roles };
-
     // Numeric bounds. Emitted for the types they can actually be checked
     // against: a number field, or an array of numbers (validate.go bounds the
     // element type).
@@ -1037,11 +1016,9 @@ var QFLogic = (function () {
     if (nd !== null) { pol.maxNestingDepth = nd; hasPol = true; }
     var deny = list(state.policy.denyRegexOn);
     if (deny.length) { pol.denyRegexOn = deny; hasPol = true; }
-    if (state.policy.requireTenantPredicate === true) { pol.requireTenantPredicate = true; hasPol = true; }
     if (hasPol) {
       // Key order matches Policy in config.go.
       cfg.policy = {};
-      if (pol.requireTenantPredicate) cfg.policy.requireTenantPredicate = true;
       if (pol.maxNestingDepth !== undefined) cfg.policy.maxNestingDepth = pol.maxNestingDepth;
       if (pol.denyRegexOn) cfg.policy.denyRegexOn = pol.denyRegexOn;
     }
@@ -1316,11 +1293,6 @@ var QFLogic = (function () {
           "(names are matched exactly).");
       }
     }
-    if (state.policy.requireTenantPredicate === true) {
-      warn("policy.requireTenantPredicate", "parsed but not yet enforced. Use a scope argument for real tenancy " +
-        "today — it is applied after validation, so no model output can escape it.");
-    }
-
     // Any regex-capable free-text field left off denyRegexOn.
     for (var ri = 0; ri < state.fields.length; ri++) {
       var rf = state.fields[ri], rname = str(rf.name);
@@ -1374,8 +1346,8 @@ var QFLogic = (function () {
   var KNOWN_MODEL  = ["provider", "baseURL", "model", "apiKeyEnv", "temperature", "maxTokens", "jsonMode"];
   var KNOWN_FIELD  = ["name", "type", "values", "itemType", "operators", "synonyms", "mapping", "elemMatch", "valueCase",
                       "queryable", "filterable", "searchable", "sortable", "returnable",
-                      "indexed", "priority", "permissions", "validators"];
-  var KNOWN_POLICY = ["requireTenantPredicate", "maxNestingDepth", "denyRegexOn"];
+                      "indexed", "priority", "validators"];
+  var KNOWN_POLICY = ["maxNestingDepth", "denyRegexOn"];
 
   // unknownKeys lists keys of obj that are not in allowed, prefixed by where.
   function unknownKeys(obj, allowed, where) {
@@ -1445,8 +1417,6 @@ var QFLogic = (function () {
         }
         f.indexed  = src.indexed === true;
         f.priority = src.priority === undefined ? "" : String(src.priority);
-        f.permRead = (src.permissions && Array.isArray(src.permissions.read)) ? src.permissions.read.join(", ") : "";
-        if (src.permissions) unknown = unknown.concat(unknownKeys(src.permissions, ["read"], "fields[" + fi + "].permissions"));
         if (src.validators) {
           unknown = unknown.concat(unknownKeys(src.validators, ["min", "max"], "fields[" + fi + "].validators"));
           f.min = src.validators.min === undefined ? "" : String(src.validators.min);
@@ -1466,7 +1436,6 @@ var QFLogic = (function () {
       unknown = unknown.concat(unknownKeys(cfg.policy, KNOWN_POLICY, "policy"));
       st.policy.maxNestingDepth = cfg.policy.maxNestingDepth === undefined ? "" : String(cfg.policy.maxNestingDepth);
       st.policy.denyRegexOn = Array.isArray(cfg.policy.denyRegexOn) ? cfg.policy.denyRegexOn.slice() : [];
-      st.policy.requireTenantPredicate = cfg.policy.requireTenantPredicate === true;
     }
     return { state: st, unknown: unknown, ok: true, why: "" };
   }
@@ -1868,12 +1837,10 @@ if (typeof window !== "undefined") { window.QFLogic = QFLogic; }
           '<p class="hint" style="margin:.3rem 0 0">Each ⓘ shows what the flag gates and what changes when you set it.' +
             ' Leave one on <em>default</em> and the library keeps deciding by type — the safer choice.</p></div>' +
 
-        '<div class="subgroup"><div class="t">Hints, permissions &amp; bounds</div>' +
-          '<div class="row c4">' +
+        '<div class="subgroup"><div class="t">Hints &amp; bounds</div>' +
+          '<div class="row c2">' +
             '<div><label class="check"><input type="checkbox" data-path="fields.' + i + '.indexed" data-kind="checkbox"' + (f.indexed ? " checked" : "") + '><span>indexed</span></label>' + info("indexed") + '</div>' +
             '<div><label>priority' + info("priority") + '</label><input type="number" step="1" data-path="fields.' + i + '.priority" data-kind="structural" placeholder="0"' + attr("value", f.priority) + '></div>' +
-            '<div><label>permissions.read <span class="q">· roles</span>' + info("permRead") + '</label>' +
-              '<input type="text" data-path="fields.' + i + '.permRead" data-kind="text" placeholder="hr, admin"' + attr("value", f.permRead) + '></div>' +
           '</div>' +
           (boundsApply
             ? '<div class="row c4">' +
@@ -1973,8 +1940,7 @@ if (typeof window !== "undefined") { window.QFLogic = QFLogic; }
     var pp = el("policyPanel");
     if (pp && !pp.open) {
       var hasPolicy = L.str(state.defaults.limit) !== "" || L.str(state.defaults.maxLimit) !== "" ||
-        L.str(state.policy.maxNestingDepth) !== "" || L.list(state.policy.denyRegexOn).length > 0 ||
-        state.policy.requireTenantPredicate === true;
+        L.str(state.policy.maxNestingDepth) !== "" || L.list(state.policy.denyRegexOn).length > 0;
       if (hasPolicy) pp.open = true;
     }
   }
@@ -2293,8 +2259,6 @@ if (typeof window !== "undefined") { window.QFLogic = QFLogic; }
       var node = el("form").querySelector('[data-path="' + pairs[i][0] + '"]');
       if (node) node.value = pairs[i][1];
     }
-    var rt = el("form").querySelector('[data-path="policy.requireTenantPredicate"]');
-    if (rt) rt.checked = state.policy.requireTenantPredicate === true;
     renderOutput();
   }
 

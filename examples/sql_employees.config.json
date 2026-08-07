@@ -107,12 +107,6 @@
       },
       "sortable": true,
       "searchable": false,
-      "permissions": {
-        "read": [
-          "hr",
-          "admin"
-        ]
-      },
       "mapping": {
         "sql": "salary"
       }

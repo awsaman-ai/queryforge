@@ -250,14 +250,7 @@ type Field struct {
 	Indexed  bool `json:"indexed,omitempty"`  // field is backed by a DB index; used for predicate ordering + soft warnings
 	Priority int  `json:"priority,omitempty"` // relative importance; higher sorts earlier in predicates and prompt
 
-	Permissions *FieldPermissions `json:"permissions,omitempty"` // field-level RBAC (read roles)
-	Validators  *FieldValidators  `json:"validators,omitempty"`  // deterministic value constraints (numeric bounds)
-}
-
-// FieldPermissions carries field-level RBAC. Read lists the roles that may see
-// and query the field; "*" means everyone.
-type FieldPermissions struct {
-	Read []string `json:"read,omitempty"`
+	Validators *FieldValidators `json:"validators,omitempty"` // deterministic value constraints (numeric bounds)
 }
 
 // FieldValidators are deterministic value constraints applied during
@@ -273,11 +266,18 @@ type Defaults struct {
 	MaxLimit int `json:"maxLimit,omitempty"`
 }
 
-// Policy encodes deterministic guardrails.
+// Policy encodes deterministic guardrails. Every field here is enforced during
+// validation — there are no reserved or aspirational keys, because a guardrail
+// that parses but does nothing is worse than one that does not exist: it reads
+// as protection in review and provides none at runtime.
+//
+// Multi-tenancy is deliberately absent. It is not a config key but a per-call
+// argument: pass a Scope to Translate/GenerateFrom and the tenant predicate is
+// AND-ed onto the root of the filter tree after validation, where no model
+// output can widen or negate it. See scope.go.
 type Policy struct {
-	RequireTenantPredicate bool     `json:"requireTenantPredicate,omitempty"`
-	MaxNestingDepth        int      `json:"maxNestingDepth,omitempty"`
-	DenyRegexOn            []string `json:"denyRegexOn,omitempty"`
+	MaxNestingDepth int      `json:"maxNestingDepth,omitempty"`
+	DenyRegexOn     []string `json:"denyRegexOn,omitempty"`
 }
 
 // LoadConfig reads and parses a JSON config file.
@@ -497,25 +497,6 @@ func (f Field) AllowsOperator(op Operator) bool {
 	for _, o := range f.EffectiveOperators() {
 		if o == op {
 			return true
-		}
-	}
-	return false
-}
-
-// ReadableBy reports whether a caller holding the given roles may read the
-// field. A field with no permissions block is readable by everyone.
-func (f Field) ReadableBy(roles []string) bool {
-	if f.Permissions == nil || len(f.Permissions.Read) == 0 {
-		return true
-	}
-	for _, allowed := range f.Permissions.Read {
-		if allowed == "*" {
-			return true
-		}
-		for _, r := range roles {
-			if r == allowed {
-				return true
-			}
 		}
 	}
 	return false
