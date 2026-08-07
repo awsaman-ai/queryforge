@@ -3,6 +3,7 @@ package queryforge
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -52,10 +53,11 @@ func NewRegistry() *Registry {
 	return &Registry{gens: make(map[string]Generator)}
 }
 
-// DefaultRegistry returns a registry pre-loaded with the MVP backends.
+// DefaultRegistry returns a registry pre-loaded with the shipped backends.
 func DefaultRegistry() *Registry {
 	r := NewRegistry()
-	r.Register(SQLGenerator{})   // relational (Postgres dialect)
+	r.Register(SQLGenerator{})   // relational, Postgres dialect ("sql")
+	r.Register(MySQLGenerator{}) // relational, MySQL dialect ("mysql")
 	r.Register(MongoGenerator{}) // document store
 	return r
 }
@@ -196,23 +198,61 @@ func collectIndexWarnings(q *Query, c *Config) []string {
 	return warnings
 }
 
+// relativeUnits is the closed set of units a relative_date may carry. It is the
+// same list the system prompt shows the model, and it is what the validator
+// enforces (validateRelativeDate) so a generator never has to guess.
+var relativeUnits = []string{"minute", "hour", "day", "week", "month", "year"}
+
+// maxRelativeAmount bounds the magnitude of a relative_date amount.
+//
+// Unbounded, `amount` is a plain int off the wire. time.Duration(amount) *
+// time.Minute overflows int64 nanoseconds past roughly 1.5e11 minutes and wraps
+// to a time on the wrong side of now; AddDate with a huge amount lands on a year
+// outside any column's range, which drivers reject at bind time with an opaque
+// error. A million of any unit is ~1e6 years at the coarse end and ~2 years at
+// the fine end — far past any real question, far short of either failure.
+const maxRelativeAmount = 1_000_000
+
+// isRelativeUnit reports whether unit is one of the known units.
+func isRelativeUnit(unit string) bool {
+	for _, u := range relativeUnits {
+		if u == unit {
+			return true
+		}
+	}
+	return false
+}
+
 // resolveRelative resolves a relative_date (unit, amount) against a reference
 // time into an absolute time. A negative amount is in the past.
-func resolveRelative(now time.Time, unit string, amount int) time.Time {
+//
+// An unknown unit is an error, not a fallback. It used to return `now`, on the
+// strength of a comment claiming the validator restricted units upstream — which
+// nothing did. A model writing the plural "days" (an ordinary deviation; the
+// prompt lists the singular) therefore compiled "orders in the last 30 days"
+// into "created at or after this instant", returning zero rows with no error and
+// no warning. A generator that cannot resolve a value must not invent one.
+func resolveRelative(now time.Time, unit string, amount int) (time.Time, error) {
+	if !isRelativeUnit(unit) {
+		return time.Time{}, fmt.Errorf("relative date has unknown unit %q (expected one of: %s)",
+			unit, strings.Join(relativeUnits, ", "))
+	}
+	if amount > maxRelativeAmount || amount < -maxRelativeAmount {
+		return time.Time{}, fmt.Errorf("relative date amount %d is out of range (max magnitude %d)",
+			amount, maxRelativeAmount)
+	}
 	switch unit {
 	case "minute":
-		return now.Add(time.Duration(amount) * time.Minute)
+		return now.Add(time.Duration(amount) * time.Minute), nil
 	case "hour":
-		return now.Add(time.Duration(amount) * time.Hour)
+		return now.Add(time.Duration(amount) * time.Hour), nil
 	case "day":
-		return now.AddDate(0, 0, amount)
+		return now.AddDate(0, 0, amount), nil
 	case "week":
-		return now.AddDate(0, 0, amount*7)
+		return now.AddDate(0, 0, amount*7), nil
 	case "month":
-		return now.AddDate(0, amount, 0)
-	case "year":
-		return now.AddDate(amount, 0, 0)
-	default:
-		return now // unknown unit: fall back to now (validator restricts units upstream)
+		return now.AddDate(0, amount, 0), nil
+	default: // year — isRelativeUnit has already excluded everything else
+		return now.AddDate(amount, 0, 0), nil
 	}
 }

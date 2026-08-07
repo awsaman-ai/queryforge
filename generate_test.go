@@ -82,7 +82,10 @@ func TestSQLGolden(t *testing.T) {
 	if r.Args[0] != "DELIVERED" || r.Args[2] != false || r.Args[3] != "premium" || r.Args[4] != "express" {
 		t.Errorf("unexpected args: %v", r.Args)
 	}
-	wantTime := resolveRelative(fixedNow, "day", -30)
+	wantTime, err := resolveRelative(fixedNow, "day", -30)
+	if err != nil {
+		t.Fatalf("resolveRelative: %v", err)
+	}
 	if got, ok := r.Args[1].(time.Time); !ok || !got.Equal(wantTime) {
 		t.Errorf("arg[1] should be the resolved relative date %v, got %v", wantTime, r.Args[1])
 	}
@@ -107,7 +110,11 @@ func TestMongoGolden(t *testing.T) {
 	if !ok {
 		t.Fatalf("createdAt missing: %#v", mq.Filter)
 	}
-	if got, ok := created["$gte"].(time.Time); !ok || !got.Equal(resolveRelative(fixedNow, "day", -30)) {
+	want, err := resolveRelative(fixedNow, "day", -30)
+	if err != nil {
+		t.Fatalf("resolveRelative: %v", err)
+	}
+	if got, ok := created["$gte"].(time.Time); !ok || !got.Equal(want) {
 		t.Errorf("createdAt $gte wrong: %#v", created["$gte"])
 	}
 	if len(mq.Sort) != 1 || mq.Sort[0].Field != "createdAt" || mq.Sort[0].Order != -1 {
@@ -264,7 +271,7 @@ func TestDefaultLimitApplied(t *testing.T) {
 // TestRegistry exercises the plugin registry.
 func TestRegistry(t *testing.T) {
 	r := DefaultRegistry()
-	if got := r.Backends(); !reflect.DeepEqual(got, []string{"mongo", "sql"}) {
+	if got := r.Backends(); !reflect.DeepEqual(got, []string{"mongo", "mysql", "sql"}) {
 		t.Errorf("backends = %v", got)
 	}
 	if _, ok := r.Get("sql"); !ok {

@@ -141,7 +141,7 @@ func TestEngineValidateAndBackends(t *testing.T) {
 	if err := e.Validate(canonicalQuery()); err != nil {
 		t.Errorf("valid AST rejected: %v", err)
 	}
-	if got := strings.Join(e.Backends(), ","); got != "mongo,sql" {
+	if got := strings.Join(e.Backends(), ","); got != "mongo,mysql,sql" {
 		t.Errorf("backends = %s", got)
 	}
 }

@@ -273,9 +273,25 @@ func describeRelative(unit string, amount int) string {
 		n = -amount
 		suffix = "ago"
 	}
-	plural := unit
-	if n != 1 {
-		plural = unit + "s" // naive pluralization is fine for day/week/month/year/hour/minute
+	return fmt.Sprintf("%d %s %s", n, pluralizeUnit(unit, n), suffix)
+}
+
+// pluralizeUnit renders a relative-date unit for n of them.
+//
+// Appending "s" to whatever arrived was fine for the six known units and wrong
+// for everything else: an AST carrying "days" rendered "30 dayss ago", and an
+// empty unit rendered "30  ago". That mattered more than a typo, because the
+// explanation is the readback a user is shown BEFORE running the query — the one
+// place a malformed unit was visible at all, and the doubled letter was subtle
+// enough that no operator would catch it. The validator now rejects such units
+// outright, so this is the second line of defence: an unrecognised unit is
+// rendered loudly rather than plausibly.
+func pluralizeUnit(unit string, n int) string {
+	if !isRelativeUnit(unit) {
+		return fmt.Sprintf("<invalid unit %q>", unit)
 	}
-	return fmt.Sprintf("%d %s %s", n, plural, suffix)
+	if n == 1 {
+		return unit
+	}
+	return unit + "s"
 }

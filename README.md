@@ -9,7 +9,7 @@
 
 Your users stop translating what they want into dropdowns, checkboxes and date pickers — they just say it, in their own words. QueryForge turns that into a query you can trust.
 
-The model never writes the query. It fills in a typed **Query AST** your config constrains, and deterministic Go compiles that to whatever database you run. Postgres SQL and MongoDB ship today; a new backend is a generator, not a rewrite.
+The model never writes the query. It fills in a typed **Query AST** your config constrains, and deterministic Go compiles that to whatever database you run. Postgres (`"sql"`), MySQL (`"mysql"`) and MongoDB (`"mongo"`) ship today; a new backend is a generator, not a rewrite.
 
 ▶️ **[Live demo](https://queryforge-demo.amtry.in)** — flip one toggle and watch a thirteen-filter product page become a single search box
 📖 [Docs](https://awsaman-ai.github.io/queryforge/) · 🛠 [Build a config in your browser](https://awsaman-ai.github.io/queryforge/config-builder.html) — no install, nothing leaves the page
@@ -115,7 +115,7 @@ Full reference: [`docs/config.html`](docs/config.html#ast).
 | Guarantee | How |
 |---|---|
 | **No hallucinated fields** | The AST is validated against the config before generation. Unknown field → hard rejection (with "did you mean" suggestions). |
-| **No SQL injection** | The model emits structure, never a string. SQL is parameterized (`$1, $2, …`); Mongo values are typed map elements. |
+| **No SQL injection** | The model emits structure, never a string. SQL is parameterized (`$1, $2, …` on Postgres, `?` on MySQL); Mongo values are typed map elements. Identifiers, which no dialect lets you bind, are checked against a strict identifier rule — at config load, and again on the way into the statement — and quoted where the dialect needs it. |
 | **Read-only / GET only** | The operator catalogue contains no mutation verbs; every generator emits only `SELECT` / `find`. Enforced by test. |
 | **N backends, one brain** | Add a database = implement one generator. Zero prompt or model changes. |
 | **Config-driven, no training** | You register metadata. The config *is* the prompt, the grammar, and the mapping. |
@@ -194,7 +194,7 @@ Keys apply in alphabetical order, so the query and its argument order are identi
 
 ### Naming the column
 
-A key the config doesn't declare is used **verbatim** as the physical column name. That's fine for one backend. When you target both SQL and Mongo, declare the column once with `queryable: false` — hidden from the model, still scopable, and mapped per backend:
+A key the config doesn't declare is used **verbatim** as the physical column name — after being checked against the identifier rule (`[A-Za-z_][A-Za-z0-9_]*`, dots allowed for Mongo paths). A key that is not an identifier is rejected as an `ErrScope`, so a key derived from a header, a config file, or a per-customer mapping table can never become query syntax. That's fine for one backend. When you target both SQL and Mongo, declare the column once with `queryable: false` — hidden from the model, still scopable, and mapped per backend:
 
 ```jsonc
 { "name": "tenantId", "type": "string",

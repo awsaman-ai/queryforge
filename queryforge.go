@@ -117,7 +117,7 @@ func New(c *Config) *Engine {
 // NewWithProvider builds an engine with a caller-supplied model provider. Use it
 // for a custom dialect or a deterministic stub in tests.
 func NewWithProvider(c *Config, p ModelProvider) *Engine {
-	return &Engine{
+	e := &Engine{
 		config:     c,
 		provider:   p,
 		planner:    NewPlanner(c, p),
@@ -125,6 +125,15 @@ func NewWithProvider(c *Config, p ModelProvider) *Engine {
 		MaxRepairs: 2, // §5.2: bounded to N retries, then fail closed
 		Now:        func() time.Time { return time.Now().UTC() },
 	}
+	// One clock for the whole engine. The planner used to install its own, so
+	// pinning Engine.Now moved the generator's reference time but left the
+	// "Today (UTC): …" line in the system prompt reading the wall clock — a test
+	// that fixed the clock still sent the real date to the model, and no caller
+	// could make a translation deterministic end to end. Routing through
+	// e.now() (not e.Now) means a later reassignment of Engine.Now is picked up
+	// here too.
+	e.planner.Now = e.now
+	return e
 }
 
 // SetObserver installs an Observer on the engine AND pushes it down into the

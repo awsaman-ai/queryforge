@@ -101,6 +101,21 @@ func normalizeScope(s Scope, c *Config) ([]ScopeFilter, error) {
 		if name == "" {
 			return nil, fmt.Errorf("%w: a scope key is empty; every key must name a field", ErrScope)
 		}
+		// A scope key is the one input to the tenant-isolation guarantee that had
+		// no validation at all. When the config does not declare it — the
+		// documented, common case for a tenant column the NLP layer must not know
+		// about — PhysicalName passes it through verbatim, and the SQL generator
+		// writes it into the statement as an identifier. A key of
+		// `tenant_id = 'X' OR 1=1 --` therefore became syntax, and commented out
+		// the bound placeholder that was meant to follow it.
+		//
+		// The same key is a BSON filter key on the Mongo side, where a leading "$"
+		// is read as an operator. validIdentPath rules out both, and is checked
+		// before any predicate is built so nothing downstream has to.
+		if !validIdentPath(name) {
+			return nil, fmt.Errorf("%w: key %q is not a valid field name; a scope key must be one or more "+
+				"dot-separated identifiers (letters, digits and underscores, not starting with a digit)", ErrScope, k)
+		}
 		// " userId" and "userId" would compile to the same predicate twice, and
 		// which one wins would depend on map ordering. Reject rather than guess.
 		if prev, dup := seen[name]; dup {

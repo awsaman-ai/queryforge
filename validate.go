@@ -17,10 +17,18 @@ type ErrCode string
 
 const (
 	// Structure: the AST itself is malformed, independent of any config.
-	CodeMalformedAST   ErrCode = "malformed_ast"    // nil node, unknown condition type
-	CodeEntityMismatch ErrCode = "entity_mismatch"  // AST entity is not this config's entity
-	CodeNestingTooDeep ErrCode = "nesting_too_deep" // filter tree exceeds policy.maxNestingDepth
-	CodeInvalidArity   ErrCode = "invalid_arity"    // wrong number of children or values
+	CodeMalformedAST     ErrCode = "malformed_ast"         // nil node, unknown condition type
+	CodeEntityMismatch   ErrCode = "entity_mismatch"       // AST entity is not this config's entity
+	CodeNestingTooDeep   ErrCode = "nesting_too_deep"      // filter tree exceeds policy.maxNestingDepth
+	CodeInvalidArity     ErrCode = "invalid_arity"         // wrong number of children or values
+	CodeUnknownVersion   ErrCode = "unknown_version"       // AST version is not one this library understands
+	CodeFilterTooLarge   ErrCode = "filter_too_large"      // filter tree exceeds policy.maxFilterNodes
+	CodeListTooLong      ErrCode = "list_too_long"         // in/notIn/containsAny list exceeds policy.maxListLength
+	CodeValueTooLong     ErrCode = "value_too_long"        // string value exceeds policy.maxValueLength
+	CodeDuplicateField   ErrCode = "duplicate_field"       // the same field listed twice in select
+	CodeInvalidRelDate   ErrCode = "invalid_relative_date" // unknown unit, or an out-of-range amount
+	CodeRegexNotAllowed  ErrCode = "regex_not_allowed"     // policy.allowRegexOn does not name this field
+	CodeRegexPatternLong ErrCode = "regex_pattern_long"    // pattern exceeds policy.maxRegexLength
 
 	// Field resolution and capability gates.
 	CodeUnknownField       ErrCode = "unknown_field"        // no such field in the config
@@ -102,6 +110,21 @@ func Validate(q *Query, c *Config) error {
 		return ValidationErrors{{Code: CodeMalformedAST, Path: "$", Message: "query is nil"}}
 	}
 
+	v := &walk{c: c} // per-call budgets: node count, suggestion calls
+
+	// The AST version must be one this library understands. The field existed and
+	// was defaulted but never checked, which made it decorative — and it is
+	// exactly the mechanism to rely on the first time the AST shape changes. An
+	// AST tagged "2.0" is not a 1.0 AST that happens to parse; refusing it is the
+	// difference between a clean migration and a silent misreading.
+	if !supportedASTVersion(q.Version) {
+		errs = append(errs, &ValidationError{
+			Code:    CodeUnknownVersion,
+			Path:    "version",
+			Message: fmt.Sprintf("unsupported AST version %q (this library understands %q)", q.Version, ASTVersion),
+		})
+	}
+
 	// The entity in the AST must match the entity this config describes.
 	if q.Entity != c.Entity {
 		errs = append(errs, &ValidationError{
@@ -111,30 +134,34 @@ func Validate(q *Query, c *Config) error {
 		})
 	}
 
-	// Validate the filter tree (predicates), if present.
+	// Validate the filter tree (predicates), if present. Depth and node count are
+	// measured DURING the walk, not after it: a policy that bounds what is legal
+	// but not what is computed is not a bound at all — the old code recursed over
+	// the whole tree first and only then asked how deep it had been.
 	if q.Filter != nil {
-		errs = append(errs, validateCondition(c, "filter", q.Filter)...)
-
-		// Enforce the configured maximum nesting depth (0 = unlimited).
-		if max := c.Policy.MaxNestingDepth; max > 0 {
-			if d := conditionDepth(q.Filter); d > max {
-				errs = append(errs, &ValidationError{
-					Code:    CodeNestingTooDeep,
-					Path:    "filter",
-					Message: fmt.Sprintf("nesting depth %d exceeds policy limit %d", d, max),
-				})
-			}
-		}
+		errs = append(errs, v.condition("filter", q.Filter, 1)...)
 	}
 
 	// Validate the projection: every selected field must exist, be queryable,
 	// and be returnable.
+	seenSelect := make(map[string]bool, len(q.Select))
 	for i, name := range q.Select {
 		path := fmt.Sprintf("select[%d]", i)
+		// `select: ["amount","amount"]` compiles to `SELECT amount, amount`, which
+		// is legal SQL with two identically-named result columns, while Mongo
+		// collapses the duplicate into one projection key. Two backends, two
+		// answers, from one AST — so reject it here instead.
+		if seenSelect[name] {
+			errs = append(errs, &ValidationError{Code: CodeDuplicateField, Path: path, Field: name,
+				Message: fmt.Sprintf("field %q is selected more than once", name)})
+			continue
+		}
+		seenSelect[name] = true
+
 		f, ok := c.FieldByName(name)
 		if !ok {
 			errs = append(errs, &ValidationError{Code: CodeUnknownField, Path: path, Field: name,
-				Message: fmt.Sprintf("unknown field %q", name), Suggestions: c.suggestFields(name)})
+				Message: fmt.Sprintf("unknown field %q", name), Suggestions: v.suggest(name)})
 			continue
 		}
 		if !f.EffectiveQueryable() {
@@ -154,7 +181,7 @@ func Validate(q *Query, c *Config) error {
 		f, ok := c.FieldByName(s.Field)
 		if !ok {
 			errs = append(errs, &ValidationError{Code: CodeUnknownField, Path: path, Field: s.Field,
-				Message: fmt.Sprintf("unknown field %q", s.Field), Suggestions: c.suggestFields(s.Field)})
+				Message: fmt.Sprintf("unknown field %q", s.Field), Suggestions: v.suggest(s.Field)})
 		} else {
 			if !f.EffectiveQueryable() {
 				errs = append(errs, &ValidationError{Code: CodeFieldNotQueryable, Path: path, Field: s.Field,
@@ -194,24 +221,75 @@ func Validate(q *Query, c *Config) error {
 	return errs
 }
 
-// validateCondition recursively validates one node of the filter tree.
-func validateCondition(c *Config, path string, cond *Condition) ValidationErrors {
+// supportedASTVersion reports whether an AST's version tag is one this library
+// can read. The empty string is accepted because parseAST defaults it and a
+// hand-built Query may legitimately omit it; anything else must match.
+func supportedASTVersion(v string) bool {
+	return v == "" || v == ASTVersion
+}
+
+// walk carries the per-call budgets through the recursive validation.
+//
+// They are per call, not per config, because they bound the cost of ONE request:
+// two ASTs each with 400 nodes are fine, one with 800 is not.
+type walk struct {
+	c        *Config
+	nodes    int  // condition nodes seen so far
+	suggests int  // "did you mean" computations spent so far
+	overrun  bool // true once the node budget was reported, so it is reported once
+}
+
+// suggest returns nearest-match field names, within a budget.
+//
+// Each call runs Levenshtein against every configured field AND every synonym,
+// so a filter naming n unknown fields against a config of f fields costs
+// O(n·f·L²) — the most expensive thing an invalid AST can ask for, and it is
+// asked for precisely when the AST is nonsense. After the budget is spent the
+// errors still come back in full; only the hint is dropped.
+func (w *walk) suggest(name string) []string {
+	if max := w.c.Policy.maxSuggestCalls(); max > 0 && w.suggests >= max {
+		return nil
+	}
+	w.suggests++
+	return w.c.suggestFields(name)
+}
+
+// condition recursively validates one node of the filter tree. depth is the
+// node's own depth, counted from 1 at the root.
+func (w *walk) condition(path string, cond *Condition, depth int) ValidationErrors {
 	if cond == nil { // a nil child is a structural error
 		return ValidationErrors{{Code: CodeMalformedAST, Path: path, Message: "condition is nil"}}
 	}
+
+	// Budget first, so an oversized tree stops being walked rather than being
+	// walked and then complained about.
+	w.nodes++
+	if max := w.c.Policy.maxFilterNodes(); max > 0 && w.nodes > max {
+		if w.overrun {
+			return nil // already reported; say it once, then stop descending
+		}
+		w.overrun = true
+		return ValidationErrors{{Code: CodeFilterTooLarge, Path: path,
+			Message: fmt.Sprintf("filter has more than %d condition nodes", max)}}
+	}
+	if max := w.c.Policy.MaxNestingDepth; max > 0 && depth > max {
+		return ValidationErrors{{Code: CodeNestingTooDeep, Path: path,
+			Message: fmt.Sprintf("nesting depth %d exceeds policy limit %d", depth, max)}}
+	}
+
 	switch cond.Type {
 	case CondLogical:
-		return validateLogical(c, path, cond)
+		return w.logical(path, cond, depth)
 	case CondComparison:
-		return validateComparison(c, path, cond)
+		return w.comparison(path, cond)
 	default:
 		return ValidationErrors{{Code: CodeMalformedAST, Path: path,
 			Message: fmt.Sprintf("unknown condition type %q (expected logical or comparison)", cond.Type)}}
 	}
 }
 
-// validateLogical checks a logical (AND/OR/NOT) node and recurses.
-func validateLogical(c *Config, path string, cond *Condition) ValidationErrors {
+// logical checks a logical (AND/OR/NOT) node and recurses.
+func (w *walk) logical(path string, cond *Condition, depth int) ValidationErrors {
 	var errs ValidationErrors
 
 	switch cond.Op { // the connective must be one of the three known ones
@@ -232,14 +310,15 @@ func validateLogical(c *Config, path string, cond *Condition) ValidationErrors {
 
 	for i, child := range cond.Children { // recurse into each child
 		childPath := fmt.Sprintf("%s.children[%d]", path, i)
-		errs = append(errs, validateCondition(c, childPath, child)...)
+		errs = append(errs, w.condition(childPath, child, depth+1)...)
 	}
 	return errs
 }
 
-// validateComparison checks a single comparison predicate: field existence and
+// comparison checks a single comparison predicate: field existence and
 // capability, operator legality, and value shape/domain.
-func validateComparison(c *Config, path string, cond *Condition) ValidationErrors {
+func (w *walk) comparison(path string, cond *Condition) ValidationErrors {
+	c := w.c
 	var errs ValidationErrors
 
 	// 1) The field must be registered. Unknown -> reject with suggestions and
@@ -247,7 +326,7 @@ func validateComparison(c *Config, path string, cond *Condition) ValidationError
 	f, ok := c.FieldByName(cond.Field)
 	if !ok {
 		return ValidationErrors{{Code: CodeUnknownField, Path: path, Field: cond.Field,
-			Message: fmt.Sprintf("unknown field %q", cond.Field), Suggestions: c.suggestFields(cond.Field)}}
+			Message: fmt.Sprintf("unknown field %q", cond.Field), Suggestions: w.suggest(cond.Field)}}
 	}
 
 	// 2) Capability gates: the field must be exposed and usable in a filter.
@@ -276,10 +355,11 @@ func validateComparison(c *Config, path string, cond *Condition) ValidationError
 		errs = append(errs, &ValidationError{Code: CodeFieldNotSearchable, Path: path, Field: cond.Field,
 			Message: fmt.Sprintf("field %q is not searchable, so %q is not allowed", cond.Field, cond.Operator)})
 	}
-	// The denyRegexOn policy blocks regex on named fields (ReDoS / PII safety).
-	if cond.Operator == OpRegex && c.regexDenied(cond.Field) {
-		errs = append(errs, &ValidationError{Code: CodeRegexDenied, Path: path, Field: cond.Field,
-			Message: fmt.Sprintf("regex is denied on field %q by policy", cond.Field)})
+	// Regex policy. The pattern is handed to the database verbatim — Postgres `~`
+	// and Mongo $regex both evaluate it inside the query — so a pattern like
+	// `(a+)+$` costs the SERVER exponential time, from an ordinary sentence.
+	if cond.Operator == OpRegex {
+		errs = append(errs, c.checkRegexPolicy(path, cond)...)
 	}
 
 	// 4) Value shape. Null operators take no value; everything else requires one.
@@ -331,6 +411,13 @@ func validateArrayValue(c *Config, path string, f *Field, elemType FieldType, co
 		errs = append(errs, &ValidationError{Code: CodeInvalidArity, Path: path, Field: cond.Field,
 			Message: fmt.Sprintf("operator %q requires at least one value", cond.Operator)})
 	}
+	// Each element becomes one bound placeholder, so an unbounded list is an
+	// unbounded statement. Report and stop: type-checking 100k elements to say
+	// the list is too long would be the very cost the bound exists to avoid.
+	if max := c.Policy.maxListLength(); max > 0 && len(elems) > max {
+		return append(errs, &ValidationError{Code: CodeListTooLong, Path: path, Field: cond.Field,
+			Message: fmt.Sprintf("operator %q was given %d values, above the limit of %d", cond.Operator, len(elems), max)})
+	}
 
 	for i, e := range elems { // type-check each element against the element type
 		if !elementKindOK(elemType, e) {
@@ -349,13 +436,39 @@ func validateArrayValue(c *Config, path string, f *Field, elemType FieldType, co
 				errs = append(errs, f.checkNumericBounds(path, n)...)
 			}
 		}
+		if s, ok := e.(string); ok { // one long element is as costly as one long scalar
+			errs = append(errs, c.checkValueLength(fmt.Sprintf("%s.value[%d]", path, i), cond.Field, s)...)
+		}
 	}
 	return errs
+}
+
+// checkValueLength bounds a single string literal. An unbounded string travels
+// into a bound argument, which is safe, but it is still one request asking the
+// database to compare against a megabyte.
+func (c *Config) checkValueLength(path, field, s string) ValidationErrors {
+	max := c.Policy.maxValueLength()
+	if max <= 0 || len(s) <= max {
+		return nil
+	}
+	return ValidationErrors{{Code: CodeValueTooLong, Path: path, Field: field,
+		Message: fmt.Sprintf("value is %d characters, above the limit of %d", len(s), max)}}
 }
 
 // validateScalarValue checks operators whose value is a single scalar.
 func validateScalarValue(c *Config, path string, f *Field, elemType FieldType, v *Value) ValidationErrors {
 	var errs ValidationErrors
+
+	// A relative date carries no payload for scalarKindOK to judge — only a unit
+	// and an amount, neither of which anything used to check. An unknown unit
+	// (the plural "days" is the common one; the prompt lists singulars) then fell
+	// through resolveRelative's default and bound the CURRENT time, so "orders in
+	// the last 30 days" compiled to "orders created from now on" and returned
+	// zero rows, with no error anywhere. Check it here, where the failure is a
+	// validation error the repair loop can feed back to the model.
+	if v != nil && v.Kind == KindRelativeDate {
+		return validateRelativeDate(path, f, elemType, v)
+	}
 
 	if !scalarKindOK(elemType, v) { // the value itself must fit the (element) type
 		// Name what actually arrived rather than the kind tag: after
@@ -376,6 +489,30 @@ func validateScalarValue(c *Config, path string, f *Field, elemType FieldType, v
 		if n, ok := v.AsFloat(); ok {
 			errs = append(errs, f.checkNumericBounds(path, n)...)
 		}
+	}
+	if s, ok := v.AsString(); ok { // bound the literal's size
+		errs = append(errs, c.checkValueLength(path, f.Name, s)...)
+	}
+	return errs
+}
+
+// validateRelativeDate checks the one value kind whose meaning lives entirely in
+// its tag: unit must be one the generators can resolve, and amount must be small
+// enough that resolving it stays inside the calendar (and inside int64
+// nanoseconds — see maxRelativeAmount).
+func validateRelativeDate(path string, f *Field, elemType FieldType, v *Value) ValidationErrors {
+	var errs ValidationErrors
+	if elemType != FieldDate {
+		return ValidationErrors{{Code: CodeKindMismatch, Path: path, Field: f.Name,
+			Message: fmt.Sprintf("value %s is not compatible with field type %q", describePayload(v), elemType)}}
+	}
+	if !isRelativeUnit(v.Unit) {
+		errs = append(errs, &ValidationError{Code: CodeInvalidRelDate, Path: path, Field: f.Name,
+			Message: fmt.Sprintf("relative date unit %q is not one of: %s", v.Unit, strings.Join(relativeUnits, ", "))})
+	}
+	if v.Amount > maxRelativeAmount || v.Amount < -maxRelativeAmount {
+		errs = append(errs, &ValidationError{Code: CodeInvalidRelDate, Path: path, Field: f.Name,
+			Message: fmt.Sprintf("relative date amount %d is out of range (max magnitude %d)", v.Amount, maxRelativeAmount)})
 	}
 	return errs
 }
@@ -405,7 +542,10 @@ func scalarKindOK(t FieldType, v *Value) bool {
 		return ok
 	case FieldDate:
 		if v.Kind == KindRelativeDate {
-			return true // unit/amount, resolved against the clock at generation time
+			// unit/amount, resolved against the clock at generation time. There is
+			// no payload to judge here; validateRelativeDate checks the tag itself
+			// and runs before this function is reached.
+			return true
 		}
 		// An absolute date must be text the generators can actually parse.
 		// Without this the payload rule would admit "last tuesday" and bind the
@@ -477,24 +617,6 @@ func isArrayValueOperator(op Operator) bool {
 	return false
 }
 
-// conditionDepth returns the nesting depth of a filter subtree: a comparison is
-// depth 1, a logical node is 1 + the deepest child.
-func conditionDepth(cond *Condition) int {
-	if cond == nil {
-		return 0
-	}
-	if cond.Type == CondComparison {
-		return 1
-	}
-	deepest := 0
-	for _, ch := range cond.Children {
-		if d := conditionDepth(ch); d > deepest {
-			deepest = d
-		}
-	}
-	return deepest + 1
-}
-
 // joinOperators renders an operator slice for error messages.
 func joinOperators(ops []Operator) string {
 	parts := make([]string, len(ops))
@@ -539,6 +661,48 @@ func (c *Config) regexDenied(field string) bool {
 		}
 	}
 	return false
+}
+
+// regexAllowed reports whether policy permits regex on the named field. When
+// allowRegexOn is empty the policy is not in use and every field is permitted
+// (the deny-list still applies); when it lists anything, it is exhaustive.
+func (c *Config) regexAllowed(field string) bool {
+	if len(c.Policy.AllowRegexOn) == 0 {
+		return true
+	}
+	for _, name := range c.Policy.AllowRegexOn {
+		if name == field {
+			return true
+		}
+	}
+	return false
+}
+
+// checkRegexPolicy applies both regex gates and the pattern-length cap.
+//
+// The length cap is unconditional (it has a built-in default) because the two
+// field-level gates are per-config decisions and this one is not: no legitimate
+// natural-language question produces a 4 KB pattern, and pattern length is the
+// cheapest available proxy for how much work the database is about to do.
+func (c *Config) checkRegexPolicy(path string, cond *Condition) ValidationErrors {
+	var errs ValidationErrors
+	if c.regexDenied(cond.Field) {
+		errs = append(errs, &ValidationError{Code: CodeRegexDenied, Path: path, Field: cond.Field,
+			Message: fmt.Sprintf("regex is denied on field %q by policy", cond.Field)})
+	} else if !c.regexAllowed(cond.Field) {
+		errs = append(errs, &ValidationError{Code: CodeRegexNotAllowed, Path: path, Field: cond.Field,
+			Message: fmt.Sprintf("regex is not enabled on field %q (policy.allowRegexOn lists: %s)",
+				cond.Field, strings.Join(c.Policy.AllowRegexOn, ", "))})
+	}
+	if cond.Value != nil {
+		if s, ok := cond.Value.AsString(); ok {
+			if max := c.Policy.maxRegexLength(); max > 0 && len(s) > max {
+				errs = append(errs, &ValidationError{Code: CodeRegexPatternLong, Path: path, Field: cond.Field,
+					Message: fmt.Sprintf("regex pattern is %d characters, above the limit of %d", len(s), max)})
+			}
+		}
+	}
+	return errs
 }
 
 // suggestFields returns up to three registered, queryable field names closest

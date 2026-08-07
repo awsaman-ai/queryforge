@@ -107,9 +107,24 @@ func mongoCondition(c *Config, cond *Condition, now time.Time) (map[string]any, 
 // the child field keys do not collide (matching idiomatic Mongo), otherwise it
 // falls back to $and. OR uses $or; NOT uses $nor over its single child.
 func mongoLogical(c *Config, cond *Condition, now time.Time) (map[string]any, error) {
+	// Arity is checked, not assumed. Generator is an exported interface and
+	// DefaultRegistry an exported constructor, so an AST that never passed
+	// Validate reaches here whenever a caller fans out to several backends
+	// straight from the registry. Every other malformed node in this file is an
+	// error; a childless logical node used to be a panic.
+	if len(cond.Children) == 0 {
+		return nil, fmt.Errorf("mongo: logical %q has no children", cond.Op)
+	}
+	if cond.Op == OpNOT && len(cond.Children) != 1 {
+		return nil, fmt.Errorf("mongo: NOT must have exactly one child, got %d", len(cond.Children))
+	}
+
 	children := orderedChildren(c, cond.Children) // predicate ordering
 	parts := make([]map[string]any, 0, len(children))
 	for _, ch := range children {
+		if ch == nil {
+			return nil, fmt.Errorf("mongo: logical %q has a nil child", cond.Op)
+		}
 		m, err := mongoCondition(c, ch, now)
 		if err != nil {
 			return nil, err
@@ -122,10 +137,50 @@ func mongoLogical(c *Config, cond *Condition, now time.Time) (map[string]any, er
 	case OpOR:
 		return map[string]any{"$or": toAnySlice(parts)}, nil
 	case OpNOT:
-		return map[string]any{"$nor": toAnySlice(parts)}, nil // single child guaranteed by validator
+		nor := map[string]any{"$nor": toAnySlice(parts)}
+		// $nor alone matches documents that do not have the field at all, where
+		// the SQL side does not: `NOT (status = $1)` is NULL, not TRUE, for a row
+		// with a NULL status, so the row is excluded. Requiring the field to exist
+		// restores the SQL reading — see mongoExistenceGuard for exactly when it
+		// applies and why NOT over a subtree is left alone.
+		if guard, ok := mongoExistenceGuard(c, cond.Children[0]); ok {
+			return map[string]any{"$and": []any{nor, guard}}, nil
+		}
+		return nor, nil
 	default:
 		return nil, fmt.Errorf("mongo: unknown logical operator %q", cond.Op)
 	}
+}
+
+// mongoExistenceGuard returns the {field: {$exists: true}} document that makes a
+// negated predicate agree with SQL's three-valued logic, when one applies.
+//
+// It applies to the negation of a VALUE comparison. In SQL, comparing a NULL
+// column against anything yields NULL, which is not TRUE, so the row is excluded
+// whether or not the comparison is wrapped in NOT. Mongo has no such rule: a
+// missing field simply fails to match, which makes the negation succeed. Adding
+// $exists:true reproduces the SQL answer exactly.
+//
+// It does NOT apply to:
+//
+//   - isNull / isNotNull, which are about absence and already agree. Requiring
+//     existence under NOT(isNotNull) would wrongly drop documents missing the
+//     field, which SQL counts as NULL and therefore returns.
+//   - a NOT over a logical subtree. There is no single field to require, and
+//     requiring all of them would be wrong in general: SQL's NOT(A AND B) is TRUE
+//     when A is NULL and B is FALSE, so the row comes back even though A's field
+//     is missing. That divergence is documented rather than papered over.
+func mongoExistenceGuard(c *Config, child *Condition) (map[string]any, bool) {
+	if child == nil || child.Type != CondComparison || isNullOperator(child.Operator) {
+		return nil, false
+	}
+	// A nested (elemMatch) field is addressed relative to an array element; the
+	// array itself existing says nothing about the element's key, so the guard
+	// would not mean what it says. Leave those to the documented divergence.
+	if _, _, nested := c.MongoElemMatch(child.Field); nested {
+		return nil, false
+	}
+	return map[string]any{c.PhysicalName(child.Field, "mongo"): map[string]any{"$exists": true}}, true
 }
 
 // mongoComparison renders one predicate as a {field: expr} document.
@@ -163,65 +218,141 @@ func mongoPredicate(c *Config, cond *Condition, field string, now time.Time) (ma
 	// pattern whose escapes change meaning with case (\d vs \D).
 	vc := c.valueCaseFor(cond.Field)
 
+	// scalar renders the predicate's single operand, or reports why it cannot.
+	scalar := func() (any, error) { return mongoScalar(cond.Value, elemType, now, vc) }
+
 	switch cond.Operator {
 	case OpIsNull:
 		return map[string]any{field: nil}, nil
 	case OpIsNotNull:
 		return map[string]any{field: map[string]any{"$ne": nil}}, nil
 	case OpEquals:
-		return map[string]any{field: mongoScalar(cond.Value, elemType, now, vc)}, nil
+		return mongoScalarExpr(field, "", scalar, false)
 	case OpNotEquals:
-		return expr(field, "$ne", mongoScalar(cond.Value, elemType, now, vc)), nil
+		// $ne alone matches documents that do not carry the field; SQL's
+		// `status <> $1` evaluates to NULL for a NULL status and excludes the row.
+		// $exists:true is what makes the two backends select the same rows from
+		// the same AST — the cross-backend equivalence the library promises.
+		return mongoScalarExpr(field, "$ne", scalar, true)
 	case OpGt:
-		return expr(field, "$gt", mongoScalar(cond.Value, elemType, now, vc)), nil
+		return mongoScalarExpr(field, "$gt", scalar, false)
 	case OpLt:
-		return expr(field, "$lt", mongoScalar(cond.Value, elemType, now, vc)), nil
+		return mongoScalarExpr(field, "$lt", scalar, false)
 	case OpGte:
-		return expr(field, "$gte", mongoScalar(cond.Value, elemType, now, vc)), nil
+		return mongoScalarExpr(field, "$gte", scalar, false)
 	case OpLte:
-		return expr(field, "$lte", mongoScalar(cond.Value, elemType, now, vc)), nil
+		return mongoScalarExpr(field, "$lte", scalar, false)
 	case OpAfter:
-		return expr(field, "$gte", mongoScalar(cond.Value, elemType, now, vc)), nil // inclusive, per design doc
+		return mongoScalarExpr(field, "$gte", scalar, false) // inclusive, per design doc
 	case OpBefore:
-		return expr(field, "$lte", mongoScalar(cond.Value, elemType, now, vc)), nil
+		return mongoScalarExpr(field, "$lte", scalar, false)
 	case OpBetween:
-		elems, _ := cond.Value.AsSlice()
+		elems, err := sliceValue("mongo", OpBetween, cond.Value, 2)
+		if err != nil {
+			return nil, err
+		}
 		conv := mongoElems(elems, elemType, vc)
 		return map[string]any{field: map[string]any{"$gte": conv[0], "$lte": conv[1]}}, nil
 	case OpIn:
-		elems, _ := cond.Value.AsSlice()
+		elems, err := sliceValue("mongo", OpIn, cond.Value, 0)
+		if err != nil {
+			return nil, err
+		}
 		return expr(field, "$in", mongoElems(elems, elemType, vc)), nil
 	case OpNotIn:
-		elems, _ := cond.Value.AsSlice()
-		return expr(field, "$nin", mongoElems(elems, elemType, vc)), nil
+		elems, err := sliceValue("mongo", OpNotIn, cond.Value, 0)
+		if err != nil {
+			return nil, err
+		}
+		// Same NULL-semantics correction as notEquals: $nin matches a missing
+		// field, `NOT IN` does not match a NULL column.
+		return map[string]any{field: map[string]any{
+			"$nin": mongoElems(elems, elemType, vc), "$exists": true,
+		}}, nil
 	case OpContainsAll:
-		elems, _ := cond.Value.AsSlice()
+		elems, err := sliceValue("mongo", OpContainsAll, cond.Value, 0)
+		if err != nil {
+			return nil, err
+		}
 		return expr(field, "$all", mongoElems(elems, elemType, vc)), nil
 	case OpContainsAny:
-		elems, _ := cond.Value.AsSlice()
+		elems, err := sliceValue("mongo", OpContainsAny, cond.Value, 0)
+		if err != nil {
+			return nil, err
+		}
 		return expr(field, "$in", mongoElems(elems, elemType, vc)), nil
 	case OpContains:
 		// Array field: membership. String field: case-insensitive substring.
 		if f, ok := c.FieldByName(cond.Field); ok && f.Type == FieldArray {
-			return map[string]any{field: mongoScalar(cond.Value, elemType, now, vc)}, nil
+			return mongoScalarExpr(field, "", scalar, false)
 		}
 		// Fold before quoting, so the pattern is built from the physical form.
 		// The "i" option already makes this branch case-blind; applying the rule
 		// anyway keeps one behaviour across backends (Postgres LIKE is not).
-		s, _ := cond.Value.AsString()
+		s, err := mongoString(cond, OpContains)
+		if err != nil {
+			return nil, err
+		}
 		return regexExpr(field, regexp.QuoteMeta(vc.apply(s)), "i"), nil
 	case OpStartsWith:
-		s, _ := cond.Value.AsString()
+		s, err := mongoString(cond, OpStartsWith)
+		if err != nil {
+			return nil, err
+		}
 		return regexExpr(field, "^"+regexp.QuoteMeta(vc.apply(s)), ""), nil
 	case OpEndsWith:
-		s, _ := cond.Value.AsString()
+		s, err := mongoString(cond, OpEndsWith)
+		if err != nil {
+			return nil, err
+		}
 		return regexExpr(field, regexp.QuoteMeta(vc.apply(s))+"$", ""), nil
 	case OpRegex:
-		s, _ := cond.Value.AsString()
-		return regexExpr(field, s, ""), nil // raw pattern; policy denyRegexOn gates this upstream
+		s, err := mongoString(cond, OpRegex)
+		if err != nil {
+			return nil, err
+		}
+		return regexExpr(field, s, ""), nil // raw pattern; policy gates this upstream
 	default:
 		return nil, fmt.Errorf("mongo: unsupported operator %q", cond.Operator)
 	}
+}
+
+// mongoScalarExpr builds {field: {op: value}} — or {field: value} when op is
+// empty — resolving the operand through render first so a value the generator
+// cannot compile becomes an error rather than a silently wrong document.
+//
+// requireExists adds "$exists": true alongside the operator, which is what makes
+// a negated predicate select the same rows as its SQL counterpart.
+func mongoScalarExpr(field, op string, render func() (any, error), requireExists bool) (map[string]any, error) {
+	v, err := render()
+	if err != nil {
+		return nil, err
+	}
+	if op == "" && !requireExists {
+		return map[string]any{field: v}, nil
+	}
+	inner := make(map[string]any, 2)
+	if op != "" {
+		inner[op] = v
+	}
+	if requireExists {
+		inner["$exists"] = true
+	}
+	return map[string]any{field: inner}, nil
+}
+
+// mongoString reads a predicate's operand as text, which the pattern-building
+// operators require. The validator guarantees it on the Engine path; this is the
+// exported path's own check.
+func mongoString(cond *Condition, op Operator) (string, error) {
+	if cond.Value == nil {
+		return "", fmt.Errorf("mongo: operator %q requires a value", op)
+	}
+	s, ok := cond.Value.AsString()
+	if !ok {
+		return "", fmt.Errorf("mongo: operator %q requires a string value", op)
+	}
+	return s, nil
 }
 
 // expr builds {field: {op: val}}.
@@ -430,23 +561,30 @@ func toAnySlice(parts []map[string]any) []any {
 // nothing. Dates (absolute and relative) therefore become time.Time. The
 // field's value-case rule reaches only the text types; a date has stopped being
 // text by the time it is written, and numbers/booleans have no case to force.
-func mongoScalar(v *Value, declared FieldType, now time.Time, vc ValueCase) any {
+func mongoScalar(v *Value, declared FieldType, now time.Time, vc ValueCase) (any, error) {
+	if v == nil {
+		return nil, fmt.Errorf("mongo: predicate requires a value")
+	}
 	if v.Kind == KindRelativeDate { // no payload: unit/amount resolve against the clock
-		return resolveRelative(now, v.Unit, v.Amount)
+		t, err := resolveRelative(now, v.Unit, v.Amount)
+		if err != nil {
+			return nil, fmt.Errorf("mongo: %w", err)
+		}
+		return t, nil
 	}
 	switch declared {
 	case FieldDate:
 		s, _ := v.AsString()
-		return parseDate(s)
+		return parseDate(s), nil
 	case FieldNumber:
 		f, _ := v.AsFloat()
-		return f
+		return f, nil
 	case FieldBoolean:
 		b, _ := v.AsBool()
-		return b
+		return b, nil
 	default: // string, enum
 		s, _ := v.AsString()
-		return vc.apply(s)
+		return vc.apply(s), nil
 	}
 }
 

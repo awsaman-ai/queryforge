@@ -264,6 +264,23 @@ func parseAST(raw string, c *Config) (*Query, error) {
 	if err := json.Unmarshal([]byte(js), &q); err != nil {
 		return nil, fmt.Errorf("model output was not a valid AST: %w", err)
 	}
+	// A reply with no filter, no projection, no ordering and no paging is not an
+	// answer to a question — it is an empty object wearing an AST's defaults. The
+	// refusal guard above catches {"unsupported":"…"}, but it requires a NON-EMPTY
+	// reason, so a model that tried to decline and got the shape slightly wrong
+	// ({"unsupported":""}), or that returned {} outright, fell straight through to
+	// "SELECT * FROM orders LIMIT 50" — returned to the caller as a success, with
+	// RepairAttempts: 0. The worst possible reading of "I can't answer this", and
+	// exactly the hazard the comment above already names.
+	//
+	// Treated as unparseable output, it costs a repair attempt and then fails
+	// closed. A caller who genuinely wants every row does not need the model for
+	// it: build the Query and call GenerateFrom.
+	if isStructurallyEmpty(&q) {
+		return nil, fmt.Errorf("model returned an empty query (no filter, select, sort or paging); " +
+			"answer the question with an AST or decline with {\"unsupported\":\"<reason>\"}")
+	}
+
 	if q.Version == "" { // default the version if the model omitted it
 		q.Version = ASTVersion
 	}
@@ -271,6 +288,13 @@ func parseAST(raw string, c *Config) (*Query, error) {
 		q.Entity = c.Entity
 	}
 	return &q, nil
+}
+
+// isStructurallyEmpty reports whether a decoded Query says nothing at all about
+// what to return. Version and entity are excluded deliberately: both are filled
+// from the config a moment later, so counting them would make {} look answered.
+func isStructurallyEmpty(q *Query) bool {
+	return q.Filter == nil && len(q.Select) == 0 && len(q.Sort) == 0 && q.Limit == nil && q.Offset == nil
 }
 
 // extractJSONObject returns the first complete, brace-balanced JSON object in

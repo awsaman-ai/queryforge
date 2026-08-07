@@ -484,9 +484,29 @@ ORDER BY created_at DESC LIMIT 20
   <h3>policy</h3>
   <div class="tablewrap"><table>
     <tr><th>Key</th><th>Type</th><th>Description</th></tr>
-    <tr><td><code>maxNestingDepth</code></td><td>number</td><td>Maximum filter-tree depth; <code>0</code> = unlimited. Guards against pathological nesting.</td></tr>
+    <tr><td><code>maxNestingDepth</code></td><td>number</td><td>Maximum filter-tree depth; <code>0</code> = unlimited. Guards against pathological nesting. Checked <em>as</em> the tree is walked, so an over-deep filter is not fully traversed first.</td></tr>
     <tr><td><code>denyRegexOn</code></td><td>string[]</td><td>Field names on which <code>regex</code> is forbidden (ReDoS / PII safety).</td></tr>
+    <tr><td><code>allowRegexOn</code></td><td>string[]</td><td>Turns regex into an opt-<em>in</em> capability: when this lists any field, <code>regex</code> is legal on those fields and no others. Preferred over <code>denyRegexOn</code> for new configs — a deny-list leaves regex on for every field it forgets to name, and the cost of a pattern like <code>(a+)+$</code> is paid by the database server.</td></tr>
   </table></div>
+
+  <p>The remaining keys bound the <em>work</em> one request can cause, which depth alone does not: a filter can be flat, enormous, and entirely legal. Each has a built-in default, so leaving it unset is already bounded; set a negative value to switch a bound off.</p>
+
+  <div class="tablewrap"><table>
+    <tr><th>Key</th><th>Type</th><th>Default</th><th>Description</th></tr>
+    <tr><td><code>maxFilterNodes</code></td><td>number</td><td>500</td><td>Total condition nodes in the filter tree.</td></tr>
+    <tr><td><code>maxListLength</code></td><td>number</td><td>500</td><td>Elements in an <code>in</code>/<code>notIn</code>/<code>containsAny</code>/<code>containsAll</code> value. Each becomes one bound placeholder.</td></tr>
+    <tr><td><code>maxValueLength</code></td><td>number</td><td>4096</td><td>Characters in a single string literal.</td></tr>
+    <tr><td><code>maxRegexLength</code></td><td>number</td><td>256</td><td>Characters in a <code>regex</code> pattern.</td></tr>
+    <tr><td><code>maxSuggestCalls</code></td><td>number</td><td>10</td><td>How many unknown fields get "did you mean" suggestions. Each suggestion runs an edit-distance pass over every field and synonym, so an AST full of nonsense is the most expensive thing to reject.</td></tr>
+  </table></div>
+
+  <h3 id="nulls">NULL and missing fields across backends</h3>
+
+  <p>SQL uses three-valued logic: <code>status &lt;&gt; 'CANCELLED'</code> is <code>NULL</code> — not <code>TRUE</code> — for a row whose status is <code>NULL</code>, so that row is <em>excluded</em>. MongoDB has no such rule: <code>$ne</code>, <code>$nin</code> and <code>$nor</code> all <em>match</em> a document that lacks the field.</p>
+
+  <p>QueryForge follows the SQL reading on both, because it is the one that never over-returns. The Mongo generator adds <code>"$exists": true</code> to <code>notEquals</code>, to <code>notIn</code>, and to a <code>NOT</code> whose single child is a value comparison, so the same AST selects the same logical rows on either backend.</p>
+
+  <p>Two deliberate exceptions. <code>isNull</code>/<code>isNotNull</code> are <em>about</em> absence and already agree, so they are left alone. And a <code>NOT</code> over a whole logical subtree keeps plain <code>$nor</code>: there is no single field to require, and requiring all of them would be wrong — SQL's <code>NOT(A AND B)</code> is <code>TRUE</code> when <code>A</code> is <code>NULL</code> and <code>B</code> is <code>FALSE</code>, so the row comes back even though A's column is empty. Negate individual predicates rather than groups if you need the two backends to agree exactly there.</p>
 
   <h2 id="scope">Scope filters — extra filters you supply per call <span class="pill">v0.0.2</span></h2>
 

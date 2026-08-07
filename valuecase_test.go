@@ -78,7 +78,7 @@ func TestValueCaseAppliesToBothBackends(t *testing.T) {
 		{"lower rule folds down", comp("email", OpEquals, vStr("Sam@Example.COM")),
 			"sam@example.com", `{"email":"sam@example.com"}`},
 		{"notEquals is covered too", comp("status", OpNotEquals, vEnum("cancelled")),
-			"CANCELLED", `{"status":{"$ne":"CANCELLED"}}`},
+			"CANCELLED", `{"status":{"$exists":true,"$ne":"CANCELLED"}}`},
 		{"no rule leaves the value alone", comp("statusPlain", OpEquals, vEnum("shipped")),
 			"shipped", `{"status2":"shipped"}`},
 	}
@@ -111,7 +111,7 @@ func TestValueCaseAppliesToEveryStringOperator(t *testing.T) {
 		{"in list", comp("status", OpIn, vArr("shipped", "cancelled")),
 			[]any{"SHIPPED", "CANCELLED"}, `{"status":{"$in":["SHIPPED","CANCELLED"]}}`},
 		{"notIn list", comp("status", OpNotIn, vArr("shipped")),
-			[]any{"SHIPPED"}, `{"status":{"$nin":["SHIPPED"]}}`},
+			[]any{"SHIPPED"}, `{"status":{"$exists":true,"$nin":["SHIPPED"]}}`},
 		{"between endpoints", comp("code", OpBetween, vArr("aa", "zz")),
 			[]any{"AA", "ZZ"}, `{"code":{"$gte":"AA","$lte":"ZZ"}}`},
 		// LIKE and $regex build a pattern around the value: the fold must happen

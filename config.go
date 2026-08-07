@@ -278,7 +278,68 @@ type Defaults struct {
 type Policy struct {
 	MaxNestingDepth int      `json:"maxNestingDepth,omitempty"`
 	DenyRegexOn     []string `json:"denyRegexOn,omitempty"`
+
+	// AllowRegexOn turns regex into an opt-IN capability. When it lists at least
+	// one field, regex is legal on those fields and on no others; DenyRegexOn
+	// still applies on top, so a field named by both is denied.
+	//
+	// Both exist because they answer different questions. DenyRegexOn is the
+	// original, and it is an enumerated deny-list: a config that simply does not
+	// mention a field leaves regex enabled on it. That is the wrong default for a
+	// capability whose cost is paid by the database server — `(a+)+$` against a
+	// text column is exponential work inside the query, reachable from an
+	// ordinary English sentence. A new config should set AllowRegexOn (or leave
+	// regex out of every field's `operators` list); DenyRegexOn is kept because
+	// removing it would silently widen every config that relies on it.
+	AllowRegexOn []string `json:"allowRegexOn,omitempty"`
+
+	// --- Request-size bounds. Zero means "use the built-in default". ---
+	//
+	// These bound the WORK one AST can cause, which maxNestingDepth does not:
+	// depth says nothing about breadth, and a filter can be flat, enormous, and
+	// entirely legal. They matter most for a service that accepts AST JSON
+	// directly (queryforge_service does), where the AST is caller input rather
+	// than model output.
+	MaxFilterNodes  int `json:"maxFilterNodes,omitempty"`  // total condition nodes in the filter tree
+	MaxListLength   int `json:"maxListLength,omitempty"`   // elements in an in/notIn/containsAny/containsAll value
+	MaxValueLength  int `json:"maxValueLength,omitempty"`  // characters in a string value
+	MaxRegexLength  int `json:"maxRegexLength,omitempty"`  // characters in a regex pattern
+	MaxSuggestCalls int `json:"maxSuggestCalls,omitempty"` // unknown fields that get "did you mean" suggestions
 }
+
+// Built-in policy ceilings, applied when the config leaves the key at zero.
+//
+// They are generous enough that no honest question reaches them — a 200-element
+// IN list is already a report, not a sentence — and small enough that a hostile
+// or runaway AST cannot turn one request into unbounded work. A config may
+// raise them; setting a negative value disables the bound entirely.
+const (
+	defaultMaxFilterNodes  = 500
+	defaultMaxListLength   = 500
+	defaultMaxValueLength  = 4096
+	defaultMaxRegexLength  = 256
+	defaultMaxSuggestCalls = 10
+)
+
+// limitOr returns the configured bound, the default when unset, or 0 (meaning
+// "no bound") when the config explicitly set a negative value.
+func limitOr(configured, def int) int {
+	switch {
+	case configured > 0:
+		return configured
+	case configured < 0:
+		return 0 // explicitly disabled
+	default:
+		return def
+	}
+}
+
+// maxFilterNodes and friends resolve each bound for this config.
+func (p Policy) maxFilterNodes() int  { return limitOr(p.MaxFilterNodes, defaultMaxFilterNodes) }
+func (p Policy) maxListLength() int   { return limitOr(p.MaxListLength, defaultMaxListLength) }
+func (p Policy) maxValueLength() int  { return limitOr(p.MaxValueLength, defaultMaxValueLength) }
+func (p Policy) maxRegexLength() int  { return limitOr(p.MaxRegexLength, defaultMaxRegexLength) }
+func (p Policy) maxSuggestCalls() int { return limitOr(p.MaxSuggestCalls, defaultMaxSuggestCalls) }
 
 // LoadConfig reads and parses a JSON config file.
 func LoadConfig(path string) (*Config, error) {
@@ -326,12 +387,43 @@ func (c *Config) finalize() error {
 			return err
 		}
 	}
+	// A SQL backend's table name is written into the emitted statement as
+	// syntax, never bound, so it has to be an identifier. Checking here means a
+	// typo (or anything worse) fails at load with the backend named, instead of
+	// at the database with a parse error nobody can trace back.
+	//
+	// Only the SQL dialects are checked. A Mongo collection or an Elasticsearch
+	// index is a parameter, not syntax — "orders-v2" is a perfectly ordinary
+	// index name — so imposing SQL's identifier rule on them would reject valid
+	// configs to prevent a problem those backends do not have.
+	for backend, bc := range c.Backends {
+		if !isSQLBackend(backend) {
+			continue
+		}
+		if src := bc.Source(); src != "" && !validIdentPath(src) {
+			return fmt.Errorf("config: backends.%s source %q is not a valid SQL identifier "+
+				"(expected dot-separated letters, digits and underscores, not starting with a digit)", backend, src)
+		}
+	}
+
 	c.fieldByName = make(map[string]*Field, len(c.Fields))
 	c.synonymIndex = make(map[string]*Field)
 	for i := range c.Fields {
 		f := &c.Fields[i]
 		if f.Name == "" {
 			return fmt.Errorf("config: field #%d has no name", i)
+		}
+		// An explicit SQL mapping becomes a column name in the statement text, so
+		// it is held to the identifier rule at load. The logical name is not
+		// checked here — it is the fallback physical name for every backend, and a
+		// Mongo-only config may legitimately use a name SQL would need quoting for.
+		// The SQL generators check the name they are actually about to emit
+		// (sqlIdent), so that case fails where it really is a problem, and only there.
+		for backend, phys := range f.Mapping {
+			if phys != "" && isSQLBackend(backend) && !validIdentPath(phys) {
+				return fmt.Errorf("config: field %q has an invalid %s mapping %q "+
+					"(expected dot-separated letters, digits and underscores, not starting with a digit)", f.Name, backend, phys)
+			}
 		}
 		if !validFieldType(f.Type) {
 			return fmt.Errorf("config: field %q has invalid type %q", f.Name, f.Type)
