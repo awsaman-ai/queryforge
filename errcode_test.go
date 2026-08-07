@@ -11,6 +11,7 @@ package queryforge
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -136,8 +137,8 @@ func TestValidationErrorsCarryCodes(t *testing.T) {
 			if err == nil {
 				t.Fatalf("expected a validation error, got nil")
 			}
-			ves, ok := err.(ValidationErrors)
-			if !ok {
+			var ves ValidationErrors
+			if !errors.As(err, &ves) {
 				t.Fatalf("expected ValidationErrors, got %T", err)
 			}
 			for _, ve := range ves {
@@ -170,8 +171,8 @@ func TestEveryValidationErrorHasACode(t *testing.T) {
 		}},
 	}
 	err := Validate(bad, c)
-	ves, ok := err.(ValidationErrors)
-	if !ok {
+	var ves ValidationErrors
+	if !errors.As(err, &ves) {
 		t.Fatalf("expected ValidationErrors, got %T (%v)", err, err)
 	}
 	if len(ves) < 5 {

@@ -2,6 +2,7 @@ package queryforge
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -275,7 +276,8 @@ func TestMismatchMessageNamesThePayload(t *testing.T) {
 // --- small test helpers ---
 
 func asValidationErrors(err error, out *ValidationErrors) bool {
-	v, ok := err.(ValidationErrors)
+	var v ValidationErrors
+	ok := errors.As(err, &v)
 	if ok {
 		*out = v
 	}

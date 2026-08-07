@@ -265,11 +265,13 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 			hint = RepairHint{Kind: RepairValidation, Message: verr.Error()}
 
 			// Keep the structured findings for the caller. Validate returns a
-			// ValidationErrors, but it is typed as error, so assert rather than
+			// ValidationErrors, but it is typed as error, so match rather than
 			// assume: a future validator returning some other error type must
-			// degrade to just the message, never panic.
+			// degrade to just the message, never panic. errors.As rather than a
+			// type assertion so the findings survive a validator that wraps.
 			rec := RepairRecord{Attempt: attempt, Kind: RepairValidation, Message: verr.Error()}
-			if ves, ok := verr.(ValidationErrors); ok {
+			var ves ValidationErrors
+			if errors.As(verr, &ves) {
 				rec.Errors = ves
 			}
 			repairs = append(repairs, rec)
