@@ -400,7 +400,7 @@ The deterministic half is fully tested with **no API key and no network**:
 go test ./...
 ```
 
-Every component ships with happy-path and adversarial "try to break it" tests (injection strings, unknown fields, illegal operator/type pairs, out-of-domain enums, deep nesting, oversized limits). Bug tracking lives in [`bugs.csv`](bugs.csv).
+Every component ships with happy-path and adversarial "try to break it" tests (injection strings, unknown fields, illegal operator/type pairs, out-of-domain enums, deep nesting, oversized limits).
 
 CI also runs [golangci-lint](https://golangci-lint.run) against [`.golangci.yml`](.golangci.yml). To get the same report before you push:
 
@@ -455,8 +455,6 @@ test suite with the race detector on every PR, including from forks — the suit
 is entirely offline, so it needs no API key.
 
 If you are changing behaviour, please add a test that fails without your change.
-The project keeps a QA log in [`bugs.csv`](bugs.csv); if you are fixing a defect,
-adding a row there is welcome but not required.
 
 Security issues should go through [private disclosure](SECURITY.md), not a public
 issue.
