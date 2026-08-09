@@ -13,6 +13,7 @@ The model never writes the query. It fills in a typed **Query AST** your config 
 
 ▶️ **[Live demo](https://queryforge-demo.amtry.in)** — flip one toggle and watch a thirteen-filter product page become a single search box
 📖 [Docs](https://awsaman-ai.github.io/queryforge/) · 🛠 [Build a config in your browser](https://awsaman-ai.github.io/queryforge/config-builder.html) — no install, nothing leaves the page
+🔌 [**queryforge_mcp**](https://github.com/awsaman-ai/queryforge_mcp) — use it from Claude Desktop or Cursor, over the Model Context Protocol
 
 Your users ask a question. QueryForge gives you a parameterized query you can actually trust.
 
@@ -445,7 +446,8 @@ QueryForge builds queries; it does **not** connect to or execute against your da
 
 - **Now (Phase 1):** Go library; JSON config; validator; SQL + Mongo generators; Gemini/Groq/Ollama via OpenAI-compatible HTTP; CLI; HTML config docs.
 - **v0.0.2:** [scope filters](#scope-filters-your-own-filters-on-every-query) — caller-supplied predicates AND-ed onto every query, for multi-tenancy.
-- **Next:** Elasticsearch/OpenSearch generator; YAML config; confidence scores; MCP server + REST facade.
+- **Shipped alongside:** [queryforge_mcp](https://github.com/awsaman-ai/queryforge_mcp) — the compiler over MCP, as a separate module. The library stays transport-agnostic: no JSON-RPC, no MCP SDK, no transport code here.
+- **Next:** Elasticsearch/OpenSearch generator; YAML config; confidence scores; REST facade.
 - **Later:** aggregation AST node; more backends (DynamoDB, Cassandra, ClickHouse); SDKs for other languages over the same AST contract.
 
 ## Contributing
@@ -463,6 +465,7 @@ issue.
 
 | Project | What it is |
 |---|---|
+| **[queryforge_mcp](https://github.com/awsaman-ai/queryforge_mcp)** | QueryForge over the **Model Context Protocol**, so Claude Desktop, Cursor or any MCP client can query your data. Point it at the same config and it generates the tool schema from it — your entity, the operators each field permits, your enum domains — so the model picks from your vocabulary instead of guessing. It writes an AST, never a query string, and this library validates it before anything compiles. Hidden fields and physical column names never leave the process. |
 | **[qfeval](https://github.com/awsaman-ai/qfeval)** | Scores a QueryForge config against a golden file of natural-language sentences and the queries they should compile to. Measures how well a given model actually understands your users' requests — and lets you compare two models on the same corpus before you pay for one. Ships a 25-case example (24/25 on `gemini-3.1-flash-lite`) and a 573-case dataset covering every capability flag. |
 | [Documentation](https://awsaman-ai.github.io/queryforge/) | Guide, full configuration reference, and the Query AST explained. |
 | [Config builder](https://awsaman-ai.github.io/queryforge/config-builder.html) | Build a config in a form and download it, with live validation. Runs entirely in the browser. |
