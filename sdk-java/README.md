@@ -8,6 +8,13 @@ Turn a sentence into a parameterized database query, with a validated AST in bet
     <artifactId>queryforge</artifactId>
     <version>1.0.0</version>
 </dependency>
+<!-- plus the engine binary for the platform you run on; see "Platform binaries" -->
+<dependency>
+    <groupId>io.queryforge</groupId>
+    <artifactId>queryforge</artifactId>
+    <version>1.0.0</version>
+    <classifier>linux-amd64</classifier>
+</dependency>
 ```
 
 ```java
@@ -205,8 +212,21 @@ forge.query(text)
 ## Platform binaries
 
 The main artifact carries only classes (~35 KB). One classifier jar per platform carries one
-binary (~2.5 MB each), and the pom's OS-activated profiles pull in the right one automatically —
-so the single `<dependency>` block above is all you need.
+binary (~2.5 MB each), so you add two dependencies: the classes, and the binary for your platform.
+
+```xml
+<dependency>
+    <groupId>io.queryforge</groupId>
+    <artifactId>queryforge</artifactId>
+    <version>1.0.0</version>
+</dependency>
+<dependency>
+    <groupId>io.queryforge</groupId>
+    <artifactId>queryforge</artifactId>
+    <version>1.0.0</version>
+    <classifier>linux-amd64</classifier>
+</dependency>
+```
 
 | Platform | Classifier |
 |---|---|
@@ -216,17 +236,11 @@ so the single `<dependency>` block above is all you need.
 | macOS Apple Silicon | `darwin-arm64` |
 | Windows x86-64 | `windows-amd64` |
 
-Building a container image for a platform other than the one you build on? Add that classifier
-explicitly:
-
-```xml
-<dependency>
-    <groupId>io.queryforge</groupId>
-    <artifactId>queryforge</artifactId>
-    <version>1.0.0</version>
-    <classifier>linux-amd64</classifier>
-</dependency>
-```
+Name the classifier that matches where the code will **run**, which is not always where it is
+built — a container image assembled on an Apple Silicon laptop wants `linux-amd64`. If you would
+rather not hardcode it, a profile in your own pom can select one per platform; the classifier
+cannot be chosen for you from inside QueryForge's own pom, because a profile there is evaluated
+when QueryForge itself is built and would make it depend on itself.
 
 The binary is extracted from the jar to a content-addressed path under the temp directory on first
 use and reused afterwards, so different engine versions on one machine never overwrite each other.

@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Sequence, Union
 
 from ._binary import BINARY_ENV_VAR, find_binary, platform_tag
 from ._result import Result, ScopeFilter
@@ -80,11 +80,16 @@ __all__ = [
 ]
 
 #: Config = a parsed dict, a path to a JSON file, or the JSON text itself.
-Config = Mapping[str, Any] | str | Path
+#:
+#: Spelled with ``Union`` rather than ``X | Y``. These two aliases are assigned at
+#: import time, not annotations, so ``from __future__ import annotations`` does not
+#: defer them — PEP 604 syntax here raises ``TypeError`` on 3.9, which is the floor
+#: ``pyproject.toml`` promises.
+Config = Union[Mapping[str, Any], str, Path]
 
 #: Scope values the engine accepts: a literal, or a list of literals for an
 #: ``in``-style filter.
-ScopeValue = str | int | float | bool | Sequence[Any]
+ScopeValue = Union[str, int, float, bool, Sequence[Any]]
 
 
 def _load_config(config: Config) -> dict[str, Any]:

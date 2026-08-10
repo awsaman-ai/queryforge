@@ -13,8 +13,14 @@
   2. THE ENGINE BINARY SHIPS IN PLATFORM-SPECIFIC CLASSIFIER JARS, not in the main artifact.
      Bundling all five targets would put ~75 MB into every build so that four binaries could sit
      unused on disk. Instead the main jar carries only classes, and one small classifier jar per
-     platform carries one binary. The os-activated profiles at the bottom of this file pull in the
-     right classifier automatically, so a consumer still writes a single <dependency> block.
+     platform carries one binary. The consumer names the classifier they want; see the README.
+
+     This file used to carry five os-activated profiles that added the matching classifier as a
+     dependency automatically. They could not work: a profile in THIS pom is also evaluated when
+     THIS project is built, so `mvn test` on Linux tried to resolve
+     io.queryforge:queryforge:jar:linux-amd64 (the artifact being built) from Central and
+     failed on every supported platform. Auto-selection needs the natives under a different
+     artifactId in a separate module, which is a packaging change rather than a pom tweak.
 -->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -215,92 +221,6 @@
   </build>
 
   <profiles>
-
-    <!--
-      Automatic platform selection.
-
-      A profile in a PUBLISHED pom is evaluated by the consumer's build, so these give a user the
-      right classifier jar from a single <dependency> block — no os-maven-plugin, no manual
-      classifier, nothing to get wrong. The activation conditions use Maven's built-in OS
-      detection, whose <family>/<arch> values are normalized across the JDK's own reporting.
-
-      A user who wants a different platform's binary (building a container image on a Mac for
-      Linux, say) adds that classifier explicitly; the profiles only add a default.
-    -->
-    <profile>
-      <id>native-linux-amd64</id>
-      <activation>
-        <os><family>unix</family><name>linux</name><arch>amd64</arch></os>
-      </activation>
-      <dependencies>
-        <dependency>
-          <groupId>io.queryforge</groupId>
-          <artifactId>queryforge</artifactId>
-          <version>${project.version}</version>
-          <classifier>linux-amd64</classifier>
-        </dependency>
-      </dependencies>
-    </profile>
-
-    <profile>
-      <id>native-linux-arm64</id>
-      <activation>
-        <os><family>unix</family><name>linux</name><arch>aarch64</arch></os>
-      </activation>
-      <dependencies>
-        <dependency>
-          <groupId>io.queryforge</groupId>
-          <artifactId>queryforge</artifactId>
-          <version>${project.version}</version>
-          <classifier>linux-arm64</classifier>
-        </dependency>
-      </dependencies>
-    </profile>
-
-    <profile>
-      <id>native-darwin-amd64</id>
-      <activation>
-        <os><family>mac</family><arch>x86_64</arch></os>
-      </activation>
-      <dependencies>
-        <dependency>
-          <groupId>io.queryforge</groupId>
-          <artifactId>queryforge</artifactId>
-          <version>${project.version}</version>
-          <classifier>darwin-amd64</classifier>
-        </dependency>
-      </dependencies>
-    </profile>
-
-    <profile>
-      <id>native-darwin-arm64</id>
-      <activation>
-        <os><family>mac</family><arch>aarch64</arch></os>
-      </activation>
-      <dependencies>
-        <dependency>
-          <groupId>io.queryforge</groupId>
-          <artifactId>queryforge</artifactId>
-          <version>${project.version}</version>
-          <classifier>darwin-arm64</classifier>
-        </dependency>
-      </dependencies>
-    </profile>
-
-    <profile>
-      <id>native-windows-amd64</id>
-      <activation>
-        <os><family>windows</family><arch>amd64</arch></os>
-      </activation>
-      <dependencies>
-        <dependency>
-          <groupId>io.queryforge</groupId>
-          <artifactId>queryforge</artifactId>
-          <version>${project.version}</version>
-          <classifier>windows-amd64</classifier>
-        </dependency>
-      </dependencies>
-    </profile>
 
     <!--
       Release profile: signing and staging for Maven Central. Kept out of the default build so an

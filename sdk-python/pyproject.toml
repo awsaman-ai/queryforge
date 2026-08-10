@@ -33,7 +33,9 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
-    "License :: OSI Approved :: Apache Software License",
+    # No "License :: OSI Approved :: ..." classifier here on purpose. PEP 639 replaced it with the
+    # `license` expression above, and setuptools>=77 -- which this build requires -- treats having
+    # both as a hard error, which would fail the wheel build at release time.
     "Topic :: Database",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
