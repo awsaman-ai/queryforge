@@ -4,13 +4,13 @@ Turn a sentence into a parameterized database query, with a validated AST in bet
 
 ```xml
 <dependency>
-    <groupId>io.queryforge</groupId>
+    <groupId>io.github.awsaman-ai</groupId>
     <artifactId>queryforge</artifactId>
     <version>1.0.0</version>
 </dependency>
 <!-- plus the engine binary for the platform you run on; see "Platform binaries" -->
 <dependency>
-    <groupId>io.queryforge</groupId>
+    <groupId>io.github.awsaman-ai</groupId>
     <artifactId>queryforge</artifactId>
     <version>1.0.0</version>
     <classifier>linux-amd64</classifier>
@@ -216,12 +216,12 @@ binary (~2.5 MB each), so you add two dependencies: the classes, and the binary 
 
 ```xml
 <dependency>
-    <groupId>io.queryforge</groupId>
+    <groupId>io.github.awsaman-ai</groupId>
     <artifactId>queryforge</artifactId>
     <version>1.0.0</version>
 </dependency>
 <dependency>
-    <groupId>io.queryforge</groupId>
+    <groupId>io.github.awsaman-ai</groupId>
     <artifactId>queryforge</artifactId>
     <version>1.0.0</version>
     <classifier>linux-amd64</classifier>
