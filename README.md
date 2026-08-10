@@ -56,7 +56,35 @@ Everything that must be *guaranteed* lives on the right-hand side, where it can 
 | **Asked something impossible?** | You get a typed refusal, not a plausible query built on a lookalike field. |
 | **Asked for another tenant's rows?** | [Scope filters](#scope-filters-your-own-filters-on-every-query) are AND-ed on after the model has answered — it never learns the field exists. |
 
-## Install
+## Get started
+
+Pick how you want to call it. All four need the same two things and nothing else: a **config file**
+describing your data ([build one in your browser](https://awsaman-ai.github.io/queryforge/config-builder.html))
+and your **model API key** in the environment. No server, no Docker, no database connection.
+
+### 🔌 MCP — Claude Desktop, Cursor
+
+```bash
+go install github.com/awsaman-ai/queryforge_mcp@latest
+```
+
+Add it to `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "queryforge": {
+      "command": "queryforge-mcp",
+      "args": ["--config", "orders.config.json"]
+    }
+  }
+}
+```
+
+Restart Claude and ask *"cancelled orders over $200"* — it comes back as a validated query.
+[Docs →](https://github.com/awsaman-ai/queryforge_mcp)
+
+### 🐹 Go — the library
 
 ```bash
 go get github.com/awsaman-ai/queryforge
@@ -66,30 +94,72 @@ go get github.com/awsaman-ai/queryforge
 cfg, _ := qf.LoadConfig("orders.config.json")
 engine := qf.New(cfg)
 
-res, err := engine.Translate(ctx, "cancelled orders over 200 dollars", "sql", nil)
+res, _ := engine.Translate(ctx, "cancelled orders over 200 dollars", "sql", nil)
+
 fmt.Println(res.Query.SQL)   // SELECT … WHERE (status = $1 AND amount > $2) …
 fmt.Println(res.Query.Args)  // [CANCELLED 200]
 fmt.Println(res.Explain)     // plain-English readback of what it understood
 ```
 
-No database connection, ever. QueryForge hands you the query; executing it stays yours.
-Core has **no third-party dependencies** — standard library only.
+No third-party dependencies — standard library only.
+[API docs →](https://pkg.go.dev/github.com/awsaman-ai/queryforge)
 
-📖 **[Full configuration reference →](https://awsaman-ai.github.io/queryforge/)**
+### ☕ Java — Maven, Java 11+
 
-### Not using Go?
+Two dependencies: the classes, and the engine binary for the platform you run on.
 
-QueryForge is also a native library in Python and Java. Same engine, same output — see
-[Other languages](#other-languages) below.
+```xml
+<dependency>
+    <groupId>io.queryforge</groupId>
+    <artifactId>queryforge</artifactId>
+    <version>1.0.0</version>
+</dependency>
+<dependency>
+    <groupId>io.queryforge</groupId>
+    <artifactId>queryforge</artifactId>
+    <version>1.0.0</version>
+    <classifier>linux-amd64</classifier>
+</dependency>
+```
+
+```java
+QueryForge forge = QueryForge.postgres(Paths.get("orders.config.json"));
+
+String sql = forge.query("cancelled orders over $200").toSql();
+List<Object> args = forge.query("cancelled orders over $200").toArgs();
+```
+
+Zero runtime dependencies — not even a JSON library. [Docs →](sdk-java/README.md)
+
+### 🐍 Python — pip
 
 ```bash
 pip install queryforge
 ```
+
 ```python
-sql = QueryForge.mysql(schema).query("users older than 18").to_sql()
+from queryforge import QueryForge
+
+qf = QueryForge.postgres("orders.config.json")
+pending = qf.query("cancelled orders over $200")
+
+print(pending.to_sql())    # SELECT … WHERE (status = $1 AND amount > $2) …
+print(pending.to_args())   # ('CANCELLED', 200)
 ```
 
-### First: what's an AST?
+The engine ships inside the wheel — no Go toolchain needed. [Docs →](sdk-python/README.md)
+
+---
+
+Whichever you pick, the answer is the same query: the model fills in an AST, your config validates
+it, and deterministic code compiles it. Swap `postgres` for `mysql` or `mongo` and the same sentence
+compiles for that backend instead.
+
+No database connection, ever. QueryForge hands you the query; executing it stays yours.
+
+📖 **[Full configuration reference →](https://awsaman-ai.github.io/queryforge/)**
+
+## What's an AST?
 
 **AST = Abstract Syntax Tree.** It's a plain JSON object describing *what the user asked for*, sitting between the English sentence and the finished query. The name is literal: a **tree** because filters nest (`A AND (B OR C)` branches), **abstract** because it knows nothing about SQL or Mongo — it says `"operator": "gt"`, never `>` and never `$gt`.
 

@@ -82,6 +82,22 @@
   .card p { margin-bottom: 0; font-size: .93rem; color: var(--muted); }
 </style>
 <style>
+  /* ---- Get started cards ----------------------------------------------
+     Four ways in — MCP, Go, Java, Python — each self-contained: install it,
+     then the two or three lines that produce a query. Two per row rather
+     than four: the column is 900px wide, and four code blocks side by side
+     would each be ~200px, which wraps every snippet into unreadability.
+     One per row below 720px, same as every other grid on the page. */
+  .grid.start { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  @media (max-width: 720px) { .grid.start { grid-template-columns: 1fr; } }
+  .start .card { display: flex; flex-direction: column; }
+  .start .card h3 { font-size: 1.05rem; display: flex; align-items: baseline; gap: .5rem; }
+  .start .card h3 .tag { font-size: .72rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .start .card p { color: var(--fg); }
+  .start .card pre { margin: .7rem 0 0; padding: .7rem .8rem; font-size: .82rem; line-height: 1.5; }
+  .start .card .last { margin-top: auto; padding-top: .7rem; font-size: .85rem; color: var(--muted); }
+</style>
+<style>
   /* ---- Floating site navbar -------------------------------------------
      Sticky to the top of every docs page so the config builder is always one
      click away, however far down the reader has scrolled. Deliberately plain
@@ -113,7 +129,8 @@
   .qfnav-links { display: flex; gap: .1rem; margin-left: .6rem; }
   .qfnav-links a {
     color: var(--muted); text-decoration: none; font-size: .9rem;
-    padding: .35rem .6rem; border-radius: 7px;
+    padding: .35rem .5rem; border-radius: 7px;
+    white-space: nowrap;                            /* a two-word label must not wrap to two lines */
   }
   .qfnav-links a:hover { color: var(--fg); background: var(--card); }
   /* aria-current marks the page you are already on, so the bar doubles as a "you are here". */
@@ -156,6 +173,7 @@
     <a class="qfnav-brand" href="index.html"><span class="qfnav-mark">QF</span>QueryForge</a>
     <nav class="qfnav-links">
       <a href="index.html" aria-current="page">Overview</a>
+      <a href="#get-started">Get started</a>
       <a href="config.html">Config reference</a>
       <a href="https://github.com/awsaman-ai/qfeval">Evaluate</a>
       <a href="https://github.com/awsaman-ai/queryforge">GitHub</a>
@@ -223,18 +241,94 @@ args: ["CANCELLED", "2026-06-29T08:49:06Z", 500]</code></pre>
     <div class="card"><h3>Changed your mind on models?</h3><p>Gemini, Groq, Anthropic, local Ollama — a config change, never a code change. Fallback chains included.</p></div>
   </div>
 
-  <h2>Install</h2>
+  <h2 id="get-started">Get started</h2>
+  <p>Pick how you want to call it. Every one of these needs the same two things: a
+    <a href="config-builder.html">config file</a> describing your data, and your model API key in the
+    environment. Nothing else — no server, no Docker, no database connection.</p>
+
+  <div class="grid start">
+
+    <div class="card">
+      <h3>MCP <span class="tag">Claude Desktop · Cursor</span></h3>
+      <p>Install the server:</p>
+<pre><code>go install github.com/awsaman-ai/queryforge_mcp@latest</code></pre>
+      <p style="margin-top:.7rem">Add it to <code>claude_desktop_config.json</code>:</p>
+<pre><code>{
+  "mcpServers": {
+    "queryforge": {
+      "command": "queryforge-mcp",
+      "args": ["--config", "orders.config.json"]
+    }
+  }
+}</code></pre>
+      <p class="last">Restart Claude and ask <em>"cancelled orders over $200"</em> — it comes back as a
+        validated query. <a href="https://github.com/awsaman-ai/queryforge_mcp">Docs →</a></p>
+    </div>
+
+    <div class="card">
+      <h3>Go <span class="tag">the library</span></h3>
+      <p>Install it:</p>
 <pre><code>go get github.com/awsaman-ai/queryforge</code></pre>
+      <p style="margin-top:.7rem">Ask a question:</p>
 <pre><code>cfg, _ := qf.LoadConfig("orders.config.json")
 engine := qf.New(cfg)
 
-res, err := engine.Translate(ctx, "cancelled orders over 200 dollars", "sql", nil)
-fmt.Println(res.Query.SQL)   // SELECT … WHERE (status = $1 AND amount > $2) …
-fmt.Println(res.Query.Args)  // [CANCELLED 200]
-fmt.Println(res.Explain)     // plain-English readback of what it understood</code></pre>
-  <p class="muted">Core has no third-party dependencies — standard library only.</p>
+res, _ := engine.Translate(ctx,
+    "cancelled orders over 200 dollars", "sql", nil)
 
-  <p>That last argument is the <a href="config.html#scope"><strong>scope</strong></a> — filters your application imposes on every query, whatever the user asked. Pass <code>nil</code> for none, or a map for multi-tenancy:</p>
+fmt.Println(res.Query.SQL)   // SELECT … WHERE (status = $1 …)
+fmt.Println(res.Query.Args)  // [CANCELLED 200]</code></pre>
+      <p class="last">No third-party dependencies — standard library only.
+        <a href="https://pkg.go.dev/github.com/awsaman-ai/queryforge">API docs →</a></p>
+    </div>
+
+    <div class="card">
+      <h3>Java <span class="tag">Maven · Java 11+</span></h3>
+      <p>Add two dependencies — the classes, and the engine binary for the platform you run on:</p>
+<pre><code>&lt;dependency&gt;
+  &lt;groupId&gt;io.queryforge&lt;/groupId&gt;
+  &lt;artifactId&gt;queryforge&lt;/artifactId&gt;
+  &lt;version&gt;1.0.0&lt;/version&gt;
+&lt;/dependency&gt;
+&lt;dependency&gt;
+  &lt;groupId&gt;io.queryforge&lt;/groupId&gt;
+  &lt;artifactId&gt;queryforge&lt;/artifactId&gt;
+  &lt;version&gt;1.0.0&lt;/version&gt;
+  &lt;classifier&gt;linux-amd64&lt;/classifier&gt;
+&lt;/dependency&gt;</code></pre>
+      <p style="margin-top:.7rem">Ask a question:</p>
+<pre><code>QueryForge forge = QueryForge.postgres(
+        Paths.get("orders.config.json"));
+
+String sql = forge.query("cancelled orders over $200").toSql();
+List&lt;Object&gt; args = forge.query("…").toArgs();</code></pre>
+      <p class="last">Zero runtime dependencies, not even a JSON library.
+        <a href="https://github.com/awsaman-ai/queryforge/blob/main/sdk-java/README.md">Docs →</a></p>
+    </div>
+
+    <div class="card">
+      <h3>Python <span class="tag">pip</span></h3>
+      <p>Install it:</p>
+<pre><code>pip install queryforge</code></pre>
+      <p style="margin-top:.7rem">Ask a question:</p>
+<pre><code>from queryforge import QueryForge
+
+qf = QueryForge.postgres("orders.config.json")
+pending = qf.query("cancelled orders over $200")
+
+print(pending.to_sql())    # SELECT … WHERE (status = $1 …)
+print(pending.to_args())   # ('CANCELLED', 200)</code></pre>
+      <p class="last">The engine ships inside the wheel — no Go toolchain needed.
+        <a href="https://github.com/awsaman-ai/queryforge/blob/main/sdk-python/README.md">Docs →</a></p>
+    </div>
+
+  </div>
+
+  <p>Whichever you pick, the answer is the same query: the model fills in an AST, your config
+    validates it, and deterministic code compiles it. Swap <code>postgres</code> for
+    <code>mysql</code> or <code>mongo</code> and the same sentence compiles for that backend instead.</p>
+
+  <p>The last argument to <code>Translate</code> is the <a href="config.html#scope"><strong>scope</strong></a> — filters your application imposes on every query, whatever the user asked. Pass <code>nil</code> for none, or a map for multi-tenancy:</p>
 <pre><code>res, err := engine.Translate(ctx, "cancelled orders over 200 dollars", "sql", qf.Scope{
     "subscriptionId": session.SubscriptionID,
     "userId":         session.UserID,

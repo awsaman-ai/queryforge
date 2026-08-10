@@ -96,7 +96,8 @@
   .qfnav-links { display: flex; gap: .1rem; margin-left: .6rem; }
   .qfnav-links a {
     color: var(--muted); text-decoration: none; font-size: .9rem;
-    padding: .35rem .6rem; border-radius: 7px;
+    padding: .35rem .5rem; border-radius: 7px;
+    white-space: nowrap;                            /* a two-word label must not wrap to two lines */
   }
   .qfnav-links a:hover { color: var(--fg); background: var(--card); }
   /* aria-current marks the page you are already on, so the bar doubles as a "you are here". */
@@ -140,6 +141,7 @@
     <a class="qfnav-brand" href="index.html"><span class="qfnav-mark">QF</span>QueryForge</a>
     <nav class="qfnav-links">
       <a href="index.html">Overview</a>
+      <a href="index.html#get-started">Get started</a>
       <a href="config.html" aria-current="page">Config reference</a>
       <a href="https://github.com/awsaman-ai/qfeval">Evaluate</a>
       <a href="https://github.com/awsaman-ai/queryforge">GitHub</a>

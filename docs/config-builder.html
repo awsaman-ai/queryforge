@@ -238,7 +238,8 @@
   .qfnav-links { display: flex; gap: .1rem; margin-left: .6rem; }
   .qfnav-links a {
     color: var(--muted); text-decoration: none; font-size: .9rem;
-    padding: .35rem .6rem; border-radius: 7px;
+    padding: .35rem .5rem; border-radius: 7px;
+    white-space: nowrap;                            /* a two-word label must not wrap to two lines */
   }
   .qfnav-links a:hover { color: var(--fg); background: var(--card); }
   /* aria-current marks the page you are already on, so the bar doubles as a "you are here". */
@@ -273,6 +274,13 @@
   }
   .qfnav-btn:hover { background: var(--card); border-color: var(--accent); }
   @media (prefers-reduced-motion: reduce) { .qfnav-cta { transition: none; } }
+  @media (max-width: 1120px) {
+    /* This bar carries more on its right-hand side than the other two pages —
+       the validity chip and two buttons — so it runs out of room sooner. The
+       two off-site links go first: they are reachable from every other page,
+       and losing them keeps the in-site links on one line instead of wrapping. */
+    .qfnav-links a.qfnav-off { display: none; }
+  }
   @media (max-width: 900px) {
     /* The form itself is the point on a narrow screen; the bar keeps only the
        brand and the two actions. */
@@ -293,10 +301,11 @@
     <a class="qfnav-brand" href="index.html"><span class="qfnav-mark">QF</span>QueryForge</a>
     <nav class="qfnav-links">
       <a href="index.html">Overview</a>
+      <a href="index.html#get-started">Get started</a>
       <a href="config.html">Config reference</a>
       <a href="config-builder.html" aria-current="page">Config builder</a>
-      <a href="https://github.com/awsaman-ai/qfeval">Evaluate</a>
-      <a href="https://github.com/awsaman-ai/queryforge">GitHub</a>
+      <a class="qfnav-off" href="https://github.com/awsaman-ai/qfeval">Evaluate</a>
+      <a class="qfnav-off" href="https://github.com/awsaman-ai/queryforge">GitHub</a>
     </nav>
     <span class="qfnav-sp"></span>
     <span class="qfnav-stat" id="navStat"><span class="d"></span>Start with the entity name</span>
