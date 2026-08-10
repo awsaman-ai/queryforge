@@ -1,0 +1,72 @@
+# Packaging for the QueryForge Python SDK.
+#
+# One wheel is built per platform, each carrying exactly the one engine binary
+# that platform can execute. That is why there is no universal wheel: bundling
+# all five targets would put ~75 MB into every install so that four of the
+# binaries could sit unused on disk, and would push the artifact close to PyPI's
+# per-file limit for no benefit.
+#
+# The wheel is therefore NOT pure-Python, and must be tagged with a platform. See
+# scripts/build_wheels.py, which builds each Go target and stamps the matching
+# wheel tag.
+
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "queryforge"
+version = "1.0.0"
+description = "Natural language to SQL and MongoDB queries, with a validated AST in between"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.9"
+authors = [{ name = "Aman" }]
+keywords = ["nlp", "sql", "mongodb", "query", "natural-language", "text-to-sql", "llm"]
+
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "License :: OSI Approved :: Apache Software License",
+    "Topic :: Database",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+# No runtime dependencies, deliberately. The SDK is a thin wrapper over a bundled
+# executable and needs nothing beyond the standard library: json, subprocess,
+# pathlib. A dependency-free install is one fewer thing to audit in an enterprise
+# review, and one fewer thing that can conflict in a user's environment.
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/awsaman-ai/queryforge"
+Documentation = "https://github.com/awsaman-ai/queryforge#readme"
+Source = "https://github.com/awsaman-ai/queryforge"
+Issues = "https://github.com/awsaman-ai/queryforge/issues"
+
+[project.optional-dependencies]
+test = ["pytest>=7.0"]
+
+[tool.setuptools]
+# The bundled executable has no file extension on Unix, so setuptools' default
+# extension-based matching would drop it from the wheel. Naming it explicitly is
+# what puts it in the artifact.
+include-package-data = true
+zip-safe = false
+
+[tool.setuptools.packages.find]
+include = ["queryforge*"]
+
+[tool.setuptools.package-data]
+queryforge = ["bin/*", "bin/*/*", "py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Strict markers so a typo'd marker fails rather than silently skipping a test.
+addopts = "-ra --strict-markers"

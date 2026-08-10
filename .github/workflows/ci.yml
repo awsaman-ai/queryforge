@@ -57,6 +57,74 @@ jobs:
         # The shipped examples are documentation; a broken one is a broken doc.
         run: go test -run TestExampleConfigsParse -v ./...
 
+  sdk-python:
+    # The Python SDK is a thin wrapper, but "thin" is exactly why it needs CI: its whole job is to
+    # agree with the engine about the wire format, and a change to either side can break that
+    # agreement without breaking anything the Go suite tests. The integration half of this suite
+    # runs against the binary built right here, so a protocol change that forgets an SDK turns
+    # this job red rather than a user's install.
+    name: sdk-python (${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Oldest supported and newest released, which is where packaging behaviour differs.
+        python: ["3.9", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Build the engine
+        run: go build -o dist/queryforge ./cmd/queryforge
+
+      - name: Install pytest
+        run: python -m pip install --upgrade pytest
+
+      - name: Test
+        env:
+          QUERYFORGE_BINARY: ${{ github.workspace }}/dist/queryforge
+        working-directory: sdk-python
+        run: python -m pytest tests/ -q
+
+  sdk-java:
+    # Same reasoning as sdk-python. Java 11 is the SDK's floor and 21 the current LTS; running
+    # both catches a language-level or reflection change that only bites on one of them.
+    name: sdk-java (${{ matrix.java }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        java: ["11", "21"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: temurin
+          cache: maven
+
+      - name: Test
+        # The integration tests build the engine themselves with `go build`, which is why the Go
+        # toolchain is set up above; they skip cleanly when it is absent.
+        working-directory: sdk-java
+        run: mvn -B test
+
   lint:
     # Separate job so a lint failure and a test failure are distinguishable at
     # a glance, and so lint does not run once per Go version -- the analysers
