@@ -80,7 +80,7 @@ func run(requestPath string, pretty bool, stdin io.Reader, stdout, stderr io.Wri
 	if requestPath != "" {
 		f, err := os.Open(requestPath)
 		if err != nil {
-			_, _ = fmt.Fprintf(stderr, "queryforge: cannot read request file: %v\n", err)
+			fmt.Fprintf(stderr, "queryforge: cannot read request file: %v\n", err) //nolint:errcheck // a diagnostic; if stderr is gone there is nowhere left to report that
 			return exitProtocol
 		}
 		defer f.Close() //nolint:errcheck // read-only file; a close error cannot affect the result
@@ -89,7 +89,7 @@ func run(requestPath string, pretty bool, stdin io.Reader, stdout, stderr io.Wri
 
 	data, err := io.ReadAll(io.LimitReader(src, maxRequestBytes+1))
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "queryforge: cannot read request: %v\n", err)
+		fmt.Fprintf(stderr, "queryforge: cannot read request: %v\n", err) //nolint:errcheck // a diagnostic; if stderr is gone there is nowhere left to report that
 		return exitProtocol
 	}
 	if len(data) > maxRequestBytes {
@@ -165,10 +165,11 @@ func write(stdout, stderr io.Writer, pretty bool, resp *Response) int {
 		enc.SetIndent("", "  ")
 	}
 	if err := enc.Encode(resp); err != nil {
-		// Both writes are unchecked deliberately: this is already the failure path, and if the
-		// pipes are gone too there is nothing left to report the failure with.
-		_, _ = fmt.Fprintf(stderr, "queryforge: cannot encode response: %v\n", err)
-		_, _ = fmt.Fprintf(stdout, `{"success":false,"protocol":%q,"code":%q,"message":"response could not be encoded"}`+"\n",
+		// Both writes below are unchecked deliberately: this is already the failure path, and if
+		// the pipes are gone too there is nothing left to report the failure with.
+		fmt.Fprintf(stderr, "queryforge: cannot encode response: %v\n", err) //nolint:errcheck // see above
+
+		fmt.Fprintf(stdout, `{"success":false,"protocol":%q,"code":%q,"message":"response could not be encoded"}`+"\n", //nolint:errcheck // see above
 			ProtocolVersion, CodeInternal)
 		return exitProtocol
 	}
