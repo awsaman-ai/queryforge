@@ -1,0 +1,261 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Maven build for the QueryForge Java SDK.
+
+  Two things about this build are worth understanding before changing it.
+
+  1. THE SDK HAS NO RUNTIME DEPENDENCIES. JUnit is test-scoped and nothing else is declared. That
+     is deliberate: a thin wrapper that drags in Jackson forces its version on every application
+     that uses it, and a version conflict inside someone else's Spring app is a far worse
+     experience than the small hand-rolled JSON codec in Json.java. It also means the published
+     artifact needs no dependency resolution at all.
+
+  2. THE ENGINE BINARY SHIPS IN PLATFORM-SPECIFIC CLASSIFIER JARS, not in the main artifact.
+     Bundling all five targets would put ~75 MB into every build so that four binaries could sit
+     unused on disk. Instead the main jar carries only classes, and one small classifier jar per
+     platform carries one binary. The consumer names the classifier they want; see the README.
+
+     This file used to carry five os-activated profiles that added the matching classifier as a
+     dependency automatically. They could not work: a profile in THIS pom is also evaluated when
+     THIS project is built, so `mvn test` on Linux tried to resolve
+     io.queryforge:queryforge:jar:linux-amd64 (the artifact being built) from Central and
+     failed on every supported platform. Auto-selection needs the natives under a different
+     artifactId in a separate module, which is a packaging change rather than a pom tweak.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>io.queryforge</groupId>
+  <artifactId>queryforge</artifactId>
+  <version>1.0.0</version>
+  <packaging>jar</packaging>
+
+  <name>QueryForge</name>
+  <description>
+    Natural language to SQL and MongoDB queries, with a validated AST in between.
+    A thin, dependency-free wrapper over the QueryForge engine, which ships as a bundled
+    native executable — no server to run and no Go toolchain to install.
+  </description>
+  <url>https://github.com/awsaman-ai/queryforge</url>
+
+  <licenses>
+    <license>
+      <name>Apache License, Version 2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+
+  <developers>
+    <developer>
+      <id>awsaman-ai</id>
+      <name>Aman</name>
+      <url>https://github.com/awsaman-ai</url>
+    </developer>
+  </developers>
+
+  <scm>
+    <connection>scm:git:https://github.com/awsaman-ai/queryforge.git</connection>
+    <developerConnection>scm:git:git@github.com:awsaman-ai/queryforge.git</developerConnection>
+    <url>https://github.com/awsaman-ai/queryforge</url>
+    <tag>HEAD</tag>
+  </scm>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+
+    <!--
+      Java 11 rather than 17 or 21. This is a library, and its floor is imposed on every consumer;
+      11 is still the most widely deployed LTS in enterprise Java, and nothing in this SDK needs a
+      later language feature. Raising it would exclude users for no functional gain.
+    -->
+    <maven.compiler.release>11</maven.compiler.release>
+
+    <junit.version>5.11.4</junit.version>
+
+    <!--
+      Where the release workflow deposits the cross-compiled engine binaries, one directory per
+      platform tag. See .github/workflows/release.yml and the classifier executions below.
+    -->
+    <native.dir>${project.basedir}/target/native</native.dir>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.13.0</version>
+        <configuration>
+          <compilerArgs>
+            <arg>-Xlint:all</arg>
+          </compilerArgs>
+          <!-- The SDK compiles warning-free today; keep it that way. -->
+          <showWarnings>true</showWarnings>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.5.2</version>
+        <configuration>
+          <!--
+            The integration tests build the engine with `go build` and run it. They skip
+            themselves cleanly when no Go toolchain is present, so this stays green on a machine
+            that only has a JDK.
+          -->
+          <trimStackTrace>false</trimStackTrace>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <version>3.4.2</version>
+        <executions>
+          <!--
+            One classified jar per platform, each holding exactly one engine binary under the
+            resource path BinaryResolver looks it up at:
+            /io/queryforge/bin/<os>-<arch>/queryforge
+
+            Each execution is skipped when its native directory is absent, so an ordinary
+            `mvn test` on a developer machine does not need five cross-compiled binaries.
+          -->
+          <execution>
+            <id>native-linux-amd64</id>
+            <goals><goal>jar</goal></goals>
+            <phase>package</phase>
+            <configuration>
+              <classifier>linux-amd64</classifier>
+              <classesDirectory>${native.dir}/linux-amd64</classesDirectory>
+              <skipIfEmpty>true</skipIfEmpty>
+            </configuration>
+          </execution>
+          <execution>
+            <id>native-linux-arm64</id>
+            <goals><goal>jar</goal></goals>
+            <phase>package</phase>
+            <configuration>
+              <classifier>linux-arm64</classifier>
+              <classesDirectory>${native.dir}/linux-arm64</classesDirectory>
+              <skipIfEmpty>true</skipIfEmpty>
+            </configuration>
+          </execution>
+          <execution>
+            <id>native-darwin-amd64</id>
+            <goals><goal>jar</goal></goals>
+            <phase>package</phase>
+            <configuration>
+              <classifier>darwin-amd64</classifier>
+              <classesDirectory>${native.dir}/darwin-amd64</classesDirectory>
+              <skipIfEmpty>true</skipIfEmpty>
+            </configuration>
+          </execution>
+          <execution>
+            <id>native-darwin-arm64</id>
+            <goals><goal>jar</goal></goals>
+            <phase>package</phase>
+            <configuration>
+              <classifier>darwin-arm64</classifier>
+              <classesDirectory>${native.dir}/darwin-arm64</classesDirectory>
+              <skipIfEmpty>true</skipIfEmpty>
+            </configuration>
+          </execution>
+          <execution>
+            <id>native-windows-amd64</id>
+            <goals><goal>jar</goal></goals>
+            <phase>package</phase>
+            <configuration>
+              <classifier>windows-amd64</classifier>
+              <classesDirectory>${native.dir}/windows-amd64</classesDirectory>
+              <skipIfEmpty>true</skipIfEmpty>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-source-plugin</artifactId>
+        <version>3.3.1</version>
+        <executions>
+          <execution>
+            <id>attach-sources</id>
+            <goals><goal>jar-no-fork</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <version>3.11.2</version>
+        <executions>
+          <execution>
+            <id>attach-javadocs</id>
+            <goals><goal>jar</goal></goals>
+          </execution>
+        </executions>
+        <configuration>
+          <doclint>all,-missing</doclint>
+          <quiet>true</quiet>
+        </configuration>
+      </plugin>
+
+    </plugins>
+  </build>
+
+  <profiles>
+
+    <!--
+      Release profile: signing and staging for Maven Central. Kept out of the default build so an
+      ordinary `mvn test` needs no GPG key.
+    -->
+    <profile>
+      <id>release</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <version>3.2.7</version>
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>verify</phase>
+                <goals><goal>sign</goal></goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.sonatype.central</groupId>
+            <artifactId>central-publishing-maven-plugin</artifactId>
+            <version>0.7.0</version>
+            <extensions>true</extensions>
+            <configuration>
+              <publishingServerId>central</publishingServerId>
+              <!-- Publish only after every artifact validates, never partially. -->
+              <autoPublish>false</autoPublish>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+  </profiles>
+</project>

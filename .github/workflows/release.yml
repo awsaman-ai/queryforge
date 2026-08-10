@@ -1,0 +1,294 @@
+# Builds and publishes a release: the engine binaries for every supported platform, the Python
+# wheels, and the Java artifacts.
+#
+# The whole release is produced on ONE runner. That is possible because Go cross-compiles without
+# a toolchain per target, and because neither SDK has a compiled extension — the Python wheels are
+# pure Python plus a data file, and the Java jars are plain bytecode. A build matrix would only
+# add ways for five runners to disagree about what they built.
+#
+# The publish steps are gated behind a manual `publish` input rather than firing on every tag, so
+# a release can be built and inspected before anything reaches PyPI or Maven Central, neither of
+# which permits deleting a published version.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (without the leading v), e.g. 1.0.0"
+        required: true
+      publish:
+        description: "Publish to PyPI and Maven Central (otherwise build artifacts only)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read # least privilege; the release job requests more where it needs it
+
+jobs:
+  build:
+    name: build engine + SDK artifacts
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve the version
+        id: version
+        # A tag push takes its version from the tag; a manual run takes the typed input. Deriving
+        # it in one place means the binaries, the wheels and the jars can never disagree about
+        # which release they belong to.
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="${{ github.event.inputs.version }}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Building version $version"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+
+      - name: Test the engine
+        # Nothing gets published from a red tree. The suite is offline — the engine is exercised
+        # through a stub provider — so this needs no API key and consumes no quota.
+        run: |
+          go vet ./...
+          go test -race ./...
+
+      - name: Cross-compile the engine
+        run: ./scripts/build-binaries.sh "${{ steps.version.outputs.version }}" dist
+
+      - name: Verify every platform binary was produced
+        # A missing target would otherwise surface as an SDK that installs and then fails with
+        # "no executable bundled for this platform" on a user's machine.
+        run: |
+          for tag in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
+            test -x "dist/$tag/queryforge" || { echo "missing dist/$tag/queryforge"; exit 1; }
+          done
+          test -f dist/windows-amd64/queryforge.exe || { echo "missing windows binary"; exit 1; }
+          cat dist/checksums.txt
+
+      # ---------------------------------------------------------------- Python
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python build tooling
+        run: python -m pip install --upgrade build wheel twine pytest
+
+      - name: Test the Python SDK
+        # Run against the freshly built host binary, so this tests the engine that is about to
+        # ship rather than whatever happens to be on the runner.
+        env:
+          QUERYFORGE_BINARY: ${{ github.workspace }}/dist/linux-amd64/queryforge
+        working-directory: sdk-python
+        run: python -m pytest tests/ -q
+
+      - name: Set the Python SDK version
+        # The wheel version must match the release, and pyproject holds it literally. Rewriting it
+        # here keeps a single source of truth (the tag) without a templating step.
+        working-directory: sdk-python
+        run: |
+          sed -i "s/^version = \".*\"/version = \"${{ steps.version.outputs.version }}\"/" pyproject.toml
+          sed -i "s/^__version__ = \".*\"/__version__ = \"${{ steps.version.outputs.version }}\"/" queryforge/__init__.py
+          grep '^version' pyproject.toml
+
+      - name: Build the wheels
+        run: python scripts/build-wheels.py dist wheelhouse
+
+      - name: Check the wheels
+        # twine check catches the metadata problems PyPI rejects on upload — after which the
+        # version number is burned and cannot be reused.
+        run: |
+          python -m twine check wheelhouse/*.whl
+          ls -la wheelhouse/
+
+      - name: Smoke-test the Linux wheel
+        # Install the artifact exactly as a user would and run a real query through it. This is
+        # the check that catches a wheel whose binary lost its executable bit, or which was built
+        # with the wrong platform's binary staged.
+        run: |
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/pip install --quiet wheelhouse/*manylinux2014_x86_64*.whl
+          /tmp/smoke/bin/python -c "
+          import queryforge
+          info = queryforge.engine_version()
+          assert info['success'], info
+          assert info['version'] == '${{ steps.version.outputs.version }}', info
+          forge = queryforge.QueryForge.postgres({
+              'entity': 'Order',
+              'backends': {'sql': {'table': 'orders'}},
+              'fields': [{'name': 'status', 'type': 'enum', 'values': ['NEW', 'DELIVERED']}],
+          })
+          result = forge.generate({
+              'version': '1.0', 'entity': 'Order',
+              'filter': {'type': 'comparison', 'field': 'status',
+                         'operator': 'equals', 'value': {'kind': 'enum', 'v': 'DELIVERED'}},
+          })
+          assert 'FROM orders' in result.sql, result.sql
+          assert result.args == ('DELIVERED',), result.args
+          print('wheel smoke test passed:', result.sql)
+          "
+
+      # ------------------------------------------------------------------ Java
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: temurin
+          cache: maven
+
+      - name: Stage the native binaries for the classifier jars
+        # The pom's jar executions read from target/native/<tag>/, laid out so each jar's contents
+        # land at the resource path BinaryResolver looks them up at.
+        run: |
+          for tag in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 windows-amd64; do
+            mkdir -p "sdk-java/target/native/$tag/io/queryforge/bin/$tag"
+            cp dist/$tag/queryforge* "sdk-java/target/native/$tag/io/queryforge/bin/$tag/"
+          done
+          find sdk-java/target/native -type f
+
+      - name: Set the Java SDK version
+        working-directory: sdk-java
+        run: mvn -B -q versions:set -DnewVersion="${{ steps.version.outputs.version }}" -DgenerateBackupPoms=false
+
+      - name: Test and package the Java SDK
+        working-directory: sdk-java
+        run: mvn -B package
+
+      - name: Verify the classifier jars carry their binaries
+        working-directory: sdk-java
+        run: |
+          for tag in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 windows-amd64; do
+            jar="target/queryforge-${{ steps.version.outputs.version }}-$tag.jar"
+            test -f "$jar" || { echo "missing $jar"; exit 1; }
+            unzip -l "$jar" | grep -q "io/queryforge/bin/$tag/queryforge" \
+              || { echo "$jar does not contain its binary"; exit 1; }
+          done
+          ls -la target/*.jar
+
+      # --------------------------------------------------------------- collect
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: engine-binaries
+          path: dist/
+          retention-days: 30
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-wheels
+          path: wheelhouse/*.whl
+          retention-days: 30
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: java-artifacts
+          path: sdk-java/target/*.jar
+          retention-days: 30
+
+  publish-pypi:
+    name: publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    # Only on a tag push, or a manual run that explicitly asked to publish. PyPI does not permit
+    # reusing a version number, so an accidental upload cannot be undone.
+    if: github.event_name == 'push' || github.event.inputs.publish == 'true'
+    environment: release
+    permissions:
+      id-token: write # PyPI trusted publishing; no long-lived API token to leak
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-wheels
+          path: wheelhouse
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: wheelhouse
+
+  publish-maven:
+    name: publish to Maven Central
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event.inputs.publish == 'true'
+    environment: release
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: temurin
+          cache: maven
+          server-id: central
+          server-username: MAVEN_CENTRAL_USERNAME
+          server-password: MAVEN_CENTRAL_PASSWORD
+          gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: engine-binaries
+          path: dist
+
+      - name: Stage the native binaries
+        run: |
+          for tag in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 windows-amd64; do
+            mkdir -p "sdk-java/target/native/$tag/io/queryforge/bin/$tag"
+            cp dist/$tag/queryforge* "sdk-java/target/native/$tag/io/queryforge/bin/$tag/"
+            chmod +x "sdk-java/target/native/$tag/io/queryforge/bin/$tag/"queryforge*
+          done
+
+      - name: Deploy
+        working-directory: sdk-java
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+        run: |
+          mvn -B -q versions:set -DnewVersion="${{ needs.build.outputs.version }}" -DgenerateBackupPoms=false
+          mvn -B -P release deploy
+
+  github-release:
+    name: attach binaries to the GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    permissions:
+      contents: write # creating a release is the one thing that needs write access
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: engine-binaries
+          path: dist
+
+      - name: Package each platform for download
+        # Archived per platform so someone who only wants the CLI can grab one file, and so the
+        # executable bit survives the download (a bare binary served over HTTPS does not keep it).
+        run: |
+          mkdir -p release
+          cd dist
+          for tag in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
+            tar -czf "../release/queryforge-${{ needs.build.outputs.version }}-$tag.tar.gz" -C "$tag" queryforge
+          done
+          zip -j "../release/queryforge-${{ needs.build.outputs.version }}-windows-amd64.zip" windows-amd64/queryforge.exe
+          cp checksums.txt ../release/
+          ls -la ../release
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true

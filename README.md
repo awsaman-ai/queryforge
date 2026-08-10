@@ -77,6 +77,18 @@ Core has **no third-party dependencies** — standard library only.
 
 📖 **[Full configuration reference →](https://awsaman-ai.github.io/queryforge/)**
 
+### Not using Go?
+
+QueryForge is also a native library in Python and Java. Same engine, same output — see
+[Other languages](#other-languages) below.
+
+```bash
+pip install queryforge
+```
+```python
+sql = QueryForge.mysql(schema).query("users older than 18").to_sql()
+```
+
 ### First: what's an AST?
 
 **AST = Abstract Syntax Tree.** It's a plain JSON object describing *what the user asked for*, sitting between the English sentence and the finished query. The name is literal: a **tree** because filters nest (`A AND (B OR C)` branches), **abstract** because it knows nothing about SQL or Mongo — it says `"operator": "gt"`, never `>` and never `$gt`.
@@ -438,6 +450,92 @@ go run . -in golden.example.csv -config ../queryforge/examples/orders.config.jso
 Worth running against **your** config and **your** sentences before you decide
 which model to pay for.
 
+## Other languages
+
+QueryForge is a Go library first, but you do not need to write Go to use it. The same engine ships
+as a native library for Python and Java.
+
+```bash
+pip install queryforge
+```
+```python
+from queryforge import QueryForge
+
+sql = QueryForge.mysql(schema).query("users older than 18").to_sql()
+```
+
+```xml
+<dependency>
+    <groupId>io.queryforge</groupId>
+    <artifactId>queryforge</artifactId>
+    <version>1.0.0</version>
+</dependency>
+```
+```java
+String sql = QueryForge.mysql(schema).query("users older than 18").toSql();
+```
+
+No server, no Docker, no Go toolchain, no background service. Install the package and call it.
+
+### How it works
+
+```
+                  ┌─────────────────────────┐
+                  │  QueryForge core (Go)   │
+                  │  parser · AST · validate│
+                  │  dialects · generators  │
+                  └────────────▲────────────┘
+                               │  one JSON object in, one out
+                        stdin / stdout
+                               │
+          ┌────────────────────┼────────────────────┐
+          │                    │                    │
+   ┌──────┴──────┐      ┌──────┴──────┐      ┌──────┴──────┐
+   │ Python SDK  │      │  Java SDK   │      │  (Node,     │
+   │   PyPI      │      │Maven Central│      │   .NET…)    │
+   └─────────────┘      └─────────────┘      └─────────────┘
+```
+
+Each SDK spawns the bundled engine binary as a **local subprocess**, writes one JSON request to
+its stdin, and reads one JSON response from its stdout. No HTTP, no REST, no gRPC, no socket, no
+daemon — the security surface stays at "a subprocess with the caller's own privileges".
+
+The SDKs contain **no query logic whatsoever**. Every parser, validator, dialect and generator
+lives in the Go core and nowhere else, so all three languages produce byte-identical output for
+the same input. An SDK only validates arguments, finds the right binary, serializes a request, and
+maps the reply onto native types and exceptions.
+
+| | Python | Java |
+|---|---|---|
+| Install | `pip install queryforge` | one Maven `<dependency>` |
+| Runtime dependencies | none | none — not even a JSON library |
+| Wrapper size | ~30 KB of code | ~35 KB jar |
+| Engine binary | in the platform wheel (~6 MB) | in an auto-selected classifier jar (~2.5 MB) |
+| Docs | [sdk-python/README.md](sdk-python/README.md) | [sdk-java/README.md](sdk-java/README.md) |
+
+Both offer the full pipeline (`query`, one model call) and the deterministic half (`generate` /
+`validate`, no model call and no API key — which is what makes them testable offline).
+
+### The engine binary
+
+`cmd/queryforge` is the executable the SDKs drive. It is also usable directly from any language,
+or from a shell:
+
+```bash
+echo '{"op":"version"}' | queryforge --pretty
+```
+
+The wire format is specified in **[cmd/queryforge/PROTOCOL.md](cmd/queryforge/PROTOCOL.md)** —
+read that if you are writing an SDK for another language. It documents the request and response
+shapes, the stable error codes, the versioning rules, and a checklist of the eight things a
+correct SDK has to do.
+
+Build every platform's binary with:
+
+```bash
+./scripts/build-binaries.sh 1.0.0 dist
+```
+
 ## Read-only guarantee
 
 QueryForge builds queries; it does **not** connect to or execute against your database. Every output is a read (`SELECT` / `find`). There is no operator or config option that can mutate data.
@@ -447,8 +545,9 @@ QueryForge builds queries; it does **not** connect to or execute against your da
 - **Now (Phase 1):** Go library; JSON config; validator; SQL + Mongo generators; Gemini/Groq/Ollama via OpenAI-compatible HTTP; CLI; HTML config docs.
 - **v0.0.2:** [scope filters](#scope-filters-your-own-filters-on-every-query) — caller-supplied predicates AND-ed onto every query, for multi-tenancy.
 - **Shipped alongside:** [queryforge_mcp](https://github.com/awsaman-ai/queryforge_mcp) — the compiler over MCP, as a separate module. The library stays transport-agnostic: no JSON-RPC, no MCP SDK, no transport code here.
+- **Shipped alongside:** [Python and Java SDKs](#other-languages) — the same engine as a native library in each, driven over a JSON stdio protocol. No server, no duplicated query logic.
 - **Next:** Elasticsearch/OpenSearch generator; YAML config; confidence scores; REST facade.
-- **Later:** aggregation AST node; more backends (DynamoDB, Cassandra, ClickHouse); SDKs for other languages over the same AST contract.
+- **Later:** Node and .NET SDKs over the same [stdio protocol](cmd/queryforge/PROTOCOL.md); a persistent engine process reusing one binary across requests (an internal optimisation, invisible to SDK users); aggregation AST node; more backends (DynamoDB, Cassandra, ClickHouse).
 
 ## Contributing
 

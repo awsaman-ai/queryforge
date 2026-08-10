@@ -12,6 +12,25 @@
 # Go
 /vendor/
 
+# Cross-compiled engine binaries and the packaged SDK artifacts built from them.
+# These are release outputs — reproducible from scripts/build-binaries.sh and
+# scripts/build-wheels.py — and a 6 MB binary per platform has no business in git.
+/dist/
+/wheelhouse/
+
+# The engine binary staged into the Python package for a local test run or a
+# wheel build. It is copied in by the build script and removed afterwards; a
+# stale copy committed here would shadow whatever a developer builds next.
+/sdk-python/queryforge/bin/
+/sdk-python/build-wheel/
+/sdk-python/build/
+/sdk-python/*.egg-info/
+__pycache__/
+.pytest_cache/
+
+# Java build output, including the binary the integration tests build for themselves.
+/sdk-java/target/
+
 # Editor / OS
 .DS_Store
 .idea/
