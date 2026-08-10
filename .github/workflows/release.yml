@@ -9,6 +9,11 @@
 # The publish steps are gated behind a manual `publish` input rather than firing on every tag, so
 # a release can be built and inspected before anything reaches PyPI or Maven Central, neither of
 # which permits deleting a published version.
+#
+# So a tag push builds every artifact, tests them, and attaches the binaries to the GitHub
+# release. Shipping to PyPI and Maven Central is a separate, deliberate `workflow_dispatch` run
+# with publish=true, which needs the `release` environment's secrets and a PyPI trusted publisher
+# registered for this repository, this workflow file and that environment.
 name: Release
 
 on:
@@ -200,9 +205,10 @@ jobs:
     name: publish to PyPI
     needs: build
     runs-on: ubuntu-latest
-    # Only on a tag push, or a manual run that explicitly asked to publish. PyPI does not permit
-    # reusing a version number, so an accidental upload cannot be undone.
-    if: github.event_name == 'push' || github.event.inputs.publish == 'true'
+    # Only a manual run that explicitly asked to publish. PyPI does not permit reusing a version
+    # number, so an accidental upload cannot be undone — which is exactly why a tag push must not
+    # be enough to trigger one.
+    if: github.event.inputs.publish == 'true'
     environment: release
     permissions:
       id-token: write # PyPI trusted publishing; no long-lived API token to leak
@@ -221,11 +227,31 @@ jobs:
     name: publish to Maven Central
     needs: build
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || github.event.inputs.publish == 'true'
+    if: github.event.inputs.publish == 'true'
     environment: release
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check the credentials are present
+        # setup-java imports nothing when the key input is empty, and the run then gets as far as
+        # signing before failing with "gpg: no default secret key" — which names neither the secret
+        # nor where it belongs. Checking first turns four wasted minutes into one legible line.
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          MAVEN_GPG_PRIVATE_KEY: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+        run: |
+          missing=""
+          for name in MAVEN_CENTRAL_USERNAME MAVEN_CENTRAL_PASSWORD MAVEN_GPG_PRIVATE_KEY MAVEN_GPG_PASSPHRASE; do
+            eval "value=\${$name}"
+            [ -n "$value" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Set these secrets on the 'release' environment before publishing:$missing"
+            exit 1
+          fi
 
       - uses: actions/setup-java@v4
         with:
