@@ -11,6 +11,7 @@ Your users stop translating what they want into dropdowns, checkboxes and date p
 
 The model never writes the query. It fills in a typed **Query AST** your config constrains, and deterministic Go compiles that to whatever database you run. Postgres (`"sql"`), MySQL (`"mysql"`) and MongoDB (`"mongo"`) ship today; a new backend is a generator, not a rewrite.
 
+🌐 Website: **[queryforge-service.vercel.app](https://queryforge-service.vercel.app)**
 ▶️ **[Live demo](https://queryforge-demo.amtry.in)** — flip one toggle and watch a thirteen-filter product page become a single search box
 📖 [Docs](https://awsaman-ai.github.io/queryforge/) · 🛠 [Build a config in your browser](https://awsaman-ai.github.io/queryforge/config-builder.html) — no install, nothing leaves the page
 🔌 [**queryforge_mcp**](https://github.com/awsaman-ai/queryforge_mcp) — use it from Claude Desktop or Cursor, over the Model Context Protocol
@@ -110,14 +111,14 @@ Two dependencies: the classes, and the engine binary for the platform you run on
 
 ```xml
 <dependency>
-    <groupId>io.queryforge</groupId>
+    <groupId>io.github.awsaman-ai</groupId>
     <artifactId>queryforge</artifactId>
-    <version>1.0.0</version>
+    <version>1.1.2</version>
 </dependency>
 <dependency>
-    <groupId>io.queryforge</groupId>
+    <groupId>io.github.awsaman-ai</groupId>
     <artifactId>queryforge</artifactId>
-    <version>1.0.0</version>
+    <version>1.1.2</version>
     <classifier>linux-amd64</classifier>
 </dependency>
 ```
@@ -536,9 +537,9 @@ sql = QueryForge.mysql(schema).query("users older than 18").to_sql()
 
 ```xml
 <dependency>
-    <groupId>io.queryforge</groupId>
+    <groupId>io.github.awsaman-ai</groupId>
     <artifactId>queryforge</artifactId>
-    <version>1.0.0</version>
+    <version>1.1.2</version>
 </dependency>
 ```
 ```java
@@ -603,7 +604,7 @@ correct SDK has to do.
 Build every platform's binary with:
 
 ```bash
-./scripts/build-binaries.sh 1.0.0 dist
+./scripts/build-binaries.sh 1.1.2 dist
 ```
 
 ## Read-only guarantee

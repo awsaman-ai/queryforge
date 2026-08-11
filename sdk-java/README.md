@@ -6,13 +6,13 @@ Turn a sentence into a parameterized database query, with a validated AST in bet
 <dependency>
     <groupId>io.github.awsaman-ai</groupId>
     <artifactId>queryforge</artifactId>
-    <version>1.0.0</version>
+    <version>1.1.2</version>
 </dependency>
 <!-- plus the engine binary for the platform you run on; see "Platform binaries" -->
 <dependency>
     <groupId>io.github.awsaman-ai</groupId>
     <artifactId>queryforge</artifactId>
-    <version>1.0.0</version>
+    <version>1.1.2</version>
     <classifier>linux-amd64</classifier>
 </dependency>
 ```
@@ -218,12 +218,12 @@ binary (~2.5 MB each), so you add two dependencies: the classes, and the binary 
 <dependency>
     <groupId>io.github.awsaman-ai</groupId>
     <artifactId>queryforge</artifactId>
-    <version>1.0.0</version>
+    <version>1.1.2</version>
 </dependency>
 <dependency>
     <groupId>io.github.awsaman-ai</groupId>
     <artifactId>queryforge</artifactId>
-    <version>1.0.0</version>
+    <version>1.1.2</version>
     <classifier>linux-amd64</classifier>
 </dependency>
 ```

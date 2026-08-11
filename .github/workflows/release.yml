@@ -11,9 +11,16 @@
 # which permits deleting a published version.
 #
 # So a tag push builds every artifact, tests them, and attaches the binaries to the GitHub
-# release. Shipping to PyPI and Maven Central is a separate, deliberate `workflow_dispatch` run
-# with publish=true, which needs the `release` environment's secrets and a PyPI trusted publisher
-# registered for this repository, this workflow file and that environment.
+# release — and stops there. Nothing reaches PyPI or Maven Central without a human.
+#
+# Shipping to a package registry is a separate, deliberate `workflow_dispatch` run, and the two
+# registries are deliberately NOT selectable together: one run publishes Python, another run
+# publishes Java. Choosing one at a time means a failure has one cause, a half-finished release
+# leaves one registry to chase rather than two, and the irreversible step is taken twice on
+# purpose rather than once by habit. See RELEASING.md for the exact commands.
+#
+# Publishing needs the `release` environment's secrets, and for PyPI a trusted publisher
+# registered against this repository, this workflow file and that environment.
 name: Release
 
 on:
@@ -22,12 +29,16 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to build (without the leading v), e.g. 1.0.0"
+        description: "Version to build (without the leading v), e.g. 1.1.2"
         required: true
       publish:
-        description: "Publish to PyPI and Maven Central (otherwise build artifacts only)"
-        type: boolean
-        default: false
+        description: "Which registry to publish to — one per run, never both"
+        type: choice
+        default: none
+        options:
+          - none # build and test the artifacts only; nothing leaves the runner
+          - pypi # publish the Python wheels
+          - maven # publish the Java jars
 
 permissions:
   contents: read # least privilege; the release job requests more where it needs it
@@ -205,10 +216,10 @@ jobs:
     name: publish to PyPI
     needs: build
     runs-on: ubuntu-latest
-    # Only a manual run that explicitly asked to publish. PyPI does not permit reusing a version
+    # Only a manual run that explicitly asked for PyPI. PyPI does not permit reusing a version
     # number, so an accidental upload cannot be undone — which is exactly why a tag push must not
-    # be enough to trigger one.
-    if: github.event.inputs.publish == 'true'
+    # be enough to trigger one. On a tag push `inputs.publish` is empty and this never matches.
+    if: github.event_name == 'workflow_dispatch' && inputs.publish == 'pypi'
     environment: release
     permissions:
       id-token: write # PyPI trusted publishing; no long-lived API token to leak
@@ -227,7 +238,9 @@ jobs:
     name: publish to Maven Central
     needs: build
     runs-on: ubuntu-latest
-    if: github.event.inputs.publish == 'true'
+    # Same one-registry-per-run rule as publish-pypi. Maven Central is likewise append-only once a
+    # deployment is released, so this stays a separate deliberate act.
+    if: github.event_name == 'workflow_dispatch' && inputs.publish == 'maven'
     environment: release
 
     steps:
