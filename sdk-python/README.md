@@ -3,8 +3,10 @@
 Turn a sentence into a parameterized database query, with a validated AST in between.
 
 ```bash
-pip install queryforge
+pip install queryforge-ai
 ```
+
+The package installs as `queryforge-ai` and imports as `queryforge`.
 
 ```python
 from queryforge import QueryForge

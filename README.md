@@ -135,7 +135,7 @@ Zero runtime dependencies — not even a JSON library. [Docs →](sdk-java/READM
 ### 🐍 Python — pip
 
 ```bash
-pip install queryforge
+pip install queryforge-ai   # installs as queryforge-ai, imports as queryforge
 ```
 
 ```python
@@ -527,7 +527,7 @@ QueryForge is a Go library first, but you do not need to write Go to use it. The
 as a native library for Python and Java.
 
 ```bash
-pip install queryforge
+pip install queryforge-ai
 ```
 ```python
 from queryforge import QueryForge
@@ -578,7 +578,7 @@ maps the reply onto native types and exceptions.
 
 | | Python | Java |
 |---|---|---|
-| Install | `pip install queryforge` | one Maven `<dependency>` |
+| Install | `pip install queryforge-ai` | one Maven `<dependency>` |
 | Runtime dependencies | none | none — not even a JSON library |
 | Wrapper size | ~30 KB of code | ~35 KB jar |
 | Engine binary | in the platform wheel (~6 MB) | in an auto-selected classifier jar (~2.5 MB) |

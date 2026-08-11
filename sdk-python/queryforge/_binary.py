@@ -157,7 +157,7 @@ def find_binary() -> Path:
         f"No QueryForge executable was found for this platform ({platform_tag()}). "
         f"Searched: {searched}. This usually means the installed wheel was built "
         f"for a different platform — reinstall with 'pip install --force-reinstall "
-        f"queryforge' — or set {BINARY_ENV_VAR} to a binary you built yourself.",
+        f"queryforge-ai' — or set {BINARY_ENV_VAR} to a binary you built yourself.",
         code="BINARY_NOT_FOUND",
     )
 

@@ -56,10 +56,15 @@ This rebuilds from scratch and re-runs every test, then uploads only the wheels.
 trusted publishing through the `release` environment — no long-lived token — so it needs the
 publisher registered against this repo, `release.yml`, and the `release` environment.
 
+The PyPI project is **`queryforge-ai`**, not `queryforge` — that name was taken in May 2026 by an
+unrelated project. The import name is unaffected. All four trusted-publisher fields (project
+`queryforge-ai`, owner `awsaman-ai`, repo `queryforge`, workflow `release.yml`, environment
+`release`) must match exactly or the upload fails with a 403 that does not say which field is wrong.
+
 Verify:
 
 ```bash
-pip download queryforge==1.1.2 --no-deps -d /tmp/qf-check && ls /tmp/qf-check
+pip download queryforge-ai==1.1.2 --no-deps -d /tmp/qf-check && ls /tmp/qf-check
 ```
 
 ## 3. Publish to Maven Central (manual)
