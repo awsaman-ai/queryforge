@@ -11,8 +11,7 @@ Your users stop translating what they want into dropdowns, checkboxes and date p
 
 The model never writes the query. It fills in a typed **Query AST** your config constrains, and deterministic Go compiles that to whatever database you run. Postgres (`"sql"`), MySQL (`"mysql"`) and MongoDB (`"mongo"`) ship today; a new backend is a generator, not a rewrite.
 
-🌐 Website: **[queryforge-service.vercel.app](https://queryforge-service.vercel.app)**
-▶️ **[Live demo](https://queryforge-demo.amtry.in)** — flip one toggle and watch a thirteen-filter product page become a single search box
+🌐 Website: **[queryforge-service.amtry.in](https://queryforge-service.amtry.in)**
 📖 [Docs](https://awsaman-ai.github.io/queryforge/) · 🛠 [Build a config in your browser](https://awsaman-ai.github.io/queryforge/config-builder.html) — no install, nothing leaves the page
 🔌 [**queryforge_mcp**](https://github.com/awsaman-ai/queryforge_mcp) — use it from Claude Desktop or Cursor, over the Model Context Protocol
 
@@ -639,7 +638,6 @@ issue.
 | **[qfeval](https://github.com/awsaman-ai/qfeval)** | Scores a QueryForge config against a golden file of natural-language sentences and the queries they should compile to. Measures how well a given model actually understands your users' requests — and lets you compare two models on the same corpus before you pay for one. Ships a 25-case example (24/25 on `gemini-3.1-flash-lite`) and a 573-case dataset covering every capability flag. |
 | [Documentation](https://awsaman-ai.github.io/queryforge/) | Guide, full configuration reference, and the Query AST explained. |
 | [Config builder](https://awsaman-ai.github.io/queryforge/config-builder.html) | Build a config in a form and download it, with live validation. Runs entirely in the browser. |
-| [Live demo](https://queryforge-demo.amtry.in) | A product page with a sentence box, translating for real. |
 
 ## License
 
