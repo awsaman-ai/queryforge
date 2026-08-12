@@ -1,0 +1,186 @@
+<!doctype html>
+<!--
+  Source for og.png — the README banner and the link-preview card for every docs page.
+  Re-render after editing (2x for retina; the card is 1200x630 CSS pixels):
+
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --disable-gpu \
+      --hide-scrollbars --force-device-scale-factor=2 --window-size=1200,630 \
+      --screenshot=og.png "file://$PWD/og.source.html"
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { width:1200px; height:630px; }
+  body {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    background:#0a0e15;
+    color:#e8edf5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .card {
+    position:relative; width:1200px; height:630px; padding:56px 64px 52px;
+    background:
+      radial-gradient(1100px 520px at 88% -12%, rgba(37,99,235,.30), transparent 62%),
+      radial-gradient(800px 460px at 6% 108%, rgba(16,185,129,.10), transparent 60%),
+      #0a0e15;
+    display:flex; flex-direction:column;
+    overflow:hidden;
+  }
+  .card::after {  /* hairline grid */
+    content:""; position:absolute; inset:0; pointer-events:none;
+    background-image:linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px),
+                     linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
+    background-size:48px 48px;
+    mask-image:radial-gradient(760px 420px at 60% 40%, #000 20%, transparent 78%);
+    -webkit-mask-image:radial-gradient(760px 420px at 60% 40%, #000 20%, transparent 78%);
+  }
+  .top { display:flex; align-items:center; justify-content:space-between; }
+  .brand { display:flex; align-items:center; gap:14px; }
+  .logo {
+    width:42px; height:42px; border-radius:11px;
+    background:linear-gradient(150deg,#3b82f6,#1d4ed8);
+    box-shadow:0 6px 20px rgba(37,99,235,.45);
+    display:flex; align-items:center; justify-content:center;
+    font-size:16px; font-weight:800; letter-spacing:.4px; color:#fff;
+  }
+  .name { font-size:25px; font-weight:700; letter-spacing:-.2px; }
+  .meta { font-size:15px; color:#8592a6; }
+
+  h1 {
+    margin-top:34px;
+    font-size:60px; line-height:1.06; font-weight:800; letter-spacing:-1.9px;
+  }
+  h1 .accent { color:#60a5fa; }
+  .sub { margin-top:14px; font-size:19px; color:#93a1b5; letter-spacing:-.1px; }
+
+  /* Shipped surfaces: solid chips. The planned backends below use dashed ones. */
+  .langs { margin-top:26px; display:flex; align-items:center; gap:9px; }
+  .langs .lead {
+    font-size:12.5px; color:#5c6b80; font-weight:700; letter-spacing:.9px;
+    text-transform:uppercase; margin-right:3px;
+  }
+  .lang {
+    display:flex; align-items:center; gap:8px;
+    font-size:14px; font-weight:600; color:#d3dcea; letter-spacing:-.1px;
+    background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.14);
+    border-radius:999px; padding:7px 15px;
+  }
+  .lang .tick { width:6px; height:6px; border-radius:50%; background:#34d399; }
+
+  .flow { margin-top:32px; display:flex; align-items:center; gap:0; }
+
+  .ask {
+    flex:0 0 auto; width:268px;
+    background:rgba(255,255,255,.045); border:1px solid rgba(255,255,255,.10);
+    border-radius:12px; padding:16px 18px;
+    font-family:"SF Mono", Menlo, monospace; font-size:14px; line-height:1.45; color:#cdd7e5;
+  }
+  .arrow { flex:0 0 auto; width:52px; display:flex; align-items:center; justify-content:center; }
+  .ast {
+    flex:0 0 auto;
+    border:1.5px solid #3b82f6; border-radius:12px; padding:16px 20px;
+    background:rgba(59,130,246,.10);
+    font-family:"SF Mono", Menlo, monospace; font-size:15px; font-weight:600; color:#93c5fd;
+    box-shadow:0 0 34px rgba(59,130,246,.20);
+  }
+  .fan { flex:0 0 auto; width:62px; height:172px; }
+
+  .dbs { flex:1 1 auto; display:flex; flex-direction:column; gap:9px; }
+  .db {
+    display:flex; align-items:center; gap:11px;
+    background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.085);
+    border-radius:10px; padding:9px 14px;
+  }
+  .dot { width:9px; height:9px; border-radius:50%; flex:0 0 auto; }
+  .db .label { font-size:13.5px; font-weight:700; width:92px; letter-spacing:-.1px; }
+  .db code {
+    font-family:"SF Mono", Menlo, monospace; font-size:12.5px; color:#9fb0c6; white-space:nowrap;
+  }
+
+  .bottom { margin-top:auto; display:flex; align-items:center; justify-content:space-between; }
+  .guarantee { font-size:15px; font-weight:700; letter-spacing:-.1px; }
+  .guarantee span { color:#5c6b80; font-weight:600; }
+  .soon { display:flex; align-items:center; gap:8px; }
+  .soon .lead { font-size:12.5px; color:#5c6b80; font-weight:600; letter-spacing:.3px; text-transform:uppercase; }
+  .chip {
+    font-size:12.5px; color:#8493a8; border:1px dashed rgba(255,255,255,.16);
+    border-radius:999px; padding:4px 11px;
+  }
+</style>
+</head>
+<body>
+<div class="card">
+
+  <div class="top">
+    <div class="brand">
+      <div class="logo">QF</div>
+      <div class="name">QueryForge</div>
+    </div>
+    <div class="meta">Go · Apache-2.0</div>
+  </div>
+
+  <h1>One sentence.<br><span class="accent">Every database.</span></h1>
+  <div class="sub">The model fills in a typed AST — deterministic code compiles it, per backend.</div>
+
+  <div class="langs">
+    <div class="lead">Available</div>
+    <div class="lang"><span class="tick"></span>Go</div>
+    <div class="lang"><span class="tick"></span>Python</div>
+    <div class="lang"><span class="tick"></span>Java</div>
+    <div class="lang"><span class="tick"></span>MCP — Claude, Cursor</div>
+  </div>
+
+  <div class="flow">
+    <div class="ask">"orders over $500,<br>not cancelled,<br>newest first"</div>
+
+    <div class="arrow">
+      <svg width="30" height="12" viewBox="0 0 30 12" fill="none">
+        <path d="M0 6h24" stroke="#3f4b5c" stroke-width="1.6"/>
+        <path d="M22 2l5 4-5 4" stroke="#3f4b5c" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+
+    <div class="ast">Query AST</div>
+
+    <svg class="fan" viewBox="0 0 62 172" fill="none">
+      <path d="M0 86 C 30 86, 32 26, 62 26" stroke="#33415a" stroke-width="1.6"/>
+      <path d="M0 86 H 62"                  stroke="#33415a" stroke-width="1.6"/>
+      <path d="M0 86 C 30 86, 32 146, 62 146" stroke="#33415a" stroke-width="1.6"/>
+      <circle cx="1.5" cy="86" r="3" fill="#3b82f6"/>
+    </svg>
+
+    <div class="dbs">
+      <div class="db">
+        <div class="dot" style="background:#5b9bd5"></div>
+        <div class="label">PostgreSQL</div>
+        <code>WHERE amount &gt; $1 AND status &lt;&gt; $2</code>
+      </div>
+      <div class="db">
+        <div class="dot" style="background:#f29111"></div>
+        <div class="label">MySQL</div>
+        <code>WHERE amount &gt; ? AND status &lt;&gt; ?</code>
+      </div>
+      <div class="db">
+        <div class="dot" style="background:#00ed64"></div>
+        <div class="label">MongoDB</div>
+        <code>{ amount: { $gt: 500 }, status: { $ne: … } }</code>
+      </div>
+    </div>
+  </div>
+
+  <div class="bottom">
+    <div class="guarantee">No invented columns. No injection. No mutation.</div>
+    <div class="soon">
+      <div class="lead">Next</div>
+      <div class="chip">Elasticsearch</div>
+      <div class="chip">DynamoDB</div>
+      <div class="chip">Cassandra</div>
+      <div class="chip">ClickHouse</div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

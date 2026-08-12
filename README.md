@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/og.png" alt="QueryForge — let your users ask your database anything, safely" width="840">
+<img src="docs/og.png" alt="QueryForge — one sentence, every database: a question compiles through a validated Query AST to PostgreSQL, MySQL and MongoDB. Available for Go, Python, Java and MCP." width="840">
 
 # QueryForge
 
