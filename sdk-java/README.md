@@ -2,17 +2,25 @@
 
 Turn a sentence into a parameterized database query, with a validated AST in between.
 
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.awsaman-ai/queryforge?label=maven%20central)](https://central.sonatype.com/artifact/io.github.awsaman-ai/queryforge)
+
+Set the property once to the version in the badge; both dependencies then stay in step.
+
 ```xml
+<properties>
+    <queryforge.version>LATEST</queryforge.version>  <!-- the version in the badge -->
+</properties>
+
 <dependency>
     <groupId>io.github.awsaman-ai</groupId>
     <artifactId>queryforge</artifactId>
-    <version>1.1.2</version>
+    <version>${queryforge.version}</version>
 </dependency>
 <!-- plus the engine binary for the platform you run on; see "Platform binaries" -->
 <dependency>
     <groupId>io.github.awsaman-ai</groupId>
     <artifactId>queryforge</artifactId>
-    <version>1.1.2</version>
+    <version>${queryforge.version}</version>
     <classifier>linux-amd64</classifier>
 </dependency>
 ```
@@ -218,12 +226,12 @@ binary (~2.5 MB each), so you add two dependencies: the classes, and the binary 
 <dependency>
     <groupId>io.github.awsaman-ai</groupId>
     <artifactId>queryforge</artifactId>
-    <version>1.1.2</version>
+    <version>${queryforge.version}</version>
 </dependency>
 <dependency>
     <groupId>io.github.awsaman-ai</groupId>
     <artifactId>queryforge</artifactId>
-    <version>1.1.2</version>
+    <version>${queryforge.version}</version>
     <classifier>linux-amd64</classifier>
 </dependency>
 ```

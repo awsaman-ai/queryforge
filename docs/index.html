@@ -284,16 +284,22 @@ fmt.Println(res.Query.Args)  // [CANCELLED 200]</code></pre>
 
     <div class="card">
       <h3>Java <span class="tag">Maven · Java 11+</span></h3>
-      <p>Add two dependencies — the classes, and the engine binary for the platform you run on:</p>
-<pre><code>&lt;dependency&gt;
+      <p>Add two dependencies — the classes, and the engine binary for the platform you run on.
+        Set <code>queryforge.version</code> to the
+        <a href="https://central.sonatype.com/artifact/io.github.awsaman-ai/queryforge">latest on Maven Central</a>:</p>
+<pre><code>&lt;properties&gt;
+  &lt;queryforge.version&gt;LATEST&lt;/queryforge.version&gt;
+&lt;/properties&gt;
+
+&lt;dependency&gt;
   &lt;groupId&gt;io.github.awsaman-ai&lt;/groupId&gt;
   &lt;artifactId&gt;queryforge&lt;/artifactId&gt;
-  &lt;version&gt;1.1.2&lt;/version&gt;
+  &lt;version&gt;${queryforge.version}&lt;/version&gt;
 &lt;/dependency&gt;
 &lt;dependency&gt;
   &lt;groupId&gt;io.github.awsaman-ai&lt;/groupId&gt;
   &lt;artifactId&gt;queryforge&lt;/artifactId&gt;
-  &lt;version&gt;1.1.2&lt;/version&gt;
+  &lt;version&gt;${queryforge.version}&lt;/version&gt;
   &lt;classifier&gt;linux-amd64&lt;/classifier&gt;
 &lt;/dependency&gt;</code></pre>
       <p style="margin-top:.7rem">Ask a question:</p>
