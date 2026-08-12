@@ -58,11 +58,22 @@ jobs:
         # A tag push takes its version from the tag; a manual run takes the typed input. Deriving
         # it in one place means the binaries, the wheels and the jars can never disagree about
         # which release they belong to.
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
           if [ "${{ github.event_name }}" = "push" ]; then
             version="${GITHUB_REF_NAME#v}"
           else
-            version="${{ github.event.inputs.version }}"
+            version="$INPUT_VERSION"
+          fi
+          # A typed "v1.1.2" used to reach Maven Central verbatim, where it sorts *below* 1.1.1
+          # (a leading letter makes it a qualifier, not a number) and can never be deleted. Strip
+          # the prefix and refuse anything that is not a bare semver, so the mistake cannot be
+          # made twice.
+          version="${version#v}"
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$'; then
+            echo "::error::Version '$version' is not a bare semver such as 1.1.2"
+            exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Building version $version"
