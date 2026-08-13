@@ -8,7 +8,11 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.LinkedHashMap;
 import java.util.Locale;
+import java.util.Map;
+import java.util.logging.Level;
 
 /**
  * Finds the QueryForge executable, extracting it from the jar when necessary.
@@ -60,7 +64,9 @@ final class BinaryResolver {
     static Path resolve() {
         String override = override(BINARY_PROPERTY, BINARY_ENV_VAR);
         if (override != null) {
-            return fromOverride(override);
+            Path path = fromOverride(override);
+            logResolved(path, "override");
+            return path;
         }
         Path local = cached;
         if (local != null && Files.isRegularFile(local)) {
@@ -69,9 +75,28 @@ final class BinaryResolver {
         synchronized (BinaryResolver.class) {
             if (cached == null || !Files.isRegularFile(cached)) {
                 cached = extractFromJar();
+                logResolved(cached, "extracted");
             }
             return cached;
         }
+    }
+
+    /**
+     * Records which executable is actually going to run, at FINE.
+     *
+     * <p>"Which binary is it running?" is the first question in almost every installation problem —
+     * a stale {@code QUERYFORGE_BINARY}, a classifier jar for the wrong platform, a cache directory
+     * on a {@code noexec} mount — and without this the answer needs a process monitor. It is
+     * logged on the miss only, so it costs nothing on the query path.
+     */
+    private static void logResolved(Path path, String source) {
+        Map<String, Object> fields = new LinkedHashMap<>();
+        fields.put(QueryForgeLogging.FIELD_OPERATION, "resolve_binary");
+        fields.put("binary", path.toString());
+        fields.put("source", source);
+        fields.put("platform_tag", platformTag());
+        QueryForgeLogging.log(
+                QueryForgeLogging.logger("binary"), Level.FINE, "resolved the engine binary", fields);
     }
 
     /**
@@ -227,9 +252,23 @@ final class BinaryResolver {
                 sb.append(String.format("%02x", digest[i]));
             }
             return sb.toString();
-        } catch (Exception e) {
-            // SHA-256 is mandated by the JDK, so this cannot happen; degrade to a length-based
-            // name rather than failing a query over a hash.
+        } catch (NoSuchAlgorithmException e) {
+            // SHA-256 is mandated by every JDK, so this is unreachable in practice. The
+            // degradation is nonetheless deliberate and safe: the hash only names a cache entry,
+            // and a length-based name still separates two different binaries in the overwhelming
+            // majority of cases. Failing a user's query over a cache-key algorithm would be the
+            // wrong trade.
+            //
+            // It is the ONE swallowed exception in this SDK, and it is logged rather than
+            // silent — the catch is narrowed to the single checked exception the API declares, so
+            // a genuine bug here still propagates.
+            QueryForgeLogging.log(
+                    QueryForgeLogging.logger("binary"),
+                    Level.WARNING,
+                    "SHA-256 is unavailable; falling back to a length-based cache key",
+                    java.util.Collections.singletonMap(
+                            QueryForgeLogging.FIELD_OPERATION, "resolve_binary"),
+                    e);
             return "len" + bytes.length;
         }
     }

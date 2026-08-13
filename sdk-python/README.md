@@ -149,6 +149,63 @@ except QueryForgeError as e:
 | `BinaryNotFoundError` | `BINARY_NOT_FOUND` | Reinstall, or set `QUERYFORGE_BINARY` |
 | `ProtocolError` | `PROTOCOL_ERROR` | Broken install — the binary crashed or is the wrong version |
 
+QueryForge **never fails silently**. There is no path that returns an empty query, a partial
+result or `None` in place of a failure, and every wrapped error keeps the original as its
+`__cause__`:
+
+```python
+except ProtocolError as e:
+    e.__cause__          # the JSONDecodeError, OSError or TimeoutExpired underneath
+```
+
+---
+
+## Logging
+
+Diagnostics go through the standard `logging` module under the `queryforge` namespace. The SDK
+attaches a `NullHandler` and nothing else — it never calls `basicConfig`, never touches the root
+logger, and is silent until you say otherwise.
+
+```python
+import logging
+logging.getLogger("queryforge").setLevel(logging.INFO)
+
+# or, for JSON matching the engine's own field names:
+import queryforge
+queryforge.logging.configure("info")
+
+# or, without a code change:
+#   QUERYFORGE_LOG_LEVEL=debug python app.py
+```
+
+Records carry structured fields as attributes, and all of them together as `record.queryforge`:
+
+```json
+{"level":"ERROR","msg":"engine request failed","library":"queryforge","language":"python",
+ "operation":"translate","request_id":"8f3a1c2d4e5f","backend":"mysql","entity":"Order",
+ "duration_ms":1842,"outcome":"error","error_code":"MODEL_TRANSPORT",
+ "error_type":"ModelTransportError"}
+```
+
+Levels mean the same thing here as in the engine and the Java SDK. `DEBUG` is detail while
+tracing; `INFO` is an operation completing — **including a refusal**, which means the guard rails
+worked; `WARNING` is a step that failed while the operation continues; `ERROR` is the caller
+receiving an exception, and there is **exactly one per failed call**.
+
+Once you configure the logger, the SDK asks the engine subprocess for logs at the same level and
+passes a correlation id, so one `request_id` search returns both halves of a query. Supply your
+own trace id with `.request_id(...)`:
+
+```python
+qf.query("delivered orders").request_id(trace_id).to_sql()
+```
+
+**The question text, the scope values and the config contents are never logged**, at any level.
+Only shape is: the entity, the backend, the scope *keys*. Engine stderr quoted into an exception is
+scrubbed of credentials and bounded first. See
+[docs/OBSERVABILITY.md](https://github.com/awsaman-ai/queryforge/blob/main/docs/OBSERVABILITY.md)
+for the full field schema.
+
 ---
 
 ## Configuration
@@ -192,13 +249,14 @@ qf.query(text).timeout(10).max_repairs(0).include_raw().scope_in_ast()
 | Variable | Effect |
 |---|---|
 | `QUERYFORGE_BINARY` | Run this executable instead of the bundled one. Reported, never silently ignored, if it does not work. |
+| `QUERYFORGE_LOG_LEVEL` | `off` \| `error` \| `warn` \| `info` \| `debug`. Turns on SDK and engine diagnostics without a code change. Unset means off. |
 | whatever your config's `apiKeyEnv` names | The model API key. Never put the key in the config file. |
 
 Check an installation without needing a config or a key:
 
 ```python
 import queryforge
-print(queryforge.engine_version())   # {'success': True, 'protocol': '1.0', ...}
+print(queryforge.engine_version())   # {'success': True, 'protocol': '1.1', ...}
 print(queryforge.binary_path())
 print(queryforge.platform_tag())     # 'darwin-arm64'
 ```

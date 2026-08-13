@@ -4,24 +4,48 @@ This is the whole of the SDK's communication layer: spawn the binary, write one
 JSON object to its stdin, read one JSON object from its stdout. There is no HTTP
 client, no socket, no daemon, and no retry loop — the engine is a local
 subprocess with the caller's own privileges.
+
+It is also the SDK's error boundary. Every failure below is detected, logged
+once at ERROR with the context needed to diagnose it, and raised — never
+swallowed, never converted into an empty result. See the module docstring of
+:mod:`queryforge.errors` for the exception hierarchy that carries them.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
+import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from ._binary import resolve_binary
 from .errors import ProtocolError, error_from_response
+from .logging import (
+    FIELD_BACKEND,
+    FIELD_DURATION_MS,
+    FIELD_ENTITY,
+    FIELD_ERROR_CODE,
+    FIELD_ERROR_TYPE,
+    FIELD_OPERATION,
+    FIELD_OUTCOME,
+    FIELD_REQUEST_ID,
+    FIELD_SCOPE_KEYS,
+    engine_level,
+    get_logger,
+    log,
+    new_request_id,
+    redact,
+    scope_keys,
+)
 
 #: Wire protocol this SDK was built against. Only the MAJOR component is
 #: enforced: the binary is free to add ops and optional response fields (a MINOR
 #: bump) because this SDK ignores what it does not recognise, but a MAJOR bump
 #: means an existing field changed meaning, and continuing would produce quietly
 #: wrong output rather than an error.
-PROTOCOL_VERSION = "1.0"
+PROTOCOL_VERSION = "1.1"
 
 #: Grace period, in seconds, added to the request's own timeout before the
 #: subprocess is killed. The engine enforces the real deadline internally and
@@ -30,24 +54,52 @@ PROTOCOL_VERSION = "1.0"
 #: hung badly enough not to honour its own deadline.
 _KILL_GRACE_SECONDS = 15.0
 
+_log = get_logger("transport")
+
 
 def _major(version: str) -> str:
     return version.split(".", 1)[0]
 
 
-def run_request(request: dict[str, Any], timeout_seconds: float | None = None) -> dict[str, Any]:
+def run_request(
+    request: dict[str, Any],
+    timeout_seconds: float | None = None,
+    request_id: str | None = None,
+) -> dict[str, Any]:
     """Send one request to the executable and return the decoded response.
 
     Raises :class:`~queryforge.errors.QueryForgeError` (or the appropriate
     subclass) when the engine reports a failure, and
     :class:`~queryforge.errors.ProtocolError` when the executable itself
-    misbehaves.
+    misbehaves. It never returns a partial or empty result for a failed call.
+
+    ``request_id`` correlates this call's SDK log lines with the engine's own.
+    One is generated when the caller does not supply theirs.
     """
+    rid = request_id or new_request_id()
+    op = str(request.get("op", ""))
+    context = _context(request, rid, op)
+
+    # Ask the engine for logs at the level this SDK is itself configured for,
+    # and only then. The field is omitted entirely when logging is off, which
+    # keeps the request byte-identical to a protocol-1.0 one — an engine built
+    # before this field existed rejects unknown fields outright, so an SDK that
+    # always sent it would break anyone pointing QUERYFORGE_BINARY at an older
+    # build.
+    level = engine_level()
+    if level is not None:
+        options = dict(request.get("options") or {})
+        options.setdefault("logLevel", level)
+        options.setdefault("requestId", rid)
+        request = {**request, "options": options}
+
     binary = resolve_binary()
     payload = json.dumps(request, separators=(",", ":"), default=_json_default)
 
     kill_after = None if timeout_seconds is None else timeout_seconds + _KILL_GRACE_SECONDS
+    log(_log, logging.DEBUG, "sending request to the engine", **context)
 
+    started = time.monotonic()
     try:
         completed = subprocess.run(
             [str(binary)],
@@ -61,18 +113,97 @@ def run_request(request: dict[str, Any], timeout_seconds: float | None = None) -
             shell=False,
         )
     except subprocess.TimeoutExpired as exc:
-        raise ProtocolError(
+        message = (
             f"The QueryForge executable did not respond within {kill_after:.0f}s and was killed. "
-            f"This is a bug in the engine — its own deadline should have produced a TIMEOUT error first.",
-            code="PROTOCOL_ERROR",
-        ) from exc
+            f"This is a bug in the engine — its own deadline should have produced a TIMEOUT error first."
+        )
+        raise _fail(ProtocolError(message, code="PROTOCOL_ERROR"), context, started) from exc
     except OSError as exc:
-        raise ProtocolError(
-            f"Could not run the QueryForge executable at {binary}: {exc}",
-            code="PROTOCOL_ERROR",
-        ) from exc
+        message = f"Could not run the QueryForge executable at {binary}: {exc}"
+        raise _fail(ProtocolError(message, code="PROTOCOL_ERROR"), context, started) from exc
 
-    return _decode(completed, binary)
+    try:
+        response = _decode(completed, binary)
+    except Exception as exc:  # noqa: BLE001 - re-raised immediately; see _fail
+        # Deliberately broad, and deliberately NOT a swallow: every path through
+        # here re-raises. The catch exists so that the one ERROR line for this
+        # call is written at the boundary regardless of which of the several
+        # failure kinds _decode found, rather than being duplicated inside each
+        # of them. `raise` preserves the original traceback and the __cause__
+        # chain untouched.
+        _fail(exc, context, started)
+        raise
+
+    _succeeded(context, started, response)
+    return response
+
+
+def _context(request: Mapping[str, Any], rid: str, op: str) -> dict[str, Any]:
+    """Build the log fields for one call.
+
+    Note what goes in and what does not. The op, the backend and the SCOPE KEYS
+    go in. The question text, the scope VALUES and the config do not — they are
+    respectively user data, tenant identifiers, and a customer's physical schema.
+    """
+    config = request.get("config")
+    return {
+        FIELD_OPERATION: op or None,
+        FIELD_REQUEST_ID: rid,
+        FIELD_BACKEND: request.get("backend") or None,
+        # The entity name is the config's SHAPE, not its content — enough to tell
+        # two configs apart in a log without reproducing a customer's schema.
+        FIELD_ENTITY: config.get("entity") if isinstance(config, Mapping) else None,
+        FIELD_SCOPE_KEYS: scope_keys(request.get("scope")) or None,
+    }
+
+
+def _fail(exc: BaseException, context: Mapping[str, Any], started: float) -> BaseException:
+    """Log the single ERROR line for a failed call and return the exception.
+
+    Returning it rather than raising lets a call site write
+    ``raise _fail(...) from exc``, which keeps the chaining visible at the point
+    it happens instead of hiding a raise inside a helper.
+
+    ``exc_info`` is on: the traceback belongs in the log exactly once, and this
+    boundary is the once.
+    """
+    log(
+        _log,
+        logging.ERROR,
+        "engine request failed",
+        exc_info=True,
+        **{
+            **context,
+            FIELD_OUTCOME: "error",
+            FIELD_DURATION_MS: _elapsed_ms(started),
+            FIELD_ERROR_TYPE: type(exc).__name__,
+            FIELD_ERROR_CODE: getattr(exc, "code", None) or None,
+        },
+    )
+    return exc
+
+
+def _succeeded(context: Mapping[str, Any], started: float, response: Mapping[str, Any]) -> None:
+    """Log the single INFO line for a successful call."""
+    log(
+        _log,
+        logging.INFO,
+        "engine request completed",
+        **{
+            **context,
+            FIELD_OUTCOME: "ok",
+            FIELD_DURATION_MS: _elapsed_ms(started),
+            # Repair count is worth surfacing: a translation that succeeded on
+            # the third attempt cost three model calls, and that is almost
+            # always a config gap the operator can close.
+            "repair_attempts": response.get("repairAttempts") or None,
+            "provider": response.get("providerUsed") or None,
+        },
+    )
+
+
+def _elapsed_ms(started: float) -> int:
+    return int((time.monotonic() - started) * 1000)
 
 
 def _decode(completed: subprocess.CompletedProcess[str], binary: Path) -> dict[str, Any]:
@@ -89,7 +220,12 @@ def _decode(completed: subprocess.CompletedProcess[str], binary: Path) -> dict[s
         # Empty stdout means the process died before it could answer — a crash, a
         # signal, a missing shared library. stderr is the only evidence, so carry
         # it through rather than reporting a bare exit code.
-        stderr = (completed.stderr or "").strip()
+        #
+        # It is redacted first. stderr is the engine's, not ours: a crash can
+        # print anything, including a provider error quoting an Authorization
+        # header, and this message is on its way into an exception that will be
+        # logged.
+        stderr = redact((completed.stderr or "").strip())
         detail = f" It wrote to stderr: {stderr}" if stderr else ""
         raise ProtocolError(
             f"The QueryForge executable at {binary} exited with code "
@@ -100,11 +236,11 @@ def _decode(completed: subprocess.CompletedProcess[str], binary: Path) -> dict[s
     try:
         response = json.loads(raw)
     except json.JSONDecodeError as exc:
-        # Truncate before quoting: a corrupted stream can be arbitrarily long,
-        # and an exception message is going into someone's log.
-        excerpt = raw[:500] + ("…" if len(raw) > 500 else "")
+        # Truncate and scrub before quoting: a corrupted stream can be
+        # arbitrarily long and can contain anything, and an exception message is
+        # going into someone's log.
         raise ProtocolError(
-            f"The QueryForge executable produced output that is not JSON: {excerpt!r}",
+            f"The QueryForge executable produced output that is not JSON: {redact(raw)!r}",
             code="PROTOCOL_ERROR",
         ) from exc
 

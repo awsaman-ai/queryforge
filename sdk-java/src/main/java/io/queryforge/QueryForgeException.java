@@ -31,19 +31,30 @@ public class QueryForgeException extends RuntimeException {
     private final List<Detail> details;
 
     QueryForgeException(String message, String code, List<Detail> details) {
-        super(message);
-        this.code = code == null ? "" : code;
-        this.details = details == null ? Collections.emptyList() : Collections.unmodifiableList(details);
+        this(message, code, details, null);
     }
 
     QueryForgeException(String message, String code) {
-        this(message, code, Collections.emptyList());
+        this(message, code, Collections.emptyList(), null);
     }
 
     QueryForgeException(String message, String code, Throwable cause) {
+        this(message, code, Collections.emptyList(), cause);
+    }
+
+    /**
+     * The canonical constructor. Every other one delegates here.
+     *
+     * <p>It takes a cause as well as details because losing the cause is the specific defect this
+     * signature was added to fix: {@code readConfig} used to catch an {@code IOException} and throw
+     * an {@link InvalidConfigException} carrying only the message, so "permission denied" survived
+     * as text while the stack trace that said <em>where</em> did not. A wrapped exception with no
+     * cause turns a five-second diagnosis into a bisect.
+     */
+    QueryForgeException(String message, String code, List<Detail> details, Throwable cause) {
         super(message, cause);
         this.code = code == null ? "" : code;
-        this.details = Collections.emptyList();
+        this.details = details == null ? Collections.emptyList() : Collections.unmodifiableList(details);
     }
 
     /** The stable protocol classification, e.g. {@code VALIDATION_FAILED}. Never null. */

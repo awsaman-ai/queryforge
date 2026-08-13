@@ -22,6 +22,27 @@ The two halves of the API:
 ``generate(ast)`` / ``validate(ast)``
     Deterministic. No model call, no network, no API key. Use these to re-compile
     a stored AST for a second backend, and in tests.
+
+Logging and error handling
+--------------------------
+
+QueryForge never fails silently. Every failure raises — a subclass of
+:class:`~queryforge.errors.QueryForgeError` carrying a stable ``code`` and, for
+a validation failure, structured ``details`` — and no failure ever returns an
+empty or partial result that could be mistaken for success.
+
+Diagnostics go through the standard :mod:`logging` module under the
+``queryforge`` namespace and are silent until you configure them::
+
+    import logging
+    logging.getLogger("queryforge").setLevel(logging.INFO)
+
+    # or, for JSON matching the engine's own field names:
+    import queryforge
+    queryforge.logging.configure("info")
+
+The question text, the scope VALUES and the config contents are never logged.
+See :mod:`queryforge.logging` for the field schema and the level semantics.
 """
 
 from __future__ import annotations
@@ -30,6 +51,7 @@ import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence, Union
 
+from . import logging as logging  # noqa: F401 - re-exported; see LOGGING below
 from ._binary import BINARY_ENV_VAR, find_binary, platform_tag
 from ._result import Result, ScopeFilter
 from ._transport import PROTOCOL_VERSION, run_request
@@ -74,6 +96,7 @@ __all__ = [
     "engine_version",
     "binary_path",
     "platform_tag",
+    "logging",
     "PROTOCOL_VERSION",
     "BINARY_ENV_VAR",
     "__version__",
@@ -166,7 +189,7 @@ class PendingQuery:
         prose = base.explain()      # same cached answer, no second model call
     """
 
-    __slots__ = ("_forge", "_text", "_scope", "_options", "_result")
+    __slots__ = ("_forge", "_text", "_scope", "_options", "_request_id", "_result")
 
     def __init__(
         self,
@@ -174,11 +197,13 @@ class PendingQuery:
         text: str,
         scope: Mapping[str, ScopeValue] | None,
         options: dict[str, Any],
+        request_id: str | None = None,
     ) -> None:
         self._forge = forge
         self._text = text
         self._scope = dict(scope) if scope else None
         self._options = dict(options)
+        self._request_id = request_id
         self._result: Result | None = None
 
     # --- builders -----------------------------------------------------------
@@ -190,7 +215,26 @@ class PendingQuery:
             text=changes.get("text", self._text),
             scope=changes.get("scope", self._scope),
             options=changes.get("options", self._options),
+            request_id=changes.get("request_id", self._request_id),
         )
+
+    def request_id(self, value: str) -> "PendingQuery":
+        """Correlate this query's log lines with your own request.
+
+        The id is stamped on every log record the SDK writes for this call and
+        is handed to the engine, which stamps it on its records too — so one
+        ``request_id=…`` search returns both halves of a query. Pass the trace
+        id your web framework already has.
+
+        Without this, the SDK generates a fresh id per call, which still
+        correlates the SDK and engine lines but cannot be tied to anything
+        upstream.
+        """
+        if not isinstance(value, str) or not value.strip():
+            raise InvalidRequestError(
+                "request_id must be a non-empty string", code="INVALID_REQUEST"
+            )
+        return self._derive(request_id=value.strip())
 
     def scope(self, scope: Mapping[str, ScopeValue]) -> "PendingQuery":
         """Add filters the application imposes regardless of what was asked.
@@ -255,7 +299,9 @@ class PendingQuery:
     def result(self) -> Result:
         """Compile the query and return everything the engine reported."""
         if self._result is None:
-            self._result = self._forge._translate(self._text, self._scope, self._options)
+            self._result = self._forge._translate(
+                self._text, self._scope, self._options, self._request_id
+            )
         return self._result
 
     def to_sql(self) -> str:
@@ -419,10 +465,13 @@ class QueryForge:
         text: str,
         scope: Mapping[str, ScopeValue] | None,
         options: dict[str, Any],
+        request_id: str | None = None,
     ) -> Result:
         payload = self._request("translate", options, scope)
         payload["query"] = text
-        return Result.from_json(run_request(payload, self._timeout_seconds(options)))
+        return Result.from_json(
+            run_request(payload, self._timeout_seconds(options), request_id)
+        )
 
     def _request(
         self,

@@ -32,14 +32,25 @@ public final class PendingQuery {
     private final String text;
     private final Map<String, Object> scope;
     private final Map<String, Object> options;
+    private final String requestId;
 
     private QueryForgeResult result; // memoized on the first terminal call
 
     PendingQuery(QueryForge forge, String text, Map<String, Object> scope, Map<String, Object> options) {
+        this(forge, text, scope, options, null);
+    }
+
+    PendingQuery(
+            QueryForge forge,
+            String text,
+            Map<String, Object> scope,
+            Map<String, Object> options,
+            String requestId) {
         this.forge = forge;
         this.text = text;
         this.scope = scope;
         this.options = options;
+        this.requestId = requestId;
     }
 
     // ------------------------------------------------------------- builders
@@ -59,7 +70,7 @@ public final class PendingQuery {
         }
         Map<String, Object> merged = new LinkedHashMap<>(scope);
         merged.putAll(extra);
-        return new PendingQuery(forge, text, Collections.unmodifiableMap(merged), options);
+        return new PendingQuery(forge, text, Collections.unmodifiableMap(merged), options, requestId);
     }
 
     /** Adds a single scope filter. Convenience for the common one-tenant case. */
@@ -106,10 +117,28 @@ public final class PendingQuery {
         return withOption("scopeInAst", Boolean.TRUE);
     }
 
+    /**
+     * Correlates this query's log lines with your own request.
+     *
+     * <p>The id is stamped on every log record the SDK writes for this call and is handed to the
+     * engine, which stamps it on its records too — so one {@code request_id=…} search returns both
+     * halves of a query. Pass the trace id your framework already has.
+     *
+     * <p>Without this, the SDK generates a fresh id per call, which still correlates the SDK and
+     * engine lines but cannot be tied to anything upstream.
+     */
+    public PendingQuery requestId(String id) {
+        if (id == null || id.trim().isEmpty()) {
+            throw new InvalidRequestException(
+                    "requestId must be a non-empty string", "INVALID_REQUEST", Collections.emptyList());
+        }
+        return new PendingQuery(forge, text, scope, options, id.trim());
+    }
+
     private PendingQuery withOption(String key, Object value) {
         Map<String, Object> next = new LinkedHashMap<>(options);
         next.put(key, value);
-        return new PendingQuery(forge, text, scope, Collections.unmodifiableMap(next));
+        return new PendingQuery(forge, text, scope, Collections.unmodifiableMap(next), requestId);
     }
 
     // ------------------------------------------------------------ terminals
@@ -117,7 +146,7 @@ public final class PendingQuery {
     /** Compiles the query and returns everything the engine reported. */
     public QueryForgeResult result() {
         if (result == null) {
-            result = forge.translate(text, scope, options);
+            result = forge.translate(text, scope, options, requestId);
         }
         return result;
     }

@@ -15,6 +15,7 @@ The suite is split deliberately between two kinds of test:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -225,6 +226,84 @@ def _isolate_env(monkeypatch: pytest.MonkeyPatch):
     """Ensure a developer's own QUERYFORGE_BINARY does not leak into the suite."""
     monkeypatch.delenv("QUERYFORGE_BINARY", raising=False)
     yield
+
+
+@pytest.fixture(autouse=True)
+def _isolate_logger():
+    """Restore the ``queryforge`` logger's configuration after every test.
+
+    Logger state is process-global, and the SDK reads it to decide whether to
+    ask the engine for logs (see ``queryforge.logging.is_configured``). Without
+    this, a test that enables logging would silently change what every later
+    test sends on the wire — the classic order-dependent suite that passes alone
+    and fails together.
+    """
+    import logging as stdlib_logging
+
+    from queryforge import logging as qf_logging
+
+    logger = qf_logging.logger
+    level, propagate, handlers = logger.level, logger.propagate, list(logger.handlers)
+    yield
+    logger.setLevel(level)
+    logger.propagate = propagate
+    for handler in list(logger.handlers):
+        if handler not in handlers:
+            logger.removeHandler(handler)
+    for handler in handlers:
+        if handler not in logger.handlers:
+            logger.addHandler(handler)
+    assert logger.level == level or level == stdlib_logging.NOTSET
+
+
+class RecordingHandler(logging.Handler):
+    """Captures records with their structured fields intact.
+
+    ``caplog`` would work for the message and level, but the point of this whole
+    change is the FIELDS, and asserting on those means holding the record
+    objects rather than the rendered text. Asserting on rendered text is also
+    how logging tests become brittle enough that people delete them.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.records: list[logging.LogRecord] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append(record)
+
+    def fields(self) -> list[dict]:
+        """Return the ``queryforge`` payload of each record."""
+        return [getattr(r, "queryforge", {}) for r in self.records]
+
+    def text(self) -> str:
+        """Everything that was logged, rendered — for the privacy canaries,
+        which have to search the whole record and not one field."""
+        parts = []
+        for record in self.records:
+            parts.append(record.getMessage())
+            parts.append(repr(getattr(record, "queryforge", {})))
+            if record.exc_info:
+                parts.append(logging.Formatter().formatException(record.exc_info))
+        return "\n".join(parts)
+
+
+@pytest.fixture
+def captured_logs():
+    """Attach a recording handler to the QueryForge logger at DEBUG.
+
+    DEBUG deliberately: the privacy canaries have to prove that a secret does
+    not leak even at the most verbose setting the SDK offers.
+    """
+    from queryforge import logging as qf_logging
+
+    handler = RecordingHandler()
+    qf_logging.logger.addHandler(handler)
+    qf_logging.logger.setLevel(logging.DEBUG)
+    try:
+        yield handler
+    finally:
+        qf_logging.logger.removeHandler(handler)
 
 
 def pytest_configure(config):

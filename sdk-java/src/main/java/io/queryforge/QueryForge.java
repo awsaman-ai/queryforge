@@ -229,9 +229,15 @@ public final class QueryForge {
 
     /** Runs a translation. Called by {@link PendingQuery} on its first terminal call. */
     QueryForgeResult translate(String text, Map<String, Object> scope, Map<String, Object> options) {
+        return translate(text, scope, options, null);
+    }
+
+    /** As above, with the caller's correlation id. See {@link PendingQuery#requestId(String)}. */
+    QueryForgeResult translate(
+            String text, Map<String, Object> scope, Map<String, Object> options, String requestId) {
         Map<String, Object> request = baseRequest("translate", scope, options);
         request.put("query", text);
-        return QueryForgeResult.fromJson(Transport.run(request, timeoutOf(options)));
+        return QueryForgeResult.fromJson(Transport.run(request, timeoutOf(options), requestId));
     }
 
     private Map<String, Object> baseRequest(
@@ -265,10 +271,13 @@ public final class QueryForge {
         try {
             text = new String(Files.readAllBytes(path), StandardCharsets.UTF_8);
         } catch (IOException e) {
+            // The cause is chained, not dropped. "Could not read the config" on its own does not
+            // say whether the path was wrong, the permissions were wrong, or the disk was full,
+            // and those have three different fixes.
             throw new InvalidConfigException(
                     "Could not read the config file '" + path + "': " + e.getMessage(),
                     "INVALID_CONFIG",
-                    Collections.emptyList());
+                    e);
         }
         try {
             return Json.readObject(text);
@@ -276,7 +285,7 @@ public final class QueryForge {
             throw new InvalidConfigException(
                     "The config file '" + path + "' is not valid JSON: " + e.getMessage(),
                     "INVALID_CONFIG",
-                    Collections.emptyList());
+                    e);
         }
     }
 
@@ -296,9 +305,7 @@ public final class QueryForge {
             return Json.readObject(json);
         } catch (Json.JsonException e) {
             throw new InvalidConfigException(
-                    "The config string is not valid JSON: " + e.getMessage(),
-                    "INVALID_CONFIG",
-                    Collections.emptyList());
+                    "The config string is not valid JSON: " + e.getMessage(), "INVALID_CONFIG", e);
         }
     }
 

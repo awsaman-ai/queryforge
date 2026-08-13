@@ -15,7 +15,7 @@ import (
 func exercise(t *testing.T, input string) (*Response, int, string) {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
-	code := run("", false, strings.NewReader(input), &stdout, &stderr)
+	code := run(cliOptions{}, strings.NewReader(input), &stdout, &stderr)
 
 	// The contract is one JSON object and nothing else. Decoding with a streaming
 	// decoder and then asserting the stream is exhausted checks both halves: that
@@ -109,7 +109,7 @@ func TestUnknownFieldIsRejected(t *testing.T) {
 // JSON object even on the paths that write to stderr.
 func TestNothingButJSONOnStdout(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	run("/nonexistent/request.json", false, strings.NewReader(""), &stdout, &stderr)
+	run(cliOptions{requestPath: "/nonexistent/request.json"}, strings.NewReader(""), &stdout, &stderr)
 	if stdout.Len() != 0 {
 		t.Errorf("a pre-protocol failure wrote to stdout: %q", stdout.String())
 	}
@@ -127,7 +127,7 @@ func TestRequestFromFile(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	if code := run(path, false, strings.NewReader(""), &stdout, &stderr); code != exitOK {
+	if code := run(cliOptions{requestPath: path}, strings.NewReader(""), &stdout, &stderr); code != exitOK {
 		t.Fatalf("exit = %d, stderr = %s", code, stderr.String())
 	}
 	var resp Response
@@ -143,7 +143,8 @@ func TestRequestFromFile(t *testing.T) {
 // the caller's invocation was wrong, and no response was produced at all.
 func TestMissingRequestFile(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	if code := run(filepath.Join(t.TempDir(), "absent.json"), false, strings.NewReader(""), &stdout, &stderr); code != exitProtocol {
+	opts := cliOptions{requestPath: filepath.Join(t.TempDir(), "absent.json")}
+	if code := run(opts, strings.NewReader(""), &stdout, &stderr); code != exitProtocol {
 		t.Errorf("exit = %d, want %d", code, exitProtocol)
 	}
 }
@@ -171,7 +172,7 @@ func TestOversizedRequestIsRefused(t *testing.T) {
 // wrapper script that sets it.
 func TestPrettyIsStillOneObject(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	run("", true, strings.NewReader(`{"op":"version"}`), &stdout, &stderr)
+	run(cliOptions{pretty: true}, strings.NewReader(`{"op":"version"}`), &stdout, &stderr)
 	if !strings.Contains(stdout.String(), "\n  ") {
 		t.Error("--pretty produced no indentation")
 	}
@@ -186,7 +187,7 @@ func TestPrettyIsStillOneObject(t *testing.T) {
 // line must not block forever, so pin the behaviour.
 func TestResponseIsNewlineTerminated(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	run("", false, strings.NewReader(`{"op":"version"}`), &stdout, &stderr)
+	run(cliOptions{}, strings.NewReader(`{"op":"version"}`), &stdout, &stderr)
 	if !strings.HasSuffix(stdout.String(), "\n") {
 		t.Errorf("response is not newline-terminated: %q", stdout.String())
 	}

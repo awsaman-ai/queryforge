@@ -12,4 +12,13 @@ public class InvalidConfigException extends QueryForgeException {
     InvalidConfigException(String message, String code, List<Detail> details) {
         super(message, code, details);
     }
+
+    /**
+     * Preserves the underlying failure — an {@code IOException} from reading the file, or the JSON
+     * parser's own complaint. Without it, "could not read the config" arrives with no indication of
+     * whether the path was wrong, the permissions were wrong, or the disk was full.
+     */
+    InvalidConfigException(String message, String code, Throwable cause) {
+        super(message, code, java.util.Collections.emptyList(), cause);
+    }
 }

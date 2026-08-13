@@ -176,6 +176,80 @@ try {
 `QueryForgeException.getCode()` is available on all of them, so an error class introduced by a
 newer engine still reaches you as the base class with its code intact.
 
+QueryForge **never fails silently**. There is no path that returns an empty query, a partial
+result or `null` in place of a failure, and every wrapped exception keeps the original reachable:
+
+```java
+catch (InvalidConfigException e) {
+    e.getCause();   // the IOException or JSON parse failure underneath
+}
+```
+
+---
+
+## Logging
+
+The SDK logs through `java.util.logging` under one name, `io.queryforge`. It installs no handler,
+never touches the root logger and never reads a logging config file. Its own logger defaults to
+`WARNING`, so nothing appears on your console uninvited.
+
+```java
+// everything the SDK emits
+Logger.getLogger(QueryForgeLogging.LOGGER_NAME).setLevel(Level.FINE);
+
+// or, for JSON matching the engine's own field names:
+Handler h = QueryForgeLogging.configure(Level.INFO);
+
+// or, without a code change:
+//   -Dqueryforge.logLevel=debug     QUERYFORGE_LOG_LEVEL=debug
+```
+
+### Why JUL and not SLF4J
+
+This SDK has **no runtime dependencies** — a thin wrapper that drags in a logging facade forces
+that facade's version on every application using it. JUL is in the JDK, so it costs nothing; it is
+the same choice the JDK's own `HttpClient` makes. Bridge it to your pipeline in one line:
+
+```java
+// SLF4J / Logback — add org.slf4j:jul-to-slf4j
+SLF4JBridgeHandler.removeHandlersForRootLogger();
+SLF4JBridgeHandler.install();
+
+// Log4j 2
+-Djava.util.logging.manager=org.apache.logging.log4j.jul.LogManager
+```
+
+The structured fields survive the bridge. They are attached to each `LogRecord` as its parameters,
+so a handler reads a `Map` rather than parsing a sentence:
+
+```java
+Map<String, Object> fields = QueryForgeLogging.fieldsOf(record);
+fields.get("error_code");    // "MODEL_TRANSPORT"
+fields.get("duration_ms");   // 1842
+```
+
+### Levels
+
+`FINE` is detail while tracing. `INFO` is an operation completing — **including a refusal**, which
+means the guard rails worked. `WARNING` is a step that failed while the operation continues.
+`SEVERE` is the caller receiving an exception, and there is **exactly one per failed call**.
+
+### Correlation
+
+Once you configure the logger, the SDK asks the engine subprocess for logs at the same level and
+passes a correlation id, so one `request_id` search returns both halves of a query. Supply your
+own trace id:
+
+```java
+forge.query("delivered orders").requestId(traceId).toSql();
+```
+
+**The question text, the scope values and the config contents are never logged**, at any level.
+Only shape is: the entity, the backend, the scope *keys*. Engine stderr quoted into an exception is
+scrubbed of credentials and bounded first. See
+[docs/OBSERVABILITY.md](https://github.com/awsaman-ai/queryforge/blob/main/docs/OBSERVABILITY.md)
+for the full field schema.
+
 ---
 
 ## Configuration
@@ -261,6 +335,7 @@ use and reused afterwards, so different engine versions on one machine never ove
 |---|---|
 | `-Dqueryforge.binary=/path` or `QUERYFORGE_BINARY` | Run this executable instead of the bundled one. Reported, never silently ignored, if it does not work. |
 | `-Dqueryforge.cacheDir=/path` or `QUERYFORGE_CACHE_DIR` | Where to extract the binary. Useful when the temp directory is mounted `noexec`. |
+| `-Dqueryforge.logLevel=info` or `QUERYFORGE_LOG_LEVEL` | `off` \| `error` \| `warn` \| `info` \| `debug`. Turns on SDK and engine diagnostics without a code change. Unset means off. |
 | whatever your config's `apiKeyEnv` names | The model API key. Never put the key in the config file. |
 
 The system property wins over the environment variable, so a JVM launch flag can override an
@@ -269,7 +344,7 @@ environment inherited from a container image.
 Check an installation without needing a config or a key:
 
 ```java
-System.out.println(QueryForge.engineVersion());   // {success=true, protocol=1.0, ...}
+System.out.println(QueryForge.engineVersion());   // {success=true, protocol=1.1, ...}
 System.out.println(QueryForge.binaryPath());
 System.out.println(QueryForge.platformTag());     // darwin-arm64
 ```

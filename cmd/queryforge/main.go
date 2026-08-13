@@ -59,6 +59,9 @@ func main() {
 	requestPath := flag.String("request", "", "read the JSON request from this file instead of stdin")
 	showVersion := flag.Bool("version", false, "print the binary version and exit")
 	pretty := flag.Bool("pretty", false, "indent the JSON response (for humans; SDKs do not set this)")
+	logLevel := flag.String("log-level", "",
+		"structured JSON diagnostics on stderr: off | error | warn | info | debug (default off; "+
+			"also settable with "+logLevelEnvVar+" or the request's options.logLevel)")
 	flag.Parse()
 
 	// --version is the one human affordance. It prints a bare version string
@@ -69,16 +72,43 @@ func main() {
 		os.Exit(exitOK)
 	}
 
-	os.Exit(run(*requestPath, *pretty, os.Stdin, os.Stdout, os.Stderr))
+	os.Exit(run(cliOptions{
+		requestPath: *requestPath,
+		pretty:      *pretty,
+		logLevel:    *logLevel,
+		env:         os.Getenv,
+	}, os.Stdin, os.Stdout, os.Stderr))
+}
+
+// cliOptions is everything the command line and the environment contribute to
+// one invocation. It is a struct rather than five positional parameters so a
+// later addition does not silently reorder an existing call — the sort of change
+// that compiles cleanly and swaps two booleans.
+type cliOptions struct {
+	requestPath string              // --request; empty means stdin
+	pretty      bool                // --pretty
+	logLevel    string              // --log-level; empty defers to the env and the request
+	env         func(string) string // environment lookup, injected so tests need no os.Setenv
+}
+
+// lookupEnv reads an environment variable through the injected accessor. Tests
+// supply their own, which keeps them free of os.Setenv and therefore safe to run
+// in parallel — a shared process environment is the classic source of a suite
+// that passes alone and fails together.
+func (o cliOptions) lookupEnv(name string) string {
+	if o.env == nil {
+		return ""
+	}
+	return o.env(name)
 }
 
 // run is main's body with its dependencies passed in, so the whole process
-// contract — parse, dispatch, encode, choose an exit code — is testable without
-// spawning anything.
-func run(requestPath string, pretty bool, stdin io.Reader, stdout, stderr io.Writer) int {
+// contract — parse, dispatch, log, encode, choose an exit code — is testable
+// without spawning anything.
+func run(opts cliOptions, stdin io.Reader, stdout, stderr io.Writer) int {
 	src := stdin
-	if requestPath != "" {
-		f, err := os.Open(requestPath)
+	if opts.requestPath != "" {
+		f, err := os.Open(opts.requestPath)
 		if err != nil {
 			fmt.Fprintf(stderr, "queryforge: cannot read request file: %v\n", err) //nolint:errcheck // a diagnostic; if stderr is gone there is nowhere left to report that
 			return exitProtocol
@@ -93,13 +123,36 @@ func run(requestPath string, pretty bool, stdin io.Reader, stdout, stderr io.Wri
 		return exitProtocol
 	}
 	if len(data) > maxRequestBytes {
-		return write(stdout, stderr, pretty, errorResponse("", CodeInvalidRequest,
+		return write(stdout, stderr, opts.pretty, errorResponse("", CodeInvalidRequest,
 			fmt.Sprintf("request exceeds the %d byte limit", maxRequestBytes)))
 	}
 
 	req, resp := decodeRequest(data)
 	if resp != nil {
-		return write(stdout, stderr, pretty, resp)
+		return write(stdout, stderr, opts.pretty, resp)
+	}
+
+	// The logger is built only now, because one of its three inputs — the
+	// request's options.logLevel — does not exist until the request has been
+	// decoded. Everything above this point is a pre-protocol failure that
+	// reports itself on stderr directly and has nothing structured to say.
+	//
+	// A bad level is a caller error and fails fast with a normal error response
+	// rather than a silent default. See parseLogLevel for why neither plausible
+	// default is acceptable.
+	level, err := resolveLogLevel(opts.logLevel, opts.lookupEnv(logLevelEnvVar), req.Options.LogLevel)
+	if err != nil {
+		return write(stdout, stderr, opts.pretty, errorResponse(req.Op, CodeInvalidRequest, err.Error()))
+	}
+
+	logger := discardLogger()
+	if level != levelOff {
+		// stderr, never stdout. stdout carries exactly one JSON object and an
+		// SDK parses the whole stream; see the header comment in logging.go.
+		logger = newLogger(stderr, level, Version)
+	}
+	if id := sanitizeRequestID(req.Options.RequestID); id != "" {
+		logger = logger.With(logKeyRequestID, id)
 	}
 
 	// The deadline covers the whole operation, model call included, and is the
@@ -112,7 +165,7 @@ func run(requestPath string, pretty bool, stdin io.Reader, stdout, stderr io.Wri
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	return write(stdout, stderr, pretty, handle(ctx, req))
+	return write(stdout, stderr, opts.pretty, handle(ctx, logger, req))
 }
 
 // decodeRequest parses the request body, returning either a request or the error

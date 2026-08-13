@@ -350,6 +350,44 @@ The same engine ships as a native library for Python and Java. Each SDK spawns t
 
 Both offer the full pipeline (`query`, one model call) and the deterministic half (`generate` / `validate` — no model call, no API key, testable offline). Writing an SDK for another language? The wire format is specified in [cmd/queryforge/PROTOCOL.md](cmd/queryforge/PROTOCOL.md).
 
+## Logging and error handling
+
+QueryForge **never fails silently**. If it cannot correctly complete an operation, it does not
+pretend that it did: there is no path that returns an empty query, a partial result, or a nil in
+place of a failure. Every failure carries a stable machine-readable code, keeps the original cause
+reachable, and reaches the caller.
+
+**The library itself does not log.** A library that logs on its own initiative picks a destination,
+a format and a severity its host did not choose. Instead it reports facts through one optional
+`Observer` callback — and ships the adapter almost everyone was going to write by hand:
+
+```go
+logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+engine := qf.New(cfg)
+engine.SetObserver(qf.SlogObserver(logger))
+```
+
+```json
+{"time":"2026-08-13T01:30:00.412Z","level":"ERROR","msg":"query generation failed",
+ "library":"queryforge","language":"go","component":"engine","operation":"translate",
+ "backend":"mysql","entity":"Order","duration_ms":1842,"outcome":"transport_error",
+ "error_code":"MODEL_TRANSPORT","error_type":"*fmt.wrapError"}
+```
+
+The engine binary and both SDKs emit **the same field names, the same severities and the same error
+codes**, so one saved search works across all four surfaces. Turn any of them on with
+`QUERYFORGE_LOG_LEVEL`.
+
+Two severity choices are deliberate: a **refusal is `INFO`**, because the model declining to invent
+a query for something the config cannot express is the guard rail working; and a failed operation
+produces **exactly one `ERROR`**, at the boundary, rather than the same stack trace at every layer.
+
+**The question text, the scope values and the config contents are never logged**, at any level —
+pinned by canary tests in all three languages. Only shape is: the entity, the backend, the scope
+*keys*.
+
+Full field schema, error-code table and level semantics: **[docs/OBSERVABILITY.md](docs/OBSERVABILITY.md)**.
+
 ## Testing
 
 The deterministic half is fully tested with **no API key and no network**:
@@ -375,6 +413,8 @@ What tests *cannot* cover is **comprehension** — whether the model reads a rea
 | `provider.go` | `ModelProvider` interface + OpenAI-compatible default + test stub | Yes |
 | `planner.go` | Build prompt from config, parse model output → AST | Yes |
 | `observe.go` | `Observer` seam: facts out, no logging | — |
+| `slog.go` | Opt-in adapter: `Observer` events → structured `log/slog` records | — |
+| `failure.go` | `Classify`: any error → one stable `FailureCode`, shared by all four surfaces | — |
 | `queryforge.go` | `Engine`: `New`, `Translate`, `GenerateFrom`, `Validate`, `Register` | — |
 
 The planner is the only place a model runs. Validate → generate → explain is pure Go — the guarantees live there.

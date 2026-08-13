@@ -18,7 +18,17 @@ import (
 // Bump MINOR for additive changes (a new op, a new optional response field) —
 // old SDKs keep working because they ignore what they do not know. Bump MAJOR
 // only when an existing field changes meaning or disappears.
-const ProtocolVersion = "1.0"
+//
+// 1.1 added the two optional observability fields on Options: `logLevel` and
+// `requestId`. Note the asymmetry a MINOR bump has here, and why the SDKs are
+// careful about it: a NEW binary reading an OLD request is fine (the fields are
+// optional), but an OLD binary reading a NEW request is NOT — requests are
+// decoded with DisallowUnknownFields, so an unknown `logLevel` is rejected
+// outright. That is the correct behaviour for a field-drop hazard, and it is
+// why the SDKs send neither field unless the host has explicitly turned engine
+// logging on: the default request is byte-identical to the 1.0 one and works
+// against any binary.
+const ProtocolVersion = "1.1"
 
 // Op is the requested operation. Keeping this a closed set — rather than, say,
 // deriving a method name from the request — means an unknown op is a clean
@@ -85,6 +95,29 @@ type Options struct {
 	// the reply is derived from the user's question, and a response object tends
 	// to end up in a log.
 	IncludeRaw bool `json:"includeRaw,omitempty"`
+
+	// LogLevel turns on the engine's structured stderr logging for this request:
+	// one of off | error | warn | info | debug. Empty means "leave it to the
+	// process", which defaults to off.
+	//
+	// It is per-request rather than a process flag because the SDKs never see a
+	// command line — they spawn the binary — so without it a Java or Python
+	// application could not enable engine diagnostics from code at all. An
+	// unrecognised value is REJECTED rather than defaulted: silently reading
+	// "DEBUB" as info would leave someone staring at a quiet log convinced the
+	// engine was broken, and silently reading it as debug would start writing
+	// model output nobody asked for.
+	LogLevel string `json:"logLevel,omitempty"`
+
+	// RequestID is the caller's correlation id, stamped onto every log record
+	// this invocation writes. The SDKs generate one per call and log it on their
+	// own lines too, which is what lets a single `request_id=…` search return
+	// the Python side and the engine side of one query.
+	//
+	// It is treated as an opaque label and is sanitized before use — see
+	// sanitizeRequestID — because it is caller-controlled text heading straight
+	// for a log file.
+	RequestID string `json:"requestId,omitempty"`
 }
 
 // Response is the single JSON object written to stdout. Exactly one of the two

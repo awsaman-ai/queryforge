@@ -3,7 +3,14 @@
 This is the contract between the QueryForge engine and every language SDK. Read it if you are
 writing a new SDK, debugging one, or driving the engine directly from a language that has none.
 
-**Protocol version: 1.0**
+**Protocol version: 1.1**
+
+> **1.1** added the two optional observability fields on `options`: `logLevel` and `requestId`.
+> Note the asymmetry a MINOR bump has here. A *new* engine reading an *old* request is fine — the
+> fields are optional. An *old* engine reading a *new* request is **not**: requests are decoded
+> with unknown fields rejected, so an unknown `logLevel` is refused outright. That is the correct
+> behaviour for a field-drop hazard, and it is why both SDKs send neither field unless the host has
+> explicitly turned logging on — the default request stays byte-identical to a 1.0 one.
 
 ---
 
@@ -69,6 +76,32 @@ structured error away.
 | `maxRepairs` | int | 2 | Validation-repair retries. `0` means one attempt, no repairs |
 | `scopeInAst` | bool | false | Report the effective AST rather than the model's own |
 | `includeRaw` | bool | false | Include the model's verbatim reply on `raw` |
+| `logLevel` | string | *(process default: off)* | `off` \| `error` \| `warn` \| `info` \| `debug`. Structured JSON diagnostics on **stderr**. An unrecognised value is rejected with `INVALID_REQUEST` rather than defaulted — see below |
+| `requestId` | string | *(generated)* | Correlation id, stamped on every log record this invocation writes. Sanitized before use: anything outside `[A-Za-z0-9._:/-]` is dropped and the length is bounded, because it is caller-controlled text heading into a log sink |
+
+#### Logging
+
+Diagnostics are line-delimited JSON on **stderr**, never stdout — stdout carries exactly one JSON
+object and that is the whole contract you are parsing against. Logging is **off by default**, so an
+SDK that sets nothing sees the byte-for-byte behaviour it always did.
+
+Three channels can set the level, in this precedence:
+
+```
+--log-level flag  >  QUERYFORGE_LOG_LEVEL  >  options.logLevel  >  off
+```
+
+The environment outranks the request option deliberately: it is the channel an operator can change
+on a running container without shipping code, which is what makes "set `QUERYFORGE_LOG_LEVEL=debug`
+and reproduce it" a workable instruction.
+
+An unrecognised level is an error, not a default. Falling back to `off` would hide diagnostics from
+someone who explicitly asked for them; falling back to `debug` would start writing model output a
+typo did not authorise. The error is a normal `INVALID_REQUEST` response on stdout, so the protocol
+promise still holds.
+
+Field names, severity semantics and the privacy contract are documented in
+[../../docs/OBSERVABILITY.md](../../docs/OBSERVABILITY.md).
 
 ### Unknown fields are rejected
 
@@ -195,6 +228,8 @@ The full checklist:
 6. **Check the protocol major version.**
 7. **Branch on `success`**, and map `code` onto a native exception with an unknown-code fallback.
 8. **Ignore unknown response fields**, so a newer engine does not break you.
+9. **Send `logLevel` and `requestId` only when the host has configured logging.** Always sending
+   them breaks every caller pointing at a pre-1.1 engine, for a field they never asked for.
 
 The Python (`sdk-python/`) and Java (`sdk-java/`) implementations are both small and are the
 reference for all of the above.

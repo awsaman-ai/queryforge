@@ -76,7 +76,7 @@ func dispatch(t *testing.T, req *Request) *Response {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return handle(ctx, req)
+	return handle(ctx, discardLogger(), req)
 }
 
 // wantError asserts a failed response carrying a specific code.
@@ -463,7 +463,7 @@ func TestTranslateTimeout(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
-	resp := handle(ctx, request(t, OpTranslate, func(r *Request) { r.Query = "delivered orders" }))
+	resp := handle(ctx, discardLogger(), request(t, OpTranslate, func(r *Request) { r.Query = "delivered orders" }))
 	wantError(t, resp, CodeTimeout)
 }
 

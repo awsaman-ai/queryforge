@@ -14,6 +14,7 @@ shows up as ``Exec format error`` from the OS, which tells the user nothing.
 
 from __future__ import annotations
 
+import logging
 import os
 import platform
 import stat
@@ -21,6 +22,9 @@ import sys
 from pathlib import Path
 
 from .errors import BinaryNotFoundError
+from .logging import FIELD_OPERATION, get_logger, log
+
+_log = get_logger("binary")
 
 #: Environment variable that overrides the search entirely. It exists for three
 #: real cases: developing against a locally built binary, running in an
@@ -172,12 +176,36 @@ def resolve_binary() -> Path:
     filesystem probing would otherwise be repeated on every single query. The
     cache is skipped whenever the override variable is set, so a test or a
     notebook can repoint it between calls without a stale hit.
+
+    Resolution is logged once, at DEBUG, on the miss. "Which binary is it
+    actually running?" is the first question in almost every installation
+    problem — a stale ``QUERYFORGE_BINARY``, a wheel built for another platform,
+    a hardened container where ``site-packages`` is mounted ``noexec`` — and
+    without this the answer requires ``strace``.
     """
     global _cached
     if os.environ.get(BINARY_ENV_VAR):
-        return find_binary()
+        path = find_binary()
+        log(
+            _log,
+            logging.DEBUG,
+            "resolved the engine binary from the environment override",
+            **{FIELD_OPERATION: "resolve_binary", "binary": str(path), "source": BINARY_ENV_VAR},
+        )
+        return path
     if _cached is None:
         _cached = find_binary()
+        log(
+            _log,
+            logging.DEBUG,
+            "resolved the bundled engine binary",
+            **{
+                FIELD_OPERATION: "resolve_binary",
+                "binary": str(_cached),
+                "source": "bundled",
+                "platform_tag": platform_tag(),
+            },
+        )
     return _cached
 
 
