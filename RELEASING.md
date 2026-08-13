@@ -83,16 +83,27 @@ Central takes 10–30 minutes to index. The deployment appears in the Central Po
 
 ## What to bump before tagging
 
-The workflow rewrites `sdk-python/pyproject.toml`, `sdk-python/queryforge/__init__.py` and
-`sdk-java/pom.xml` from the tag at build time, so those are not the source of truth. The
-**documentation is** — nothing rewrites it, and a stale version in a copy-pasteable dependency
-block is a broken install for whoever copies it.
+The workflow rewrites `sdk-python/pyproject.toml`, `sdk-python/queryforge/__init__.py`,
+`sdk-java/pom.xml` and `QueryForgeLogging.SDK_VERSION` from the tag at build time, so those are
+not the source of truth. The **documentation is** — nothing rewrites it, and a stale version in a
+copy-pasteable dependency block is a broken install for whoever copies it.
 
-Check with:
+The Maven and Gradle blocks in `README.md`, `sdk-java/README.md` and `docs/index.html` quote a
+`queryforge.version` property set to `LATEST` rather than a literal, so they do not go stale; the
+version badge above them is served live by shields.io from Maven Central. Check anything new with:
 
 ```bash
 grep -rn "<version>" README.md sdk-java/README.md docs/index.html
 ```
 
-Files that quote a version: `README.md`, `sdk-java/README.md`, `docs/index.html`, and the
-in-repo defaults in `sdk-python/pyproject.toml` and `sdk-java/pom.xml`.
+Keep the in-repo defaults in step anyway, so a developer building from a checkout gets a jar and a
+wheel that agree with the tree they came from:
+
+```bash
+scripts/set-java-sdk-version.sh X.Y.Z                     # the constant every Java log line carries
+cd sdk-java && mvn -q versions:set -DnewVersion=X.Y.Z -DgenerateBackupPoms=false
+```
+
+plus `version` in `sdk-python/pyproject.toml` and `__version__` in
+`sdk-python/queryforge/__init__.py`. The Java pom and the logging constant are held together by
+`theSdkVersionMatchesThePom` — bump one without the other and the test fails.

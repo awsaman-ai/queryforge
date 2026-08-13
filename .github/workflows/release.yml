@@ -186,7 +186,12 @@ jobs:
 
       - name: Set the Java SDK version
         working-directory: sdk-java
-        run: mvn -B -q versions:set -DnewVersion="${{ steps.version.outputs.version }}" -DgenerateBackupPoms=false
+        # Two places carry the version: the pom, and the constant every log record reports it
+        # from. They are held together by a test, so rewriting only the pom turns the release
+        # red — and rewriting only the constant would make every log line lie about its build.
+        run: |
+          mvn -B -q versions:set -DnewVersion="${{ steps.version.outputs.version }}" -DgenerateBackupPoms=false
+          ../scripts/set-java-sdk-version.sh "${{ steps.version.outputs.version }}"
 
       - name: Test and package the Java SDK
         working-directory: sdk-java
@@ -309,6 +314,7 @@ jobs:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
         run: |
           mvn -B -q versions:set -DnewVersion="${{ needs.build.outputs.version }}" -DgenerateBackupPoms=false
+          ../scripts/set-java-sdk-version.sh "${{ needs.build.outputs.version }}"
           mvn -B -P release deploy
 
   github-release:
