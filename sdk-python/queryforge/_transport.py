@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -56,6 +58,50 @@ _KILL_GRACE_SECONDS = 15.0
 
 _log = get_logger("transport")
 
+#: A POSIX environment variable name: letters, digits, underscores, not leading
+#: with a digit. Matches the rule the engine applies to ``model.apiKeyEnv``, so
+#: a name the SDK accepts is a name the config can reference.
+_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def build_env(credentials: Mapping[str, str] | None) -> dict[str, str] | None:
+    """Merge caller-supplied credentials into a copy of the process environment.
+
+    Returns ``None`` when there are none, which lets the caller omit ``env``
+    entirely and inherit — the pre-existing behaviour, byte for byte.
+
+    Why the environment and not the request body: the engine reads keys from the
+    variable NAMED by ``model.apiKeyEnv``, and the request body is the one
+    structure in this SDK that can end up somewhere else. It is JSON-encoded, it
+    is what gets dumped when the protocol breaks, and it is the natural thing to
+    attach to a bug report. The environment is passed to exactly one process and
+    is never serialised by this SDK.
+
+    Why a copy and not a replacement: handing the child a bare credentials dict
+    would strip ``PATH``, ``HOME`` and ``TMPDIR``, breaking the engine in ways
+    that look nothing like a credentials problem.
+    """
+    if not credentials:
+        return None
+
+    env = dict(os.environ)
+    for name, value in credentials.items():
+        if not isinstance(name, str) or not _ENV_NAME.match(name):
+            # The name is safe to echo — it is a variable name, not a secret.
+            raise ValueError(
+                f"credentials key {name!r} is not a valid environment variable name "
+                "(letters, digits and underscores, not starting with a digit). "
+                "The KEY is the name your config's model.apiKeyEnv refers to, "
+                'e.g. {"QF_API_KEY": "<your-key>"}.'
+            )
+        if not isinstance(value, str):
+            # Deliberately does NOT include the value: it is the secret.
+            raise ValueError(
+                f"credentials[{name!r}] must be a string, got {type(value).__name__}"
+            )
+        env[name] = value
+    return env
+
 
 def _major(version: str) -> str:
     return version.split(".", 1)[0]
@@ -65,6 +111,7 @@ def run_request(
     request: dict[str, Any],
     timeout_seconds: float | None = None,
     request_id: str | None = None,
+    credentials: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Send one request to the executable and return the decoded response.
 
@@ -111,6 +158,9 @@ def run_request(
             # shell would make them executable. The argument list form passes
             # them as a single argv entry with no interpretation.
             shell=False,
+            # None inherits this process's environment, which is exactly what
+            # happened before credentials existed.
+            env=build_env(credentials),
         )
     except subprocess.TimeoutExpired as exc:
         message = (

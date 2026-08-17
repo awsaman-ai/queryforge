@@ -633,8 +633,8 @@ func TestModelCallEventEmittedOnEveryFailurePath(t *testing.T) {
 
 	t.Run("non-2xx from the endpoint", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusTooManyRequests)
-			io.WriteString(w, `rate limited`)
+			w.WriteHeader(http.StatusBadRequest) // not retryable: exactly one round trip
+			io.WriteString(w, `bad request`)
 		}))
 		defer srv.Close()
 
@@ -651,6 +651,38 @@ func TestModelCallEventEmittedOnEveryFailurePath(t *testing.T) {
 		}
 		if calls[0].Outcome != OutcomeTransport {
 			t.Errorf("outcome = %s, want transport_error", calls[0].Outcome)
+		}
+	})
+
+	// The contract is one event per ROUND TRIP, not one per Complete. A retried
+	// call must therefore report every attempt: averaging them into a single
+	// event would hide the fact that a slow translation was slow because the
+	// provider was throttling, not because the model was thinking.
+	t.Run("a retried call reports every round trip", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusTooManyRequests) // retryable
+			io.WriteString(w, `rate limited`)
+		}))
+		defer srv.Close()
+
+		var rec recorder
+		p := NewOpenAIProvider(ModelConfig{BaseURL: srv.URL, Model: "m", RetryBackoffMs: 1})
+		p.SetObserver(rec.observe())
+
+		if _, err := p.Complete(context.Background(), "s", "u"); err == nil {
+			t.Fatal("expected an error")
+		}
+		calls := rec.kind(EventModelCall)
+		if len(calls) != defaultMaxRetries+1 {
+			t.Fatalf("got %d model_call events, want %d (one per round trip)", len(calls), defaultMaxRetries+1)
+		}
+		for i, ev := range calls {
+			if ev.Retry != i {
+				t.Errorf("event %d has Retry = %d, want %d", i, ev.Retry, i)
+			}
+			if ev.ErrorKind != KindRateLimit {
+				t.Errorf("event %d has ErrorKind = %q, want %q", i, ev.ErrorKind, KindRateLimit)
+			}
 		}
 	})
 }

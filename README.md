@@ -261,15 +261,33 @@ A scalar becomes `equals`, a slice becomes `in`; on a field declared `type: "arr
 
 A config change, never a code change. The default provider speaks any **OpenAI-compatible `/chat/completions`** endpoint; a second speaks **Anthropic's native Messages API**.
 
-| Provider | `baseURL` | Notes |
-|---|---|---|
-| **Google Gemini** (free tier) | `https://generativelanguage.googleapis.com/v1beta/openai` | Default in the examples. |
-| **Groq** (free tier) | `https://api.groq.com/openai/v1` | Fast Llama/Qwen class. |
-| **OpenAI** | `https://api.openai.com/v1` | e.g. `gpt-4.1-mini`. |
-| **Anthropic** (native) | `https://api.anthropic.com` | Set `provider: "anthropic"`, e.g. `claude-opus-4-8`. |
-| **Ollama** (local, no key) | `http://localhost:11434/v1` | Fully offline. Leave `apiKeyEnv` empty. |
+Naming a known provider supplies the endpoint, so the common case is two keys:
 
-The key value never lives in the config — `apiKeyEnv` names the environment variable that holds it.
+```jsonc
+"model": { "provider": "groq", "model": "llama-3.3-70b-versatile", "apiKeyEnv": "GROQ_API_KEY" }
+```
+
+Built-in endpoints: `anthropic`, `cerebras`, `deepseek`, `fireworks`, `gemini`, `google`, `groq`, `lmstudio`, `mistral`, `nvidia`, `ollama`, `openai`, `openrouter`, `perplexity`, `together`, `vllm`, `xai`. `{ "provider": "ollama", "model": "qwen2.5" }` is a complete config on a stock install — no URL, no key.
+
+This list holds **no model ids**, so a provider shipping a new model needs no QueryForge release. An explicit `baseURL` always overrides a preset, and a provider that is *not* listed is not unsupported — set `baseURL` and it works identically:
+
+```jsonc
+"model": { "provider": "acme", "baseURL": "https://api.acme.ai/v1", "model": "acme-ultra", "apiKeyEnv": "ACME_API_KEY" }
+```
+
+The key value never lives in the config — `apiKeyEnv` names the environment variable that holds it. From Java or Python you can supply it at runtime instead, straight from a secret manager:
+
+```python
+QueryForge.mysql("orders.config.json", credentials={"QF_API_KEY": vault.get("openai/key")})
+```
+```java
+QueryForge.mysql(configPath)
+        .withCredentials(Collections.singletonMap("QF_API_KEY", vault.read("openai/key")));
+```
+
+The value goes into the engine subprocess's environment only: never into the request, never into a log, never into your own process's environment.
+
+**Retries.** A failed call is retried only when waiting could fix it — a rate limit, a 5xx, a dropped connection. A bad key, an unknown model, a malformed request or an exhausted quota fail immediately, because the next attempt would send exactly the same thing. Tunable per model block with `timeoutSeconds`, `maxRetries` and `retryBackoffMs`; a provider's `Retry-After` header always wins.
 
 **Fallback.** List several and QueryForge tries them in order, using the first that answers, so a rate limit or billing block falls through transparently:
 

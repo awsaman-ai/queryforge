@@ -60,7 +60,8 @@ all, which is also one fewer thing for an enterprise review to sign off.
 ### `query(text)` — the full pipeline
 
 Costs one model call. Needs a `model` block in your config and the API key exported under the name
-that block's `apiKeyEnv` gives.
+that block's `apiKeyEnv` gives — or passed in directly, see
+[Supplying the key at runtime](#supplying-the-key-at-runtime).
 
 ```java
 QueryForge forge = QueryForge.postgres(Paths.get("orders.config.json"));
@@ -340,6 +341,33 @@ use and reused afterwards, so different engine versions on one machine never ove
 
 The system property wins over the environment variable, so a JVM launch flag can override an
 environment inherited from a container image.
+
+### Supplying the key at runtime
+
+Exporting the variable before the JVM starts is not always possible — the key may live in a secret
+manager, a `@Value` field, or a vault client, and may rotate while the process runs. Pass it
+directly instead:
+
+```java
+QueryForge forge = QueryForge.mysql(Paths.get("orders.config.json"))
+        .withCredentials(Collections.singletonMap("QF_API_KEY", vault.read("openai/key")));
+```
+
+The map key is a variable **name** — whatever your config's `model.apiKeyEnv` refers to — and the
+value is the secret. What happens to it:
+
+* It is placed in the engine subprocess's environment, and nowhere else. It never enters the request
+  body (the one structure here that gets JSON-encoded, dumped on protocol errors, and pasted into
+  bug reports), and it is never logged.
+* This JVM's own environment is untouched, so two instances holding different keys do not interfere
+  — which is what makes this usable from a multi-tenant service.
+* The subprocess still inherits the rest of your environment, so `PATH` and friends survive.
+* Only `query(...)` receives it. `generate(...)` and `validate(...)` make no model call, so the
+  engine they spawn never sees the key.
+
+`withCredentials` returns a copy, like every other `withX` method, and several calls merge. A name
+that is not a legal environment variable — most often because the **key** was pasted where the
+**name** belongs — throws `InvalidRequestException` at that call, not on the first query.
 
 Check an installation without needing a config or a key:
 

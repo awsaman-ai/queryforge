@@ -38,7 +38,8 @@ produce **byte-identical output** for the same input, because there is only one 
 ### `query(text)` — the full pipeline
 
 Costs one model call. Needs a `model` block in your config and the API key exported under the name
-that block's `apiKeyEnv` gives.
+that block's `apiKeyEnv` gives — or passed in directly, see
+[Supplying the key at runtime](#supplying-the-key-at-runtime).
 
 ```python
 from queryforge import QueryForge
@@ -251,6 +252,34 @@ qf.query(text).timeout(10).max_repairs(0).include_raw().scope_in_ast()
 | `QUERYFORGE_BINARY` | Run this executable instead of the bundled one. Reported, never silently ignored, if it does not work. |
 | `QUERYFORGE_LOG_LEVEL` | `off` \| `error` \| `warn` \| `info` \| `debug`. Turns on SDK and engine diagnostics without a code change. Unset means off. |
 | whatever your config's `apiKeyEnv` names | The model API key. Never put the key in the config file. |
+
+### Supplying the key at runtime
+
+Exporting the variable before the interpreter starts is not always possible — the key may live in a
+secret manager, a vault client, or a settings object, and may rotate while the process runs. Pass it
+directly instead:
+
+```python
+qf = QueryForge.mysql(
+    "orders.config.json",
+    credentials={"QF_API_KEY": vault.get("openai/key")},
+)
+```
+
+The dict key is a variable **name** — whatever your config's `model.apiKeyEnv` refers to — and the
+value is the secret. What happens to it:
+
+* It is placed in the engine subprocess's environment, and nowhere else. It never enters the request
+  body (the one structure here that gets JSON-encoded, dumped on protocol errors, and pasted into
+  bug reports), and it is never logged.
+* `os.environ` is **not** modified, so two `QueryForge` instances holding different keys do not
+  interfere — which is what makes this usable from a multi-tenant service.
+* The subprocess still inherits the rest of your environment, so `PATH` and friends survive.
+* Only `query()` receives it. `generate()` and `validate()` make no model call, so the engine they
+  spawn never sees the key.
+
+A name that is not a legal environment variable — most often because the **key** was pasted where the
+**name** belongs — is rejected when you construct the instance, not on the first query.
 
 Check an installation without needing a config or a key:
 

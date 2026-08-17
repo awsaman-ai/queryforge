@@ -7,6 +7,7 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -67,6 +68,22 @@ final class Transport {
      * stamps it on its own — so one {@code request_id=…} search returns both halves of a query.
      */
     static Map<String, Object> run(Map<String, Object> request, Long timeoutMillis, String requestId) {
+        return run(request, timeoutMillis, requestId, Collections.<String, String>emptyMap());
+    }
+
+    /**
+     * As above, additionally placing {@code credentials} in the engine subprocess's environment.
+     *
+     * <p>The environment, not the request body, because the body is the one structure here that
+     * travels: it is JSON-encoded, it is what gets dumped when the protocol breaks, and it is the
+     * natural thing to paste into a bug report. The environment goes to exactly one process and is
+     * never serialised by this SDK.
+     */
+    static Map<String, Object> run(
+            Map<String, Object> request,
+            Long timeoutMillis,
+            String requestId,
+            Map<String, String> credentials) {
         String rid = (requestId == null || requestId.trim().isEmpty())
                 ? QueryForgeLogging.newRequestId()
                 : requestId.trim();
@@ -84,7 +101,7 @@ final class Transport {
 
         long started = System.nanoTime();
         try {
-            Map<String, Object> response = execute(request, timeoutMillis, context);
+            Map<String, Object> response = execute(request, timeoutMillis, context, credentials);
             succeeded(context, started, response);
             return response;
         } catch (RuntimeException e) {
@@ -97,15 +114,53 @@ final class Transport {
         }
     }
 
+    /**
+     * Reports whether {@code name} has the shape of a POSIX environment variable name:
+     * {@code [A-Za-z_][A-Za-z0-9_]*}.
+     *
+     * <p>Deliberately the same rule the engine applies to {@code model.apiKeyEnv}, so a name this
+     * SDK accepts is a name a config can refer to. It also catches the likeliest mistake by far —
+     * passing the KEY where the NAME belongs — because real API keys contain hyphens or start with
+     * a lowercase provider prefix and fail this immediately.
+     */
+    static boolean isEnvName(String name) {
+        if (name == null || name.isEmpty()) {
+            return false;
+        }
+        for (int i = 0; i < name.length(); i++) {
+            char ch = name.charAt(i);
+            boolean letter = (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || ch == '_';
+            boolean digit = ch >= '0' && ch <= '9';
+            if (letter) {
+                continue;
+            }
+            if (digit && i > 0) {
+                continue;
+            }
+            return false;
+        }
+        return true;
+    }
+
     /** Runs the subprocess and decodes its reply. */
     private static Map<String, Object> execute(
-            Map<String, Object> request, Long timeoutMillis, Map<String, Object> context) {
+            Map<String, Object> request,
+            Long timeoutMillis,
+            Map<String, Object> context,
+            Map<String, String> credentials) {
         Path binary = BinaryResolver.resolve();
         byte[] payload = Json.write(request).getBytes(StandardCharsets.UTF_8);
 
         QueryForgeLogging.log(LOG, Level.FINE, "sending request to the engine", context);
 
         ProcessBuilder builder = new ProcessBuilder(binary.toString());
+        // environment() starts as a copy of this JVM's environment, so putAll ADDS to it rather
+        // than replacing it. A bare credentials map would strip PATH and HOME and break the engine
+        // in ways that look nothing like a credentials problem. The copy is per-builder, so this
+        // JVM's own environment is untouched and two instances with different keys cannot collide.
+        if (credentials != null && !credentials.isEmpty()) {
+            builder.environment().putAll(credentials);
+        }
         // stderr is kept separate rather than merged into stdout. Merging would be the single
         // fastest way to break every SDK at once: one diagnostic line on stderr would corrupt
         // the JSON stream that stdout is contractually required to carry alone.

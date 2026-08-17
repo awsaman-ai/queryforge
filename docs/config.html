@@ -271,17 +271,51 @@ ORDER BY created_at DESC LIMIT 20
   <p>Selects the AI planner target. Switching provider or model is a <strong>config change, never a code change</strong> — any OpenAI-compatible <code>/chat/completions</code> endpoint works (hosted or self-hosted).</p>
   <div class="tablewrap"><table>
     <tr><th>Key</th><th>Type</th><th>Default</th><th>Description</th></tr>
-    <tr><td><code>provider</code></td><td>string</td><td class="default">""</td><td>Informational label (e.g. <code>gemini</code>, <code>groq</code>, <code>ollama</code>).</td></tr>
-    <tr><td><code>baseURL</code></td><td>string</td><td class="default">""</td><td>Endpoint root. <code>/chat/completions</code> is appended. E.g. Gemini: <code>https://generativelanguage.googleapis.com/v1beta/openai</code>.</td></tr>
+    <tr><td><code>provider</code></td><td>string</td><td class="default">""</td><td>Provider name (e.g. <code>gemini</code>, <code>groq</code>, <code>ollama</code>). For a <a href="#presets">known provider</a> this supplies the endpoint, so <code>baseURL</code> can be omitted. Any other name is still valid — it is then just a label, and you set <code>baseURL</code> yourself.</td></tr>
+    <tr><td><code>baseURL</code></td><td>string</td><td class="default">""</td><td>Endpoint root. <code>/chat/completions</code> is appended. E.g. Gemini: <code>https://generativelanguage.googleapis.com/v1beta/openai</code>. Always wins over a provider preset.</td></tr>
+    <tr><td><code>protocol</code></td><td>string</td><td class="default">inferred</td><td>Wire dialect: <code>openai</code> or <code>anthropic</code>. Usually omitted — a known provider name implies it, and everything else defaults to the OpenAI dialect. Set it when the URL does not advertise the dialect, such as an Anthropic-compatible gateway on your own hostname. An unimplemented value is rejected at load.</td></tr>
     <tr><td><code>model</code></td><td>string</td><td class="default">""</td><td>Model id, e.g. <code>gemini-3.1-flash-lite</code>.</td></tr>
     <tr><td><code>apiKeyEnv</code></td><td>string</td><td class="default">""</td><td><strong>The NAME of the environment variable</strong> holding your key — never the key itself. E.g. <code>QF_API_KEY</code>. Empty is fine for keyless local servers (Ollama). Pasting the key here is <a href="#apikeyenv">rejected at load</a>.</td></tr>
     <tr><td><code>temperature</code></td><td>number</td><td class="default">0</td><td>Sampling temperature; <code>0</code> is deterministic and recommended.</td></tr>
     <tr><td><code>maxTokens</code></td><td>number</td><td class="default">0</td><td>Response cap; <code>0</code> lets the server decide. Note that reasoning models charge their hidden thinking tokens against this budget, so leave generous headroom — <code>4096</code> is a safe starting point.</td></tr>
     <tr><td><code>jsonMode</code></td><td>boolean</td><td class="default">false</td><td>Sends the OpenAI <code>response_format: json_object</code> flag. <strong>Leave this off unless you know your endpoint handles it well.</strong> Gemini's OpenAI-compatibility endpoint returns brace-unbalanced JSON with it enabled (measured: 2/5 replies parseable with it, 5/5 without). QueryForge already instructs the model to return a bare JSON object and tolerates code fences, so this flag is rarely needed.</td></tr>
+    <tr><td><code>timeoutSeconds</code></td><td>number</td><td class="default">30</td><td>Ceiling on <strong>one</strong> request to the provider. The total bound on a translate is the caller's own deadline, so this is per attempt.</td></tr>
+    <tr><td><code>maxRetries</code></td><td>number</td><td class="default">2</td><td>Extra attempts for a failure that waiting could fix — a rate limit, a 5xx, a dropped connection. A bad key, an unknown model or a malformed request are <strong>never</strong> retried, because the next attempt would send exactly the same thing. Set <code>0</code> to fail over to your <a href="#models">fallback chain</a> instantly instead of waiting.</td></tr>
+    <tr><td><code>retryBackoffMs</code></td><td>number</td><td class="default">250</td><td>First retry delay, doubling and jittered thereafter (capped at 8s). A provider's own <code>Retry-After</code> header overrides it whenever one is sent.</td></tr>
   </table></div>
-  <div class="note"><strong>Security:</strong> the key value never appears in the config. QueryForge reads it from the named environment variable at runtime.</div>
+  <div class="note"><strong>Security:</strong> the key value never appears in the config. QueryForge reads it from the named environment variable at runtime. Provider error messages are scrubbed of the key before they are built, so an endpoint that echoes your <code>Authorization</code> header back cannot leak it into your logs.</div>
 
-  <h3>models — fallback chain (optional)</h3>
+  <h3 id="presets">Providers with a built-in endpoint</h3>
+  <p>Naming one of these as <code>provider</code> supplies the base URL, so a working model block can be two keys:</p>
+<pre><code>"model": { "provider": "groq", "model": "llama-3.3-70b-versatile", "apiKeyEnv": "GROQ_API_KEY" }</code></pre>
+  <p><code>anthropic</code>, <code>cerebras</code>, <code>deepseek</code>, <code>fireworks</code>, <code>gemini</code>, <code>google</code>, <code>groq</code>, <code>lmstudio</code>, <code>mistral</code>, <code>nvidia</code>, <code>ollama</code>, <code>openai</code>, <code>openrouter</code>, <code>perplexity</code>, <code>together</code>, <code>vllm</code>, <code>xai</code></p>
+  <p>Three things to be clear about, because they are what keep this list from becoming a limitation:</p>
+  <ul>
+    <li>It holds <strong>no model ids</strong>. A provider shipping a new model needs no QueryForge release — the model id is just a string you type.</li>
+    <li>An explicit <code>baseURL</code> always overrides the preset, for a regional endpoint, a corporate mirror, or a test server.</li>
+    <li>A provider that is <strong>not</strong> on this list is not unsupported. Set <code>baseURL</code> and it works identically:
+<pre><code>"model": { "provider": "acme", "baseURL": "https://api.acme.ai/v1", "model": "acme-ultra", "apiKeyEnv": "ACME_API_KEY" }</code></pre>
+    </li>
+  </ul>
+  <p>The local servers default to their documented ports, so <code>{ "provider": "ollama", "model": "qwen2.5" }</code> is a complete config on a stock install — no URL, no key.</p>
+
+  <h3 id="retries">Retries and timeouts</h3>
+  <p>A model call that fails is retried only when <strong>time</strong> could plausibly fix it. The distinction matters because the two groups want opposite handling:</p>
+  <div class="tablewrap"><table>
+    <tr><th>Failure</th><th>Retried?</th><th>Why</th></tr>
+    <tr><td>Rate limit (429)</td><td>yes</td><td>The one failure where waiting genuinely works. Common on free tiers.</td></tr>
+    <tr><td>Provider fault (5xx)</td><td>yes</td><td>Transient by definition.</td></tr>
+    <tr><td>Dropped connection, per-attempt timeout</td><td>yes</td><td>The request never reached a verdict.</td></tr>
+    <tr><td>Bad or revoked key (401/403)</td><td><strong>no</strong></td><td>The same key would be resent. Retrying spends your rate limit to learn nothing.</td></tr>
+    <tr><td>Out of credit / billing cap (402, or 429 with a billing message)</td><td><strong>no</strong></td><td>No amount of waiting adds funds. Fails over to the next model at once.</td></tr>
+    <tr><td>Unknown model id (404)</td><td><strong>no</strong></td><td>Retrying cannot conjure the model.</td></tr>
+    <tr><td>Malformed request (400/422)</td><td><strong>no</strong></td><td>The request body is deterministic — a retry sends identical bytes.</td></tr>
+    <tr><td>Reply truncated by <code>maxTokens</code></td><td><strong>no</strong></td><td>An identical request truncates identically. Raise <code>maxTokens</code>.</td></tr>
+  </table></div>
+  <p>Transport retries are separate from the engine's <strong>validation-repair</strong> budget, and neither consumes the other. Retrying re-sends an identical request when the provider was unreachable; repairing changes the prompt when the model's answer did not validate.</p>
+  <p>Retries compose with the fallback chain: a chain of three models at the default two retries is up to nine requests in the worst case, so set <code>maxRetries: 0</code> on entries where you would rather fail over immediately.</p>
+
+  <h3 id="models">models — fallback chain (optional)</h3>
   <p>Beyond the single <code>model</code> block, an optional <code>models</code> array lets you list several models in priority order. QueryForge tries them in order and uses the first that answers, so a rate-limit, quota, or billing block on one provider transparently falls through to the next. <code>model</code> is the primary; <code>models</code> are the ordered fallbacks, and a chain can freely mix providers (e.g. Gemini → Groq → Anthropic → local Ollama). Each entry is a full model block with its own <code>apiKeyEnv</code>.</p>
 <pre><code>"model":  { "provider": "gemini", "baseURL": "…/v1beta/openai", "model": "gemini-3.1-flash-lite", "apiKeyEnv": "QF_API_KEY" },
 "models": [

@@ -626,6 +626,18 @@ var QFLogic = (function () {
     jsonMode: { t: "model.jsonMode",
       what: "Sends response_format=json_object. Off by default because it is not uniformly implemented — Gemini's OpenAI-compatible endpoint returns brace-unbalanced JSON with it set. Turn it on only for an endpoint you have tested.",
       ex: "jsonMode: unset → off (the safe default)\nThe prompt already demands a bare JSON object, so nothing is lost." },
+    protocol: { t: "model.protocol",
+      what: "The wire dialect, when the URL does not advertise it. Leave on auto: a known provider name implies it, and everything else defaults to the OpenAI dialect nearly every endpoint speaks. Set it for an Anthropic-compatible gateway on a corporate hostname, where guessing from the URL gets it wrong.",
+      ex: "protocol: auto           → inferred from provider/baseURL\nprotocol: \"anthropic\"    → native Messages API, whatever the hostname" },
+    timeoutSeconds: { t: "model.timeoutSeconds",
+      what: "Ceiling on ONE request to the provider. The total bound on a translate is the caller's own deadline, so this is per attempt, not per query.",
+      ex: "timeoutSeconds: 30   ← the default\nRaise it for a slow local model on CPU." },
+    maxRetries: { t: "model.maxRetries",
+      what: "Extra attempts for a failure that waiting could fix — a rate limit, a 5xx, a dropped connection. A bad key, an unknown model or a malformed request never retry, because the next attempt would send exactly the same thing. Set 0 to fail over to your fallback chain instantly instead of waiting.",
+      ex: "maxRetries: 2   ← the default: up to 3 round trips\nmaxRetries: 0   → one attempt, then the next entry in models[]" },
+    retryBackoffMs: { t: "model.retryBackoffMs",
+      what: "The first retry delay, doubling and jittered thereafter. A provider's own Retry-After header overrides it whenever one is sent.",
+      ex: "retryBackoffMs: 250   ← the default → ~250ms, ~500ms, ~1s" },
     chain: { t: "models[]",
       what: "An ordered fallback chain. QueryForge tries model first, then each entry here, and uses the first that answers — so a rate limit, quota block, or outage falls through instead of failing the request. Entries may mix providers.",
       ex: "model  = Gemini      (rate-limited today)\nmodels[0] = Groq       ← answers, and is reported as ProviderUsed\nmodels[1] = local Ollama" },
@@ -887,7 +899,8 @@ var QFLogic = (function () {
   }
 
   function blankModel() {
-    return { provider: "", baseURL: "", model: "", apiKeyEnv: "", temperature: "", maxTokens: "", jsonMode: "" };
+    return { provider: "", baseURL: "", model: "", apiKeyEnv: "", temperature: "", maxTokens: "", jsonMode: "",
+             protocol: "", timeoutSeconds: "", maxRetries: "", retryBackoffMs: "" };
   }
 
   function blankField(overrides) {
@@ -941,6 +954,15 @@ var QFLogic = (function () {
     if (mt !== null && mt !== 0) out.maxTokens = mt;
     var j = tri(m.jsonMode);
     if (j !== null) out.jsonMode = j;         // omitted = the library default, false
+    if (str(m.protocol)) out.protocol = str(m.protocol);
+    var ts = num(m.timeoutSeconds);
+    if (ts !== null && ts !== 0) out.timeoutSeconds = ts;
+    // maxRetries keeps an explicit 0: it is the only way to say "never retry",
+    // and the library distinguishes it from an absent key for exactly that reason.
+    var mr = num(m.maxRetries);
+    if (mr !== null) out.maxRetries = mr;
+    var rb = num(m.retryBackoffMs);
+    if (rb !== null && rb !== 0) out.retryBackoffMs = rb;
     return out;
   }
 
@@ -1386,11 +1408,16 @@ var QFLogic = (function () {
     out.temperature = m.temperature === undefined ? "" : String(m.temperature);
     out.maxTokens   = m.maxTokens   === undefined ? "" : String(m.maxTokens);
     out.jsonMode    = triOf(m.jsonMode);
+    out.protocol       = m.protocol       === undefined ? "" : String(m.protocol);
+    out.timeoutSeconds = m.timeoutSeconds === undefined ? "" : String(m.timeoutSeconds);
+    out.maxRetries     = m.maxRetries     === undefined ? "" : String(m.maxRetries);
+    out.retryBackoffMs = m.retryBackoffMs === undefined ? "" : String(m.retryBackoffMs);
     return out;
   }
 
   var KNOWN_TOP    = ["entity", "version", "model", "models", "backends", "fields", "defaults", "policy"];
-  var KNOWN_MODEL  = ["provider", "baseURL", "model", "apiKeyEnv", "temperature", "maxTokens", "jsonMode"];
+  var KNOWN_MODEL  = ["provider", "baseURL", "model", "apiKeyEnv", "temperature", "maxTokens", "jsonMode",
+                      "protocol", "timeoutSeconds", "maxRetries", "retryBackoffMs"];
   var KNOWN_FIELD  = ["name", "type", "values", "itemType", "operators", "synonyms", "mapping", "elemMatch", "valueCase",
                       "queryable", "filterable", "searchable", "sortable", "returnable",
                       "indexed", "priority", "validators"];
@@ -1640,6 +1667,20 @@ if (typeof window !== "undefined") { window.QFLogic = QFLogic; }
         '<div><label>maxTokens' + info("maxTokens") + '</label>' +
           '<input type="number" step="1" min="0" data-path="' + base + '.maxTokens" data-kind="text" placeholder="4096"' + attr("value", m.maxTokens) + '></div>' +
         '<div><label>jsonMode' + info("jsonMode") + '</label>' + triSelect(base + ".jsonMode", m.jsonMode, "false") + '</div>' +
+      '</div>' +
+      '<div class="row c4">' +
+        '<div><label>protocol <span class="q">· usually inferred</span>' + info("protocol") + '</label>' +
+          '<select data-path="' + base + '.protocol" data-kind="text">' +
+            '<option value=""' + (m.protocol === "" ? " selected" : "") + '>auto</option>' +
+            '<option value="openai"' + (m.protocol === "openai" ? " selected" : "") + '>openai</option>' +
+            '<option value="anthropic"' + (m.protocol === "anthropic" ? " selected" : "") + '>anthropic</option>' +
+          '</select></div>' +
+        '<div><label>timeoutSeconds' + info("timeoutSeconds") + '</label>' +
+          '<input type="number" step="1" min="0" data-path="' + base + '.timeoutSeconds" data-kind="text" placeholder="30"' + attr("value", m.timeoutSeconds) + '></div>' +
+        '<div><label>maxRetries' + info("maxRetries") + '</label>' +
+          '<input type="number" step="1" min="0" data-path="' + base + '.maxRetries" data-kind="text" placeholder="2"' + attr("value", m.maxRetries) + '></div>' +
+        '<div><label>retryBackoffMs' + info("retryBackoffMs") + '</label>' +
+          '<input type="number" step="50" min="0" data-path="' + base + '.retryBackoffMs" data-kind="text" placeholder="250"' + attr("value", m.retryBackoffMs) + '></div>' +
       '</div>';
   }
 

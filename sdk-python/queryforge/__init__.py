@@ -54,7 +54,7 @@ from typing import Any, Mapping, Sequence, Union
 from . import logging as logging  # noqa: F401 - re-exported; see LOGGING below
 from ._binary import BINARY_ENV_VAR, find_binary, platform_tag
 from ._result import Result, ScopeFilter
-from ._transport import PROTOCOL_VERSION, run_request
+from ._transport import PROTOCOL_VERSION, build_env as _build_env, run_request
 from .errors import (
     BinaryNotFoundError,
     Detail,
@@ -353,7 +353,7 @@ class QueryForge:
     query is actually compiled, so building one costs nothing.
     """
 
-    __slots__ = ("_config", "backend", "_scope", "_options")
+    __slots__ = ("_config", "backend", "_scope", "_options", "_credentials")
 
     #: Backend ids the shipped engine registers. Checked locally so a typo costs
     #: an immediate error rather than a process spawn.
@@ -367,7 +367,27 @@ class QueryForge:
         scope: Mapping[str, ScopeValue] | None = None,
         timeout: float | None = None,
         max_repairs: int | None = None,
+        credentials: Mapping[str, str] | None = None,
     ) -> None:
+        """Bind an engine to a config and a backend.
+
+        ``credentials`` maps environment variable NAMES to their values, and is
+        how you supply an API key from somewhere other than the environment this
+        process was started in — a secret manager, a vault client, a settings
+        object::
+
+            QueryForge.mysql(
+                "orders.config.json",
+                credentials={"QF_API_KEY": vault.get("openai/key")},
+            )
+
+        The name is whatever your config's ``model.apiKeyEnv`` refers to. Values
+        are placed in the engine subprocess's environment only: they are never
+        written into the request, never logged, and never touch this process's
+        own ``os.environ``, so two engines with different keys do not interfere.
+        Without this, a key can only reach the engine by being exported before
+        the interpreter starts.
+        """
         if backend not in self.BACKENDS:
             raise UnknownBackendError(
                 f"Unknown backend {backend!r}. Registered: {', '.join(self.BACKENDS)}.",
@@ -376,6 +396,17 @@ class QueryForge:
         self._config = _load_config(config)
         self.backend = backend
         self._scope = dict(scope) if scope else None
+
+        # Validated eagerly so a malformed name fails at construction, where the
+        # mistake is, rather than on the first query. _build_env is the single
+        # implementation of the rule; calling it here and discarding the result
+        # keeps construction and execution from ever disagreeing.
+        if credentials is not None:
+            try:
+                _build_env(credentials)
+            except ValueError as exc:
+                raise InvalidRequestError(str(exc), code="INVALID_REQUEST") from exc
+        self._credentials = dict(credentials) if credentials else None
 
         options: dict[str, Any] = {}
         if timeout is not None:
@@ -469,8 +500,16 @@ class QueryForge:
     ) -> Result:
         payload = self._request("translate", options, scope)
         payload["query"] = text
+        # Credentials are attached HERE and nowhere else. translate is the only
+        # op that reaches a model, so generate and validate spawn an engine that
+        # never receives the key — the smallest blast radius available for free.
         return Result.from_json(
-            run_request(payload, self._timeout_seconds(options), request_id)
+            run_request(
+                payload,
+                self._timeout_seconds(options),
+                request_id,
+                credentials=self._credentials,
+            )
         )
 
     def _request(

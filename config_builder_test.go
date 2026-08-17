@@ -376,6 +376,30 @@ func TestBuilderPageShipsWithTheLibrary(t *testing.T) {
 			t.Errorf("field key %q is missing from the builder's KNOWN_FIELD list, so importing a config that uses it would drop it", key)
 		}
 	}
+
+	// The same guarantee for ModelConfig. The model block gains keys too —
+	// protocol, timeoutSeconds, maxRetries, retryBackoffMs all arrived after the
+	// page was written — and the failure is identical: a key the page does not
+	// know is reported as unknown on import, or worse, dropped on re-export.
+	knownModel := between(html, "var KNOWN_MODEL", "];")
+	if knownModel == "" {
+		t.Fatal("could not find KNOWN_MODEL in the builder page")
+	}
+	mt := reflect.TypeOf(ModelConfig{})
+	for i := 0; i < mt.NumField(); i++ {
+		key := strings.Split(mt.Field(i).Tag.Get("json"), ",")[0]
+		if key == "" || key == "-" {
+			continue
+		}
+		if !strings.Contains(knownModel, `"`+key+`"`) {
+			t.Errorf("model key %q is missing from the builder's KNOWN_MODEL list, so a config using it would not round-trip", key)
+		}
+		// Knowing the key is not enough: the page has to carry it through its
+		// own state, or import accepts it and export silently loses it.
+		if !strings.Contains(html, "."+key) {
+			t.Errorf("model key %q is in KNOWN_MODEL but the page never reads or writes it", key)
+		}
+	}
 }
 
 // between returns the text after the first occurrence of start up to the next

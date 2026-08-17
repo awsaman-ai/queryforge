@@ -25,8 +25,17 @@ type AnthropicProvider struct {
 	Version    string       // anthropic-version header value
 	HTTPClient *http.Client // injectable for tests/timeouts
 
+	// MaxRetries / RetryBackoff mirror the OpenAI provider: zero means no
+	// retrying, which is the behaviour a hand-constructed provider had before
+	// these fields existed. NewAnthropicProvider applies the config defaults.
+	MaxRetries   int
+	RetryBackoff time.Duration
+
 	ProviderID string   // provider label for events; defaults to "anthropic"
 	Observe    Observer // optional; receives one EventModelCall per round trip
+
+	// jitter overrides backoff randomisation in tests. nil = real jitter.
+	jitter func(time.Duration) time.Duration
 }
 
 // SetObserver installs the Observer, satisfying observerSetter. See the twin
@@ -40,7 +49,7 @@ func NewAnthropicProvider(m ModelConfig) *AnthropicProvider {
 	if m.APIKeyEnv != "" {
 		key = os.Getenv(m.APIKeyEnv)
 	}
-	baseURL := strings.TrimRight(m.BaseURL, "/")
+	baseURL, _ := resolveEndpoint(m)
 	if baseURL == "" || strings.Contains(baseURL, "/openai") {
 		baseURL = "https://api.anthropic.com" // native Messages API root
 	}
@@ -56,14 +65,23 @@ func NewAnthropicProvider(m ModelConfig) *AnthropicProvider {
 	if providerID == "" {
 		providerID = "anthropic" // this provider is only selected for Anthropic
 	}
+	// The Messages API's historical default here was 60s rather than the OpenAI
+	// side's 30s. EffectiveTimeout reports the shared 30s default, so preserve
+	// the longer one unless the config states a timeout explicitly.
+	timeout := 60 * time.Second
+	if m.TimeoutSeconds > 0 {
+		timeout = m.EffectiveTimeout()
+	}
 	return &AnthropicProvider{
-		BaseURL:    baseURL,
-		Model:      model,
-		APIKey:     key,
-		MaxTokens:  maxTokens,
-		Version:    "2023-06-01",
-		HTTPClient: &http.Client{Timeout: 60 * time.Second},
-		ProviderID: providerID,
+		BaseURL:      baseURL,
+		Model:        model,
+		APIKey:       key,
+		MaxTokens:    maxTokens,
+		Version:      "2023-06-01",
+		HTTPClient:   &http.Client{Timeout: timeout},
+		MaxRetries:   m.EffectiveMaxRetries(),
+		RetryBackoff: m.EffectiveRetryBackoff(),
+		ProviderID:   providerID,
 	}
 }
 
@@ -103,23 +121,36 @@ type anthropicResponse struct {
 	} `json:"error"`
 }
 
-// Complete performs one Messages API call and returns the concatenated text.
-func (p *AnthropicProvider) Complete(ctx context.Context, system, user string) (out string, err error) {
+// Complete performs a Messages API call, retrying retryable round trips. See
+// OpenAIProvider.Complete for why the retry loop belongs at this layer.
+func (p *AnthropicProvider) Complete(ctx context.Context, system, user string) (string, error) {
+	rp := retryPolicy{MaxRetries: p.MaxRetries, BaseBackoff: p.RetryBackoff, jitter: p.jitter}
+	return rp.do(ctx, func(ctx context.Context, n int) (string, error) {
+		return p.roundTrip(ctx, system, user, n)
+	})
+}
+
+// roundTrip performs exactly one Messages API request, emitting one
+// EventModelCall for it.
+func (p *AnthropicProvider) roundTrip(ctx context.Context, system, user string, retry int) (out string, err error) {
 	// One EventModelCall per round trip, on every return path — see the twin
-	// block in OpenAIProvider.Complete for the reasoning.
+	// block in OpenAIProvider.roundTrip for the reasoning.
 	start := time.Now()
-	ev := Event{Kind: EventModelCall, Provider: p.ProviderID, Model: p.Model, Outcome: OutcomeOK}
+	ev := Event{Kind: EventModelCall, Provider: p.ProviderID, Model: p.Model, Outcome: OutcomeOK, Retry: retry}
 	defer func() {
 		ev.Latency = time.Since(start)
 		if err != nil {
 			ev.Outcome = OutcomeTransport
 			ev.Err = err
+			if pe, ok := asProviderError(err); ok {
+				ev.ErrorKind = pe.Kind
+			}
 		}
 		p.Observe.emit(ctx, ev)
 	}()
 
 	if p.APIKey == "" {
-		return "", fmt.Errorf("provider: no API key (set the env var named in the config's apiKeyEnv)")
+		return "", p.fail(KindAuth, 0, "no API key (set the env var named in the config's apiKeyEnv)", nil)
 	}
 
 	// Build the request body.
@@ -131,13 +162,13 @@ func (p *AnthropicProvider) Complete(ctx context.Context, system, user string) (
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {
-		return "", fmt.Errorf("provider: marshal request: %w", err)
+		return "", p.fail(KindInvalidRequest, 0, "marshal request: "+err.Error(), err)
 	}
 
 	// Construct the request with the Messages API's required headers.
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.BaseURL+"/v1/messages", bytes.NewReader(raw))
 	if err != nil {
-		return "", fmt.Errorf("provider: build request: %w", err)
+		return "", p.fail(KindInvalidRequest, 0, "build request: "+err.Error(), err)
 	}
 	req.Header.Set("content-type", "application/json")
 	req.Header.Set("x-api-key", p.APIKey)          // first-party auth header (not Bearer)
@@ -149,21 +180,24 @@ func (p *AnthropicProvider) Complete(ctx context.Context, system, user string) (
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("provider: request failed: %w", err)
+		return "", p.fail(classifyTransport(ctx, err), 0, "request failed: "+err.Error(), err)
 	}
 	defer resp.Body.Close()
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("provider: read response: %w", err)
+		return "", p.fail(classifyTransport(ctx, err), resp.StatusCode, "read response: "+err.Error(), err)
 	}
 	if resp.StatusCode/100 != 2 {
-		return "", fmt.Errorf("provider: endpoint returned %d: %s", resp.StatusCode, snippet(data, 300))
+		body := snippet(data, 300)
+		pe := p.fail(classifyStatus(resp.StatusCode, body), resp.StatusCode, body, nil)
+		pe.RetryAfter = parseRetryAfter(resp.Header)
+		return "", errModelUnreachable(pe)
 	}
 
 	var ar anthropicResponse
 	if err := json.Unmarshal(data, &ar); err != nil {
-		return "", fmt.Errorf("provider: decode response: %w", err)
+		return "", p.fail(KindBadResponse, resp.StatusCode, "decode response: "+err.Error(), err)
 	}
 	// Map this dialect's usage block onto the common event shape. Anthropic
 	// reports input/output separately and no total, so the total is derived;
@@ -175,10 +209,23 @@ func (p *AnthropicProvider) Complete(ctx context.Context, system, user string) (
 	ev.FinishReason = ar.StopReason
 
 	if ar.Error != nil && ar.Error.Message != "" {
-		return "", fmt.Errorf("provider: model error: %s", ar.Error.Message)
+		kind := KindBadResponse
+		if looksLikeQuota(ar.Error.Message) {
+			kind = KindQuota
+		}
+		return "", p.fail(kind, resp.StatusCode, "model error: "+ar.Error.Message, nil)
 	}
 	if ar.StopReason == "refusal" {
-		return "", fmt.Errorf("provider: request was refused by the model's safety classifier")
+		return "", p.fail(KindBadResponse, resp.StatusCode, "request was refused by the model's safety classifier", nil)
+	}
+	// The Messages API's equivalent of finish_reason=length. Same reasoning as
+	// the OpenAI side: the fragment looks like valid JSON with its tail missing,
+	// so say what happened instead of letting the parser blame the model. Not
+	// retryable — an identical request truncates identically.
+	if ar.StopReason == "max_tokens" {
+		return "", p.fail(KindBadResponse, resp.StatusCode, fmt.Sprintf(
+			"reply truncated by the token budget (stop_reason=max_tokens; input=%d, output=%d): raise model.maxTokens in the config",
+			ar.Usage.InputTokens, ar.Usage.OutputTokens), nil)
 	}
 
 	// Concatenate all text blocks (there is usually exactly one).
@@ -190,18 +237,28 @@ func (p *AnthropicProvider) Complete(ctx context.Context, system, user string) (
 	}
 	out = b.String()
 	if out == "" {
-		return "", fmt.Errorf("provider: response contained no text content")
+		return "", p.fail(KindBadResponse, resp.StatusCode, "response contained no text content", nil)
 	}
 	return out, nil
 }
 
-// ProviderFor selects the right provider from a config's model block: the native
-// Anthropic provider when the block names Anthropic, otherwise the default
-// OpenAI-compatible provider. This keeps model selection a config change, never
-// a code change.
+// fail builds a classified error tagged with this provider's identity, with the
+// API key scrubbed from the detail text.
+func (p *AnthropicProvider) fail(kind ProviderErrorKind, status int, detail string, cause error) *ProviderError {
+	return newProviderError(kind, status, p.ProviderID, p.Model, detail, p.APIKey, cause)
+}
+
+// ProviderFor selects the provider implementation for a config's model block.
+//
+// Selection is by PROTOCOL, resolved in resolveEndpoint from — in order — an
+// explicit `protocol`, the provider name's preset, then the legacy URL sniff.
+// Routing on the resolved dialect rather than re-inspecting the URL here is
+// what lets an Anthropic-compatible gateway on a corporate hostname, or an
+// OpenAI-compatible route containing "/openai", be stated rather than guessed.
+//
+// Model selection stays a config change, never a code change.
 func ProviderFor(m ModelConfig) ModelProvider {
-	if strings.EqualFold(m.Provider, "anthropic") ||
-		(strings.Contains(m.BaseURL, "api.anthropic.com") && !strings.Contains(m.BaseURL, "/openai")) {
+	if _, proto := resolveEndpoint(m); proto == ProtocolAnthropic {
 		return NewAnthropicProvider(m)
 	}
 	return NewOpenAIProvider(m)

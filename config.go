@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 )
 
 // Config is the single source of truth. It is simultaneously the prompt
@@ -45,6 +46,36 @@ type ModelConfig struct {
 	Temperature float64 `json:"temperature,omitempty"`
 	MaxTokens   int     `json:"maxTokens,omitempty"`
 
+	// Protocol names the wire dialect explicitly: "openai" or "anthropic".
+	// Usually omitted — a known provider name implies it, and anything else
+	// defaults to the OpenAI dialect that nearly every endpoint speaks.
+	//
+	// Set it when the endpoint's URL does not advertise its dialect: an
+	// Anthropic-compatible corporate gateway, a proxy, or any host whose name
+	// would otherwise be guessed wrongly. Explicit always wins over inference.
+	Protocol string `json:"protocol,omitempty"`
+
+	// TimeoutSeconds bounds ONE request to the provider. Default 30.
+	// Per-attempt, like the HTTP client timeout it replaces; the total bound on
+	// a translate is the caller's context.
+	TimeoutSeconds int `json:"timeoutSeconds,omitempty"`
+
+	// MaxRetries is how many EXTRA attempts a retryable failure gets — a rate
+	// limit, a 5xx, a dropped connection. Default 2; set 0 to disable.
+	//
+	// Only failures that time might fix are retried. A bad key, an unknown
+	// model or a malformed request fail immediately, because the next attempt
+	// would send exactly the same thing.
+	//
+	// A pointer so that an explicit 0 ("never retry") is distinguishable from
+	// an absent key ("use the default").
+	MaxRetries *int `json:"maxRetries,omitempty"`
+
+	// RetryBackoffMs is the first retry delay in milliseconds, doubling each
+	// retry and jittered. Default 250. A provider's own Retry-After header
+	// overrides this whenever it sends one.
+	RetryBackoffMs int `json:"retryBackoffMs,omitempty"`
+
 	// JSONMode opts into the OpenAI response_format=json_object flag. It is off
 	// by default because it is not uniformly implemented: Gemini's
 	// OpenAI-compatibility endpoint returns brace-unbalanced JSON with it set
@@ -57,6 +88,37 @@ type ModelConfig struct {
 // EffectiveJSONMode reports whether to send response_format=json_object.
 // Defaults to false — see JSONMode.
 func (m ModelConfig) EffectiveJSONMode() bool { return m.JSONMode != nil && *m.JSONMode }
+
+// EffectiveTimeout returns the per-request timeout, defaulting to 30s. A
+// negative value is treated as unset rather than as an instant deadline: a
+// timeout of "-5" is a typo, and honouring it literally would make every call
+// fail before it started, with an error that points nowhere near the config.
+func (m ModelConfig) EffectiveTimeout() time.Duration {
+	if m.TimeoutSeconds > 0 {
+		return time.Duration(m.TimeoutSeconds) * time.Second
+	}
+	return defaultTimeout
+}
+
+// EffectiveMaxRetries returns the retry budget, defaulting to 2. An explicit 0
+// disables retrying; a negative value is clamped to 0.
+func (m ModelConfig) EffectiveMaxRetries() int {
+	if m.MaxRetries == nil {
+		return defaultMaxRetries
+	}
+	if *m.MaxRetries < 0 {
+		return 0
+	}
+	return *m.MaxRetries
+}
+
+// EffectiveRetryBackoff returns the base retry delay, defaulting to 250ms.
+func (m ModelConfig) EffectiveRetryBackoff() time.Duration {
+	if m.RetryBackoffMs > 0 {
+		return time.Duration(m.RetryBackoffMs) * time.Millisecond
+	}
+	return defaultRetryBackoff
+}
 
 // secretPrefixes are the recognisable openings of common API keys. Matching one
 // means the caller pasted a credential where a variable name belongs.
@@ -108,6 +170,17 @@ func (m ModelConfig) validateAPIKeyEnv(where string) error {
 			"This field takes the variable's NAME; the key itself belongs in the environment", where)
 	}
 	return nil
+}
+
+// validateModelBlock runs every self-check on one model block. Grouped into a
+// single entry point so the primary `model` and each `models[i]` fallback are
+// held to identical rules — a fallback that only fails when the primary is
+// already down is the worst possible time to discover a typo.
+func (m ModelConfig) validateModelBlock(where string) error {
+	if err := m.validateAPIKeyEnv(where); err != nil {
+		return err
+	}
+	return m.validateProtocol(where)
 }
 
 // validEnvVarName reports whether s has the shape of a POSIX environment
@@ -379,11 +452,11 @@ func (c *Config) finalize() error {
 	// pasting the key here is the natural mistake: the resulting os.Getenv
 	// lookup silently returns "", no Authorization header is sent, and the
 	// provider answers with a generic 400 that says nothing about the cause.
-	if err := c.Model.validateAPIKeyEnv("model"); err != nil {
+	if err := c.Model.validateModelBlock("model"); err != nil {
 		return err
 	}
 	for i := range c.Models {
-		if err := c.Models[i].validateAPIKeyEnv(fmt.Sprintf("models[%d]", i)); err != nil {
+		if err := c.Models[i].validateModelBlock(fmt.Sprintf("models[%d]", i)); err != nil {
 			return err
 		}
 	}

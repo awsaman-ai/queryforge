@@ -48,16 +48,19 @@ public final class QueryForge {
     private final String backend;
     private final Map<String, Object> scope;
     private final Map<String, Object> options;
+    private final Map<String, String> credentials;
 
     private QueryForge(
             Map<String, Object> config,
             String backend,
             Map<String, Object> scope,
-            Map<String, Object> options) {
+            Map<String, Object> options,
+            Map<String, String> credentials) {
         this.config = config;
         this.backend = backend;
         this.scope = scope;
         this.options = options;
+        this.credentials = credentials;
     }
 
     // ------------------------------------------------------------ factories
@@ -135,6 +138,7 @@ public final class QueryForge {
                 Collections.unmodifiableMap(new LinkedHashMap<>(config)),
                 backend,
                 Collections.emptyMap(),
+                Collections.emptyMap(),
                 Collections.emptyMap());
     }
 
@@ -152,7 +156,8 @@ public final class QueryForge {
         }
         Map<String, Object> merged = new LinkedHashMap<>(this.scope);
         merged.putAll(scope);
-        return new QueryForge(config, backend, Collections.unmodifiableMap(merged), options);
+        return new QueryForge(
+                config, backend, Collections.unmodifiableMap(merged), options, credentials);
     }
 
     /** Returns a copy whose queries are bounded by this deadline unless overridden per query. */
@@ -163,7 +168,58 @@ public final class QueryForge {
         }
         Map<String, Object> next = new LinkedHashMap<>(options);
         next.put("timeoutMs", (int) millis);
-        return new QueryForge(config, backend, scope, Collections.unmodifiableMap(next));
+        return new QueryForge(
+                config, backend, scope, Collections.unmodifiableMap(next), credentials);
+    }
+
+    /**
+     * Returns a copy that supplies these environment variables to the engine.
+     *
+     * <p>This is how an API key reaches QueryForge from somewhere other than the environment the
+     * JVM was launched in — a secret manager, a vault client, a {@code @Value} field:
+     *
+     * <pre>{@code
+     * QueryForge qf = QueryForge.mysql(configPath)
+     *         .withCredentials(Collections.singletonMap("QF_API_KEY", vault.read("openai/key")));
+     * }</pre>
+     *
+     * <p>The map key is a variable NAME — whatever the config's {@code model.apiKeyEnv} refers to
+     * — and the value is the secret. Values are placed in the engine subprocess's environment
+     * only: they never enter the request body, are never logged, and never touch this JVM's own
+     * environment, so two instances holding different keys do not interfere.
+     *
+     * <p>Merged with any credentials already set, so several calls compose.
+     *
+     * @throws InvalidRequestException if a key is not a legal environment variable name, or a
+     *     value is null
+     */
+    public QueryForge withCredentials(Map<String, String> credentials) {
+        if (credentials == null || credentials.isEmpty()) {
+            return this;
+        }
+        Map<String, String> merged = new LinkedHashMap<>(this.credentials);
+        for (Map.Entry<String, String> e : credentials.entrySet()) {
+            // The NAME is safe to quote in an error; the VALUE never is.
+            if (!Transport.isEnvName(e.getKey())) {
+                throw new InvalidRequestException(
+                        "credentials key \""
+                                + e.getKey()
+                                + "\" is not a valid environment variable name (letters, digits and"
+                                + " underscores, not starting with a digit). The key is the name your"
+                                + " config's model.apiKeyEnv refers to, e.g. \"QF_API_KEY\".",
+                        "INVALID_REQUEST",
+                        Collections.emptyList());
+            }
+            if (e.getValue() == null) {
+                throw new InvalidRequestException(
+                        "credentials value for \"" + e.getKey() + "\" must not be null",
+                        "INVALID_REQUEST",
+                        Collections.emptyList());
+            }
+            merged.put(e.getKey(), e.getValue());
+        }
+        return new QueryForge(
+                config, backend, scope, options, Collections.unmodifiableMap(merged));
     }
 
     /** The backend id this instance compiles to. */
@@ -237,7 +293,10 @@ public final class QueryForge {
             String text, Map<String, Object> scope, Map<String, Object> options, String requestId) {
         Map<String, Object> request = baseRequest("translate", scope, options);
         request.put("query", text);
-        return QueryForgeResult.fromJson(Transport.run(request, timeoutOf(options), requestId));
+        // Credentials are attached HERE and nowhere else. translate is the only op that reaches a
+        // model, so generate and validate spawn an engine that never receives the key.
+        return QueryForgeResult.fromJson(
+                Transport.run(request, timeoutOf(options), requestId, credentials));
     }
 
     private Map<String, Object> baseRequest(

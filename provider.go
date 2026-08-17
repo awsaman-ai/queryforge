@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strings"
 	"sync"
 	"time"
 )
@@ -35,8 +34,21 @@ type OpenAIProvider struct {
 	JSONMode    bool         // request response_format=json_object when supported
 	HTTPClient  *http.Client // injectable for tests/timeouts
 
+	// MaxRetries is the number of additional attempts a RETRYABLE failure gets
+	// (rate limit, 5xx, dropped connection). Zero — the zero value, and so the
+	// behaviour of any hand-constructed provider — means no retrying, exactly
+	// as before this field existed. NewOpenAIProvider applies the config default.
+	MaxRetries int
+
+	// RetryBackoff is the first retry delay, doubling and jittered thereafter.
+	// Zero uses the package default.
+	RetryBackoff time.Duration
+
 	ProviderID string   // provider label for events, e.g. "gemini"; cosmetic only
 	Observe    Observer // optional; receives one EventModelCall per round trip
+
+	// jitter overrides backoff randomisation in tests. nil = real jitter.
+	jitter func(time.Duration) time.Duration
 }
 
 // SetObserver installs the Observer. It satisfies observerSetter, which is how
@@ -53,15 +65,21 @@ func NewOpenAIProvider(m ModelConfig) *OpenAIProvider {
 	if m.APIKeyEnv != "" {
 		key = os.Getenv(m.APIKeyEnv) // resolve the env var name to its value
 	}
+	// The endpoint comes from resolveEndpoint, so a known provider name alone
+	// ("groq", "ollama") is a complete configuration; an explicit baseURL still
+	// overrides it.
+	baseURL, _ := resolveEndpoint(m)
 	return &OpenAIProvider{
-		BaseURL:     strings.TrimRight(m.BaseURL, "/"), // normalize trailing slash
-		Model:       m.Model,
-		APIKey:      key,
-		Temperature: m.Temperature,
-		MaxTokens:   m.MaxTokens,
-		JSONMode:    m.EffectiveJSONMode(), // off unless the config opts in; see ModelConfig.JSONMode
-		HTTPClient:  &http.Client{Timeout: 30 * time.Second},
-		ProviderID:  m.Provider, // may be empty; purely a label on events
+		BaseURL:      baseURL,
+		Model:        m.Model,
+		APIKey:       key,
+		Temperature:  m.Temperature,
+		MaxTokens:    m.MaxTokens,
+		JSONMode:     m.EffectiveJSONMode(), // off unless the config opts in; see ModelConfig.JSONMode
+		HTTPClient:   &http.Client{Timeout: m.EffectiveTimeout()},
+		MaxRetries:   m.EffectiveMaxRetries(),
+		RetryBackoff: m.EffectiveRetryBackoff(),
+		ProviderID:   m.Provider, // may be empty; purely a label on events
 	}
 }
 
@@ -105,26 +123,47 @@ type chatResponse struct {
 	} `json:"error"`
 }
 
-// Complete performs one chat completion and returns the assistant's text.
-func (p *OpenAIProvider) Complete(ctx context.Context, system, user string) (out string, err error) {
+// Complete performs a chat completion and returns the assistant's text,
+// retrying round trips whose failure might be fixed by waiting.
+//
+// The retry loop lives here rather than in the engine because only this layer
+// can tell a rate limit from a bad key. The engine's repair loop retries the
+// MODEL's reasoning by changing the prompt; this retries the TRANSPORT with an
+// identical request. Conflating them would let a throttled endpoint silently
+// consume the repair budget, and a genuinely confused model silently consume
+// the retry budget.
+func (p *OpenAIProvider) Complete(ctx context.Context, system, user string) (string, error) {
+	rp := retryPolicy{MaxRetries: p.MaxRetries, BaseBackoff: p.RetryBackoff, jitter: p.jitter}
+	return rp.do(ctx, func(ctx context.Context, n int) (string, error) {
+		return p.roundTrip(ctx, system, user, n)
+	})
+}
+
+// roundTrip performs exactly one HTTP request and emits exactly one
+// EventModelCall for it — including when it is a retry, so a chain of attempts
+// is visible individually rather than averaged into a single event.
+func (p *OpenAIProvider) roundTrip(ctx context.Context, system, user string, retry int) (out string, err error) {
 	// This method is the only place that sees round-trip latency, token usage,
 	// and finish_reason — the three facts worth watching, since the model call
 	// is ~99.97% of a translation's wall time. Report them on EVERY return path
 	// via defer, so no early exit can silently drop the event; the outcome is
 	// derived from the named error return rather than repeated at each exit.
 	start := time.Now()
-	ev := Event{Kind: EventModelCall, Provider: p.ProviderID, Model: p.Model, Outcome: OutcomeOK}
+	ev := Event{Kind: EventModelCall, Provider: p.ProviderID, Model: p.Model, Outcome: OutcomeOK, Retry: retry}
 	defer func() {
 		ev.Latency = time.Since(start)
 		if err != nil {
 			ev.Outcome = OutcomeTransport // no usable text came back, whatever the cause
 			ev.Err = err
+			if pe, ok := asProviderError(err); ok {
+				ev.ErrorKind = pe.Kind
+			}
 		}
 		p.Observe.emit(ctx, ev)
 	}()
 
 	if p.BaseURL == "" {
-		return "", fmt.Errorf("provider: no baseURL configured")
+		return "", noEndpointError(ModelConfig{Provider: p.ProviderID})
 	}
 
 	// Build the request body.
@@ -142,13 +181,13 @@ func (p *OpenAIProvider) Complete(ctx context.Context, system, user string) (out
 	}
 	raw, err := json.Marshal(reqBody)
 	if err != nil {
-		return "", fmt.Errorf("provider: marshal request: %w", err)
+		return "", p.fail(KindInvalidRequest, 0, "marshal request: "+err.Error(), err)
 	}
 
 	// Construct and send the HTTP request.
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.BaseURL+"/chat/completions", bytes.NewReader(raw))
 	if err != nil {
-		return "", fmt.Errorf("provider: build request: %w", err)
+		return "", p.fail(KindInvalidRequest, 0, "build request: "+err.Error(), err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if p.APIKey != "" {
@@ -161,23 +200,27 @@ func (p *OpenAIProvider) Complete(ctx context.Context, system, user string) (out
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("provider: request failed: %w", err)
+		return "", p.fail(classifyTransport(ctx, err), 0, "request failed: "+err.Error(), err)
 	}
 	defer resp.Body.Close()
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("provider: read response: %w", err)
+		// A body that dies mid-read is a broken connection, not a bad reply.
+		return "", p.fail(classifyTransport(ctx, err), resp.StatusCode, "read response: "+err.Error(), err)
 	}
 
-	// Non-2xx: surface a bounded snippet of the body for debugging.
+	// Non-2xx: classify by status, and surface a bounded, redacted snippet.
 	if resp.StatusCode/100 != 2 {
-		return "", fmt.Errorf("provider: endpoint returned %d: %s", resp.StatusCode, snippet(data, 300))
+		body := snippet(data, 300)
+		pe := p.fail(classifyStatus(resp.StatusCode, body), resp.StatusCode, body, nil)
+		pe.RetryAfter = parseRetryAfter(resp.Header)
+		return "", errModelUnreachable(pe)
 	}
 
 	var cr chatResponse
 	if err := json.Unmarshal(data, &cr); err != nil {
-		return "", fmt.Errorf("provider: decode response: %w", err)
+		return "", p.fail(KindBadResponse, resp.StatusCode, "decode response: "+err.Error(), err)
 	}
 	// Record what the reply cost as soon as it is decoded, so the event carries
 	// the numbers even on the failure paths below — a truncated or empty reply
@@ -190,11 +233,18 @@ func (p *OpenAIProvider) Complete(ctx context.Context, system, user string) (out
 		ev.FinishReason = cr.Choices[0].FinishReason
 	}
 
+	// Some endpoints report failure in a 200 body rather than the status line.
+	// Classify from the message so a 200-wrapped rate limit still backs off
+	// instead of being mistaken for a broken model.
 	if cr.Error != nil && cr.Error.Message != "" {
-		return "", fmt.Errorf("provider: model error: %s", cr.Error.Message)
+		kind := KindBadResponse
+		if looksLikeQuota(cr.Error.Message) {
+			kind = KindQuota
+		}
+		return "", p.fail(kind, resp.StatusCode, "model error: "+cr.Error.Message, nil)
 	}
 	if len(cr.Choices) == 0 {
-		return "", fmt.Errorf("provider: response contained no choices")
+		return "", p.fail(KindBadResponse, resp.StatusCode, "response contained no choices", nil)
 	}
 
 	// A "length" finish means maxTokens ran out mid-reply. The content that came
@@ -204,13 +254,24 @@ func (p *OpenAIProvider) Complete(ctx context.Context, system, user string) (out
 	// thinking tokens are charged against the same budget, so the visible answer
 	// can be cut off even when it would have been short. Say what actually
 	// happened, and name the knob that fixes it.
+	//
+	// Classified BAD_RESPONSE, which is deliberately not retryable: the request
+	// is deterministic, so retrying truncates at exactly the same place while
+	// billing for it again.
 	if cr.Choices[0].FinishReason == "length" {
 		hidden := cr.Usage.TotalTokens - cr.Usage.PromptTokens - cr.Usage.CompletionTokens
-		return "", fmt.Errorf("provider: reply truncated by the token budget (finish_reason=length; prompt=%d, completion=%d, hidden reasoning=%d, total=%d): raise model.maxTokens in the config",
-			cr.Usage.PromptTokens, cr.Usage.CompletionTokens, hidden, cr.Usage.TotalTokens)
+		return "", p.fail(KindBadResponse, resp.StatusCode, fmt.Sprintf(
+			"reply truncated by the token budget (finish_reason=length; prompt=%d, completion=%d, hidden reasoning=%d, total=%d): raise model.maxTokens in the config",
+			cr.Usage.PromptTokens, cr.Usage.CompletionTokens, hidden, cr.Usage.TotalTokens), nil)
 	}
 
 	return cr.Choices[0].Message.Content, nil
+}
+
+// fail builds a classified error tagged with this provider's identity, with the
+// API key scrubbed from the detail text.
+func (p *OpenAIProvider) fail(kind ProviderErrorKind, status int, detail string, cause error) *ProviderError {
+	return newProviderError(kind, status, p.ProviderID, p.Model, detail, p.APIKey, cause)
 }
 
 // snippet returns at most n bytes of s, for safe inclusion in error messages.

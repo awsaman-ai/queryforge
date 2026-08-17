@@ -108,6 +108,23 @@ type Event struct {
 	TotalTokens      int           // as reported by the provider
 	FinishReason     string        // "stop", "length", ... — the tell that caught BUG-008
 
+	// Retry is which transport attempt this round trip was: 0 for the first,
+	// 1+ for retries after a retryable failure. One EventModelCall is emitted
+	// per round trip, so a throttled call that eventually succeeds appears as
+	// several events with rising Retry — which is the only way to see that a
+	// translation was slow because the provider was rate-limiting rather than
+	// because the model was thinking.
+	Retry int
+
+	// ErrorKind classifies a failed model call (AUTH, RATE_LIMIT, QUOTA, …).
+	// Empty when the call succeeded, and empty for a third-party ModelProvider
+	// whose errors this library cannot classify.
+	//
+	// Separate from the FailureCode reported to callers: that one is a wire
+	// contract shared with the SDKs, this one is a diagnostic axis free to gain
+	// members without breaking anything.
+	ErrorKind ProviderErrorKind
+
 	// ── EventAttempt and EventTranslate ──────────────────────────────────────
 
 	Outcome Outcome // how the step ended; always set on these two kinds
