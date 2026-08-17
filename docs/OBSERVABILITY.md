@@ -176,7 +176,7 @@ Example (engine binary, `--log-level=debug`):
 
 ```json
 {"time":"2026-08-13T01:30:00.412Z","level":"ERROR","msg":"request failed",
- "library":"queryforge","language":"go","version":"1.2.0","component":"cli",
+ "library":"queryforge","language":"go","version":"1.1.4","component":"cli",
  "operation":"translate","request_id":"8f3a1c2d4e5f","backend":"mysql","entity":"Order",
  "config_fields":5,"duration_ms":1842,"outcome":"error","error_code":"MODEL_TRANSPORT",
  "error":"planner: model transport failure: dial tcp: connection refused"}
