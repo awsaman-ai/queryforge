@@ -53,14 +53,6 @@ type retryPolicy struct {
 	jitter func(time.Duration) time.Duration
 }
 
-// retryPolicyFor builds the policy for a model block, applying defaults.
-func retryPolicyFor(m ModelConfig) retryPolicy {
-	return retryPolicy{
-		MaxRetries:  m.EffectiveMaxRetries(),
-		BaseBackoff: m.EffectiveRetryBackoff(),
-	}
-}
-
 // equalJitter returns a delay in [d/2, d). Half the wait is guaranteed, so
 // backoff still grows monotonically in expectation, and half is spread — which
 // is what actually de-synchronises concurrent callers.
