@@ -190,6 +190,7 @@
         "mongo": "tenantId",
         "sql": "tenant_id"
       },
+      "caseInsensitive": true,
       "queryable": false
     }
   ],

@@ -176,6 +176,7 @@
     <a href="#nested">Nested fields (Mongo)</a>
     <a href="#capabilities">Capability flags</a>
     <a href="#valuecase">Value case</a>
+    <a href="#caseinsensitive">Case-insensitive search</a>
     <a href="#hints">indexed &amp; priority</a>
     <a href="#operators">Operator catalogue</a>
     <a href="#values">Value kinds</a>
@@ -358,6 +359,7 @@ ORDER BY created_at DESC LIMIT 20
     <tr><td><code>mapping</code></td><td>object</td><td class="default">{}</td><td>Backend → physical column/field name, e.g. <code>{"sql":"customer_name","mongo":"customerName"}</code>. Falls back to <code>name</code>. For Mongo the value may be a dot path — see <a href="#nested">nested fields</a>.</td></tr>
     <tr><td><code>elemMatch</code></td><td>string</td><td class="default">""</td><td>Mongo only. The array of sub-documents this field lives inside, e.g. <code>"items"</code> for a field mapped to <code>"items.sku"</code>. See <a href="#nested">nested fields</a>.</td></tr>
     <tr><td><code>valueCase</code></td><td>string</td><td class="default">""</td><td>Force the case of this field's values in the built query: <code>"upper"</code>, <code>"lower"</code>, or omit for none. String-valued fields only. See <a href="#valuecase">value case</a>.</td></tr>
+    <tr><td><code>caseInsensitive</code></td><td>boolean</td><td class="default">false</td><td>Match this field's comparisons regardless of letter case: <code>equals, notEquals, in, notIn, contains, startsWith, endsWith</code>. String fields only, and mutually exclusive with <code>valueCase</code>. See <a href="#caseinsensitive">case-insensitive search</a>.</td></tr>
     <tr><td><code>queryable</code></td><td>boolean</td><td class="default">true</td><td>Include/exclude from the NL surface. <code>false</code> hides the field from the model and rejects any AST that references it.</td></tr>
     <tr><td><code>filterable</code></td><td>boolean</td><td class="default">true</td><td>May appear in filter predicates (WHERE / find).</td></tr>
     <tr><td><code>searchable</code></td><td>boolean</td><td class="default">string→true, else false</td><td>May use text-search operators (<code>contains, startsWith, endsWith, regex</code>).</td></tr>
@@ -471,6 +473,25 @@ ORDER BY created_at DESC LIMIT 20
   <p>It applies to every string a predicate carries — <code>equals, notEquals, in, notIn, between, contains, startsWith, endsWith, containsAny, containsAll</code> — on both backends, including fields inside an <a href="#nested"><code>elemMatch</code></a> array. Values that are not text are never touched: numbers, booleans and dates pass through unchanged.</p>
   <div class="note"><strong><code>regex</code> is deliberately exempt.</strong> A pattern is not a word. Upper-casing <code>\d</code> gives <code>\D</code> — "any digit" silently becomes "anything but a digit" — so a raw <code>regex</code> value reaches the query exactly as written, whatever the field declares.</div>
   <p class="muted">Only fields whose values are text may set it: <code>string</code>, <code>enum</code>, or an <code>array</code> of either. On a number, date or boolean the key would do nothing, so the config is rejected at load rather than loading with a setting that quietly never fires. A misspelt setting (<code>"uppercase"</code>, <code>"UPPER"</code>) is rejected for the same reason — the only accepted values are <code>"upper"</code> and <code>"lower"</code>.</p>
+
+  <h2 id="caseinsensitive">Case-insensitive search — matching a column whose case is not consistent <span class="pill">v1.1.5</span></h2>
+  <p><code>valueCase</code> fixes a column that stores one <em>consistent</em> case. It cannot fix a free-text column where the case is not consistent at all — <code>"Black"</code>, <code>"BLACK"</code> and <code>"black"</code> sitting in the same column, or a model guess that just does not match whatever a given row holds. <code>caseInsensitive</code> solves that from the other end: instead of forcing the query's value to one case, it makes the comparison itself blind to case, so it matches whichever case the row happens to be in.</p>
+  <pre><code>{ "name": "color", "type": "string", "caseInsensitive": true }</code></pre>
+  <div class="tablewrap"><table>
+    <tr><th>Question</th><th>Postgres</th><th>MySQL</th><th>Mongo</th></tr>
+    <tr><td>"black jackets" (column holds <code>"Black"</code>)</td>
+        <td><code>LOWER(color) = $1</code> · args <code>["black"]</code></td>
+        <td><code>LOWER(color) = ?</code> · args <code>["black"]</code></td>
+        <td><code>{"color":{"$regex":"^black$","$options":"i"}}</code></td></tr>
+  </table></div>
+  <p>It applies to <code>equals, notEquals, in, notIn, contains, startsWith, endsWith</code>. Each backend uses its own idiomatic mechanism rather than one shared trick:</p>
+  <ul>
+    <li><strong>Postgres</strong> — <code>equals/notEquals/in/notIn</code> fold both sides through <code>LOWER()</code>; <code>contains/startsWith/endsWith</code> use <code>ILIKE</code>, which needs no folding on the column at all.</li>
+    <li><strong>MySQL</strong> — every operator folds through <code>LOWER()</code> on both sides; MySQL has no <code>ILIKE</code>, and a column's own collation is not something the generator can see or rely on.</li>
+    <li><strong>Mongo</strong> — <code>equals/notEquals/in/notIn</code> compile to anchored <code>/^…$/i</code> patterns rather than exact matches. A per-query <code>collation</code> was deliberately not used: it applies to <em>every</em> string comparison in the operation, including sibling predicates that never asked to be case-blind, where an anchored regex stays scoped to this one field. <code>contains</code> is unaffected — Mongo has always matched it case-insensitively, flag or not.</li>
+  </ul>
+  <div class="note"><strong>This has a cost, the same one any case-insensitive comparison has.</strong> <code>LOWER(column)</code> and Mongo's anchored regex cannot use a plain index on that column — a B-tree index on <code>color</code> does not serve <code>LOWER(color) = $1</code> — unless a matching expression index (Postgres) or functional index exists, or the query targets a case-insensitive collection collation (Mongo). An anchored regex with no leading wildcard can still use a plain index as a prefix scan, the same way SQL's <code>LIKE 'prefix%'</code> can, so <code>startsWith</code> fares better than <code>equals</code> does there. Turning this on for a high-traffic filter without an index to match is trading correctness for a table scan.</div>
+  <p class="muted">Only a plain <code>string</code> field may set it — not <code>enum</code> (its exact case belongs in <code>values</code> instead), not <code>array</code>, not <code>regex</code> values (a pattern's escapes change meaning with case, same reasoning as <code>valueCase</code>). It is also mutually exclusive with <code>valueCase</code> on the same field: the two solve the same mismatch from opposite ends, and setting both is rejected at load.</p>
 
   <h2 id="hints">indexed &amp; priority</h2>
   <p>These two are <strong>hints</strong>, not gates — they never reject a query. They steer deterministic behavior:</p>

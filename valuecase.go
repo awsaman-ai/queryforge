@@ -62,6 +62,18 @@ func (c *Config) valueCaseFor(fieldName string) ValueCase {
 	return f.ValueCase
 }
 
+// caseInsensitiveFor reports whether fieldName is declared with
+// caseInsensitive: true. Like valueCaseFor, an unregistered name (an
+// application-injected scope column, for instance) reports false rather than
+// erroring, so it stays safe to call for any predicate.
+func (c *Config) caseInsensitiveFor(fieldName string) bool {
+	f, ok := c.fieldByName[fieldName]
+	if !ok {
+		return false
+	}
+	return f.CaseInsensitive
+}
+
 // apply folds a single string according to the rule. CaseAsIs returns the input
 // unchanged, so callers can apply it unconditionally.
 func (vc ValueCase) apply(s string) string {

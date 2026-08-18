@@ -218,6 +218,12 @@ func mongoPredicate(c *Config, cond *Condition, field string, now time.Time) (ma
 	// pattern whose escapes change meaning with case (\d vs \D).
 	vc := c.valueCaseFor(cond.Field)
 
+	// caseInsensitive only ever means something for a plain string field — load
+	// rejects it on any other type — but this path is also reachable straight
+	// through the exported Generator with a hand-built AST that never saw
+	// validation, so the type is re-checked here rather than trusted.
+	ci := elemType == FieldString && c.caseInsensitiveFor(cond.Field)
+
 	// scalar renders the predicate's single operand, or reports why it cannot.
 	scalar := func() (any, error) { return mongoScalar(cond.Value, elemType, now, vc) }
 
@@ -227,8 +233,33 @@ func mongoPredicate(c *Config, cond *Condition, field string, now time.Time) (ma
 	case OpIsNotNull:
 		return map[string]any{field: map[string]any{"$ne": nil}}, nil
 	case OpEquals:
+		if ci {
+			// Mongo has no case-insensitive equality operator, and a per-query
+			// `collation` is the wrong tool here — it applies to every string
+			// comparison in the operation, including sibling predicates that
+			// never asked to be case-blind. An anchored, escaped regex is scoped
+			// to this one field, and — being a fixed prefix — can still use an
+			// index the same way a SQL `LIKE 'prefix%'` can.
+			s, err := mongoString(cond, OpEquals)
+			if err != nil {
+				return nil, err
+			}
+			return regexExpr(field, "^"+regexp.QuoteMeta(s)+"$", "i"), nil
+		}
 		return mongoScalarExpr(field, "", scalar, false)
 	case OpNotEquals:
+		if ci {
+			s, err := mongoString(cond, OpNotEquals)
+			if err != nil {
+				return nil, err
+			}
+			// Same NULL-semantics correction as the case-sensitive branch below:
+			// $exists:true keeps a missing field from counting as "not equal".
+			return map[string]any{field: map[string]any{
+				"$not":    map[string]any{"$regex": "^" + regexp.QuoteMeta(s) + "$", "$options": "i"},
+				"$exists": true,
+			}}, nil
+		}
 		// $ne alone matches documents that do not carry the field; SQL's
 		// `status <> $1` evaluates to NULL for a NULL status and excludes the row.
 		// $exists:true is what makes the two backends select the same rows from
@@ -258,11 +289,33 @@ func mongoPredicate(c *Config, cond *Condition, field string, now time.Time) (ma
 		if err != nil {
 			return nil, err
 		}
+		if ci {
+			// $in matches a regex element against a string field, but only when
+			// the element is an actual BSON regex — a plain string element
+			// compares literally. Rendering as $or of anchored patterns gets the
+			// same "any of these, ignoring case" result through the same
+			// {$regex,$options} shape every other branch here already uses.
+			branches, err := mongoCaseInsensitiveBranches(field, elems)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"$or": branches}, nil
+		}
 		return expr(field, "$in", mongoElems(elems, elemType, vc)), nil
 	case OpNotIn:
 		elems, err := sliceValue("mongo", OpNotIn, cond.Value, 0)
 		if err != nil {
 			return nil, err
+		}
+		if ci {
+			conds, err := mongoCaseInsensitiveNegatedBranches(field, elems)
+			if err != nil {
+				return nil, err
+			}
+			// Same NULL-semantics correction as the case-sensitive branch below:
+			// a missing field must not count as "none of these".
+			conds = append(conds, map[string]any{field: map[string]any{"$exists": true}})
+			return map[string]any{"$and": conds}, nil
 		}
 		// Same NULL-semantics correction as notEquals: $nin matches a missing
 		// field, `NOT IN` does not match a NULL column.
@@ -287,8 +340,9 @@ func mongoPredicate(c *Config, cond *Condition, field string, now time.Time) (ma
 			return mongoScalarExpr(field, "", scalar, false)
 		}
 		// Fold before quoting, so the pattern is built from the physical form.
-		// The "i" option already makes this branch case-blind; applying the rule
-		// anyway keeps one behaviour across backends (Postgres LIKE is not).
+		// The "i" option already makes this branch case-blind regardless of the
+		// caseInsensitive flag — Mongo contains has always ignored case; only
+		// Postgres LIKE and MySQL's binary collations needed the flag to catch up.
 		s, err := mongoString(cond, OpContains)
 		if err != nil {
 			return nil, err
@@ -299,13 +353,13 @@ func mongoPredicate(c *Config, cond *Condition, field string, now time.Time) (ma
 		if err != nil {
 			return nil, err
 		}
-		return regexExpr(field, "^"+regexp.QuoteMeta(vc.apply(s)), ""), nil
+		return regexExpr(field, "^"+regexp.QuoteMeta(vc.apply(s)), regexOptions(ci)), nil
 	case OpEndsWith:
 		s, err := mongoString(cond, OpEndsWith)
 		if err != nil {
 			return nil, err
 		}
-		return regexExpr(field, regexp.QuoteMeta(vc.apply(s))+"$", ""), nil
+		return regexExpr(field, regexp.QuoteMeta(vc.apply(s))+"$", regexOptions(ci)), nil
 	case OpRegex:
 		s, err := mongoString(cond, OpRegex)
 		if err != nil {
@@ -367,6 +421,50 @@ func regexExpr(field, pattern, options string) map[string]any {
 		inner["$options"] = options
 	}
 	return map[string]any{field: inner}
+}
+
+// regexOptions returns Mongo's case-insensitive flag when ci is set, or "" to
+// leave a pattern's own case sensitivity alone.
+func regexOptions(ci bool) string {
+	if ci {
+		return "i"
+	}
+	return ""
+}
+
+// mongoCaseInsensitiveBranches renders each element of an `in` list as its own
+// anchored, case-insensitive equality predicate, for $or to combine into "any
+// of these, ignoring case".
+func mongoCaseInsensitiveBranches(field string, elems []any) ([]any, error) {
+	out := make([]any, len(elems))
+	for i, e := range elems {
+		s, ok := e.(string)
+		if !ok {
+			return nil, fmt.Errorf("mongo: caseInsensitive field %q requires string values, got %T", field, e)
+		}
+		out[i] = regexExpr(field, "^"+regexp.QuoteMeta(s)+"$", "i")
+	}
+	return out, nil
+}
+
+// mongoCaseInsensitiveNegatedBranches is the `notIn` counterpart: each element
+// becomes a predicate that the document must NOT match, for $and to combine
+// into "none of these, ignoring case". The caller still has to add its own
+// $exists:true — a missing field satisfies every one of these individually,
+// same as it would satisfy $nin, and that is not the notIn result either
+// backend promises.
+func mongoCaseInsensitiveNegatedBranches(field string, elems []any) ([]any, error) {
+	out := make([]any, len(elems))
+	for i, e := range elems {
+		s, ok := e.(string)
+		if !ok {
+			return nil, fmt.Errorf("mongo: caseInsensitive field %q requires string values, got %T", field, e)
+		}
+		out[i] = map[string]any{field: map[string]any{
+			"$not": map[string]any{"$regex": "^" + regexp.QuoteMeta(s) + "$", "$options": "i"},
+		}}
+	}
+	return out, nil
 }
 
 // mergeAnd flattens AND children into one document when their top-level keys do

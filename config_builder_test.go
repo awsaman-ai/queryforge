@@ -92,6 +92,26 @@ func TestBuilderFullConfigSemantics(t *testing.T) {
 		}
 	}
 
+	// caseInsensitive must arrive true on the one field that declares it and
+	// false everywhere else — the same leak-in-either-direction risk valueCase
+	// carries just above, since it too changes what the built query does.
+	tenantID, ok := c.FieldByName("tenantId")
+	if !ok {
+		t.Fatal("field tenantId missing")
+	}
+	if !tenantID.CaseInsensitive {
+		t.Error("tenantId.caseInsensitive = false, want true")
+	}
+	for _, other := range []string{"name", "department", "salary", "active", "hiredAt"} {
+		f, found := c.FieldByName(other)
+		if !found {
+			t.Fatalf("field %s missing", other)
+		}
+		if f.CaseInsensitive {
+			t.Errorf("%s.caseInsensitive = true, want false", other)
+		}
+	}
+
 	// A flag left on "default" must emit nothing, so the library keeps deciding
 	// by type. An array is not sortable by default.
 	scores, ok := c.FieldByName("scores")
@@ -296,6 +316,8 @@ func TestBuilderInvalidOutputIsRejected(t *testing.T) {
 		{"elemmatch_mismatch.json", "must sit inside that array"},
 		{"bad_mongo_path.json", "invalid mongo path"},
 		{"valuecase_wrong_type.json", "not strings"},
+		{"caseinsensitive_wrong_type.json", "applies to string fields only"},
+		{"caseinsensitive_with_valuecase.json", "cannot both apply"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.file, func(t *testing.T) {

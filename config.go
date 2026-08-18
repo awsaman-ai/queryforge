@@ -312,6 +312,32 @@ type Field struct {
 	// pattern would turn \d into \D and invert its meaning.
 	ValueCase ValueCase `json:"valueCase,omitempty"`
 
+	// CaseInsensitive makes every string-comparison operator on this field match
+	// regardless of letter case, on every backend: equals, notEquals, in, notIn,
+	// contains, startsWith, endsWith.
+	//
+	// It exists for the mismatch valueCase cannot fix: a free-text column where
+	// the stored case is not one consistent case at all — "Black", "BLACK" and
+	// "black" can all be sitting in the same column, or the model's guess just
+	// does not match whatever a particular row happens to hold. valueCase folds
+	// the query's value to a fixed case on the assumption the storage is
+	// consistent; this instead makes the comparison itself blind to case, so it
+	// works whichever case the row is in. The two solve the same symptom from
+	// opposite ends and are mutually exclusive per field — load rejects a field
+	// that sets both.
+	//
+	// Only a plain string field may set it (not enum, not array, not date/number/
+	// boolean): an enum's fix is to declare `values` in the storage's exact case,
+	// and folding a pattern field like regex would change what the pattern means.
+	//
+	// The cost is the one every case-insensitive comparison has: on SQL it is
+	// rendered as LOWER(column) <op> LOWER(?), which cannot use a plain index on
+	// that column unless a matching expression index exists. On Mongo it compiles
+	// equals/notEquals/in/notIn to anchored `/^…$/i` patterns rather than exact
+	// matches. contains is unaffected on Mongo, which already matches
+	// case-insensitively there regardless of this flag.
+	CaseInsensitive bool `json:"caseInsensitive,omitempty"`
+
 	// --- Capability flags: what operations this field may take part in. ---
 	Queryable  *bool `json:"queryable,omitempty"`  // include/exclude from the NLP surface; false = hidden + rejected if referenced (default true)
 	Filterable *bool `json:"filterable,omitempty"` // may appear in structured filter predicates (default true)
@@ -521,6 +547,20 @@ func (c *Config) finalize() error {
 			return fmt.Errorf("config: field %q declares valueCase %q but its values are not strings (type %q) — "+
 				"valueCase applies to string and enum fields, or arrays of them",
 				f.Name, f.ValueCase, f.Type)
+		}
+		// caseInsensitive is narrower than valueCase on purpose: an enum's exact
+		// case belongs in `values`, and folding a regex pattern would change what
+		// it matches, so only a plain string field may set the flag.
+		if f.CaseInsensitive && f.Type != FieldString {
+			return fmt.Errorf("config: field %q sets caseInsensitive but is type %q — "+
+				"caseInsensitive applies to string fields only (an enum's case belongs in its values list)",
+				f.Name, f.Type)
+		}
+		if f.CaseInsensitive && f.ValueCase != CaseAsIs {
+			return fmt.Errorf("config: field %q sets both caseInsensitive and valueCase %q — "+
+				"they solve the same mismatch from opposite ends and cannot both apply: "+
+				"valueCase forces one case, caseInsensitive matches any case",
+				f.Name, f.ValueCase)
 		}
 		// Nested Mongo paths: a malformed dot path or an elemMatch that does not
 		// contain the field yields a query matching nothing, so reject it here.

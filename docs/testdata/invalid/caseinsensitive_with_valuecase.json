@@ -1,0 +1,11 @@
+{
+  "entity": "Order",
+  "fields": [
+    {
+      "name": "status",
+      "type": "string",
+      "valueCase": "upper",
+      "caseInsensitive": true
+    }
+  ]
+}

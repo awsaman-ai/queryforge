@@ -340,42 +340,50 @@ func (b *sqlBuilder) comparison(c *Config, cond *Condition) (string, error) {
 	vc := c.valueCaseFor(cond.Field) // "" unless the config asked for a case
 	dt := condScalarType(c, cond)    // the declared type every literal is read as
 
+	// caseInsensitive only ever means something for a plain string field — load
+	// rejects it on any other type — but this path is also reachable straight
+	// through the exported Generator with a hand-built AST that never saw
+	// validation, so the type is re-checked here rather than trusted.
+	ci := dt == FieldString && c.caseInsensitiveFor(cond.Field)
+
 	switch cond.Operator {
 	case OpIsNull:
 		return field + " IS NULL", nil
 	case OpIsNotNull:
 		return field + " IS NOT NULL", nil
 	case OpEquals:
-		return b.scalar(field, "=", cond.Value, dt, vc)
+		return b.scalar(field, "=", cond.Value, dt, vc, ci)
 	case OpNotEquals:
-		return b.scalar(field, "<>", cond.Value, dt, vc)
+		return b.scalar(field, "<>", cond.Value, dt, vc, ci)
 	case OpGt:
-		return b.scalar(field, ">", cond.Value, dt, vc)
+		return b.scalar(field, ">", cond.Value, dt, vc, false)
 	case OpLt:
-		return b.scalar(field, "<", cond.Value, dt, vc)
+		return b.scalar(field, "<", cond.Value, dt, vc, false)
 	case OpGte:
-		return b.scalar(field, ">=", cond.Value, dt, vc)
+		return b.scalar(field, ">=", cond.Value, dt, vc, false)
 	case OpLte:
-		return b.scalar(field, "<=", cond.Value, dt, vc)
+		return b.scalar(field, "<=", cond.Value, dt, vc, false)
 	case OpAfter:
-		return b.scalar(field, ">=", cond.Value, dt, vc)
+		return b.scalar(field, ">=", cond.Value, dt, vc, false)
 	case OpBefore:
-		return b.scalar(field, "<=", cond.Value, dt, vc)
+		return b.scalar(field, "<=", cond.Value, dt, vc, false)
 	case OpRegex:
-		// A pattern is text whatever the column holds, and is never recased.
-		return b.scalar(field, b.dialect.regexOp, cond.Value, FieldString, CaseAsIs)
+		// A pattern is text whatever the column holds, and is never recased —
+		// folding it through caseInsensitive would rewrite \d into \D just as
+		// surely as valueCase would.
+		return b.scalar(field, b.dialect.regexOp, cond.Value, FieldString, CaseAsIs, false)
 	case OpBetween:
 		return b.between(field, cond.Value, vc)
 	case OpIn:
-		return b.inList(field, "IN", OpIn, cond.Value, vc)
+		return b.inList(field, "IN", OpIn, cond.Value, vc, ci)
 	case OpNotIn:
-		return b.inList(field, "NOT IN", OpNotIn, cond.Value, vc)
+		return b.inList(field, "NOT IN", OpNotIn, cond.Value, vc, ci)
 	case OpStartsWith:
-		return b.like(field, "", "%", cond.Value, vc) // value%
+		return b.like(field, "", "%", cond.Value, vc, ci) // value%
 	case OpEndsWith:
-		return b.like(field, "%", "", cond.Value, vc) // %value
+		return b.like(field, "%", "", cond.Value, vc, ci) // %value
 	case OpContains:
-		return b.contains(c, field, cond, vc)
+		return b.contains(c, field, cond, vc, ci)
 	case OpContainsAny:
 		return b.arrayOp(field, OpContainsAny, b.dialect.arrayOverlap, cond.Value, vc)
 	case OpContainsAll:
@@ -385,13 +393,38 @@ func (b *sqlBuilder) comparison(c *Config, cond *Condition) (string, error) {
 	}
 }
 
-// scalar renders "field <op> $N" for a single bound value.
-func (b *sqlBuilder) scalar(field, sqlOp string, v *Value, declared FieldType, vc ValueCase) (string, error) {
+// scalar renders "field <op> $N" for a single bound value. When ci is set,
+// both sides are folded through LOWER() so the comparison is blind to case —
+// the column reference in the rendered text, the bound argument at bind time.
+func (b *sqlBuilder) scalar(field, sqlOp string, v *Value, declared FieldType, vc ValueCase, ci bool) (string, error) {
 	arg, err := b.value(v, declared, vc)
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%s %s %s", field, sqlOp, b.bind(arg)), nil
+	return fmt.Sprintf("%s %s %s", foldColumn(field, ci), sqlOp, b.bind(foldArg(arg, ci))), nil
+}
+
+// foldColumn wraps a column reference in LOWER(...) for a case-insensitive
+// comparison, so both sides of the predicate compare the same folded form.
+func foldColumn(field string, ci bool) string {
+	if !ci {
+		return field
+	}
+	return "LOWER(" + field + ")"
+}
+
+// foldArg lowers a bound string argument to match a LOWER(column) comparison.
+// Every caller only ever sets ci for a FieldString predicate, so v is always a
+// string in practice; the type assertion is a defensive no-op otherwise,
+// leaving a non-string argument untouched rather than panicking.
+func foldArg(v any, ci bool) any {
+	if !ci {
+		return v
+	}
+	if s, ok := v.(string); ok {
+		return strings.ToLower(s)
+	}
+	return v
 }
 
 // sliceValue reads an array-valued operand, requiring the arity the operator
@@ -426,7 +459,7 @@ func (b *sqlBuilder) between(field string, v *Value, vc ValueCase) (string, erro
 }
 
 // inList renders "field IN ($1, $2, …)" (or NOT IN) from an array value.
-func (b *sqlBuilder) inList(field, keyword string, op Operator, v *Value, vc ValueCase) (string, error) {
+func (b *sqlBuilder) inList(field, keyword string, op Operator, v *Value, vc ValueCase, ci bool) (string, error) {
 	elems, err := sliceValue(b.dialect.backend, op, v, 0)
 	if err != nil {
 		return "", err
@@ -434,9 +467,9 @@ func (b *sqlBuilder) inList(field, keyword string, op Operator, v *Value, vc Val
 	elems = vc.applyElems(elems)
 	phs := make([]string, len(elems))
 	for i, e := range elems {
-		phs[i] = b.bind(e)
+		phs[i] = b.bind(foldArg(e, ci))
 	}
-	return fmt.Sprintf("%s %s (%s)", field, keyword, strings.Join(phs, ", ")), nil
+	return fmt.Sprintf("%s %s (%s)", foldColumn(field, ci), keyword, strings.Join(phs, ", ")), nil
 }
 
 // arrayOp renders the dialect's array predicate against the bound elements —
@@ -470,8 +503,10 @@ func (b *sqlBuilder) arrayOp(field string, op Operator, render func(string, []st
 // like renders a LIKE predicate, wrapping the bound value with the given
 // prefix/suffix wildcards. The case rule is applied to the value only: the
 // wildcards are punctuation and the pattern is built after folding, so a
-// prefix search still anchors where the caller meant.
-func (b *sqlBuilder) like(field, pre, post string, v *Value, vc ValueCase) (string, error) {
+// prefix search still anchors where the caller meant. When ci is set the
+// column is compared through LOWER() too, and the pattern is folded a second
+// time (harmless on top of valueCase, which never applies together with ci).
+func (b *sqlBuilder) like(field, pre, post string, v *Value, vc ValueCase, ci bool) (string, error) {
 	if v == nil {
 		return "", fmt.Errorf("%s: LIKE requires a value on %s", b.dialect.backend, field)
 	}
@@ -479,12 +514,18 @@ func (b *sqlBuilder) like(field, pre, post string, v *Value, vc ValueCase) (stri
 	if !ok {
 		return "", fmt.Errorf("%s: LIKE requires a string value on %s", b.dialect.backend, field)
 	}
-	return fmt.Sprintf("%s LIKE %s", field, b.bind(pre+vc.apply(s)+post)), nil
+	pattern := pre + vc.apply(s) + post
+	if ci && b.dialect.backend == postgresDialect.backend {
+		// Postgres's own case-insensitive LIKE. Equivalent to folding both
+		// sides through LOWER(), without needing to touch the column.
+		return fmt.Sprintf("%s ILIKE %s", field, b.bind(pattern)), nil
+	}
+	return fmt.Sprintf("%s LIKE %s", foldColumn(field, ci), b.bind(foldArg(pattern, ci))), nil
 }
 
 // contains behaves differently by field type: array membership uses the
 // dialect's array-contains form; a string "contains" is a %substring% LIKE.
-func (b *sqlBuilder) contains(c *Config, field string, cond *Condition, vc ValueCase) (string, error) {
+func (b *sqlBuilder) contains(c *Config, field string, cond *Condition, vc ValueCase, ci bool) (string, error) {
 	if f, ok := c.FieldByName(cond.Field); ok && f.Type == FieldArray {
 		// The bound literal is one element, so it is read as the item type.
 		arg, err := b.value(cond.Value, scalarTypeOf(f), vc)
@@ -500,7 +541,7 @@ func (b *sqlBuilder) contains(c *Config, field string, cond *Condition, vc Value
 		}
 		return b.dialect.arrayContains(field, []string{b.bind(arg)}), nil
 	}
-	return b.like(field, "%", "%", cond.Value, vc) // %value% substring match
+	return b.like(field, "%", "%", cond.Value, vc, ci) // %value% substring match
 }
 
 // value converts a scalar AST Value into the Go argument bound to a

@@ -677,6 +677,9 @@ var QFLogic = (function () {
     valueCase: { t: "field.valueCase",
       what: "Forces the letter case of the values this field puts into the final query — for a column that stores SHIPPED while people say \"shipped\". It changes nothing above the generator: the model still sees and emits the values exactly as you wrote them here, and validation still checks that spelling, so your enum domain stays readable. Only the compiled SQL argument or Mongo value is recased. Raw regex values are left alone, because recasing a pattern would turn \\d into \\D.",
       ex: "values: [\"shipped\", \"cancelled\"]   valueCase: upper\n\"orders that shipped\"\n\nAST    → {field:\"status\", op:\"equals\", value:\"shipped\"}\nSQL    → status = $1   args: [\"SHIPPED\"]\nMongo  → {\"status\":\"SHIPPED\"}\n\nWith valueCase left on default the argument stays \"shipped\"." },
+    caseInsensitive: { t: "field.caseInsensitive",
+      what: "Makes every string-comparison operator on this field match regardless of case — equals, notEquals, in, notIn, contains, startsWith, endsWith — on every backend. Unlike valueCase, which forces one case on the assumption the column is consistent, this makes the comparison itself blind to case, so \"Black\", \"BLACK\" and \"black\" in the same column all match. String fields only, and mutually exclusive with valueCase. SQL renders it as LOWER(column) = LOWER(?) (or ILIKE on Postgres for the substring operators), which cannot use a plain index without a matching expression index; Mongo renders equals/in as anchored /^…$/i patterns. contains on Mongo is unaffected — it already matches case-insensitively regardless of this flag.",
+      ex: "type: \"string\", caseInsensitive: true\ncolumn holds \"Black\"; someone types \"black\"\n\nSQL    → LOWER(color) = LOWER($1)   args: [\"black\"]\nMongo  → {\"color\":{\"$regex\":\"^black$\",\"$options\":\"i\"}}\n\nBoth match the row. Without the flag, neither does." },
     indexed: { t: "field.indexed",
       what: "Tells QueryForge this field is backed by a database index. It never rejects anything: indexed predicates are ordered first, and filtering on a non-indexed field raises a soft warning.",
       ex: "status indexed, note not indexed\n→ WHERE (status = $1 AND note LIKE $2)\n   + warning: filtering on non-indexed field \"note\" may be slow." },
@@ -913,6 +916,7 @@ var QFLogic = (function () {
       mapping: {},       // backend key -> physical name
       elemMatch: "",     // Mongo array of sub-documents this field sits inside
       valueCase: "",     // "", "lower" or "upper" — case forced on emitted values
+      caseInsensitive: false, // string fields only; mutually exclusive with valueCase
       queryable: "", filterable: "", searchable: "", sortable: "", returnable: "",
       indexed: false, priority: "",
       min: "", max: "",  // validators
@@ -1009,6 +1013,11 @@ var QFLogic = (function () {
     // only when a case was chosen, so an untouched field carries no key and
     // values reach the query exactly as the AST spelled them.
     if (str(f.valueCase)) out.valueCase = str(f.valueCase);
+
+    // caseInsensitive makes every string-comparison operator on this field
+    // match regardless of case, on every backend. Boolean, so — like indexed
+    // below — only the non-default value is ever written.
+    if (f.caseInsensitive) out.caseInsensitive = true;
 
     // Capability flags: only explicit choices are written, so an untouched
     // field inherits the type-aware default rather than freezing today's one.
@@ -1280,6 +1289,19 @@ var QFLogic = (function () {
           "It applies to string and enum fields, or arrays of them. The loader rejects this.");
       }
 
+      // caseInsensitive is narrower than valueCase: only a plain string field
+      // may set it (an enum's exact case belongs in its values list instead),
+      // and it cannot be combined with valueCase — they solve the same case
+      // mismatch from opposite ends. The loader rejects both.
+      if (f.caseInsensitive && f.type !== "string") {
+        err(at, "caseInsensitive is set on a " + f.type + " field. It applies to string fields only " +
+          "— an enum's exact case belongs in its values list. The loader rejects this.");
+      }
+      if (f.caseInsensitive && vcase) {
+        err(at, "caseInsensitive and valueCase are both set. valueCase forces one case, caseInsensitive " +
+          "matches any case — they cannot both apply to the same field. The loader rejects this.");
+      }
+
       // Numeric bounds that exclude everything.
       var mn = num(f.min), mx = num(f.max);
       if (mn !== null && mx !== null && mn > mx) {
@@ -1419,6 +1441,7 @@ var QFLogic = (function () {
   var KNOWN_MODEL  = ["provider", "baseURL", "model", "apiKeyEnv", "temperature", "maxTokens", "jsonMode",
                       "protocol", "timeoutSeconds", "maxRetries", "retryBackoffMs"];
   var KNOWN_FIELD  = ["name", "type", "values", "itemType", "operators", "synonyms", "mapping", "elemMatch", "valueCase",
+                      "caseInsensitive",
                       "queryable", "filterable", "searchable", "sortable", "returnable",
                       "indexed", "priority", "validators"];
   var KNOWN_POLICY = ["maxNestingDepth", "denyRegexOn"];
@@ -1486,6 +1509,7 @@ var QFLogic = (function () {
         }
         f.elemMatch = src.elemMatch === undefined ? "" : String(src.elemMatch);
         f.valueCase = src.valueCase === undefined ? "" : String(src.valueCase);
+        f.caseInsensitive = src.caseInsensitive === true;
         for (var c = 0; c < CAPABILITIES.length; c++) {
           f[CAPABILITIES[c].key] = triOf(src[CAPABILITIES[c].key]);
         }
@@ -1793,6 +1817,9 @@ if (typeof window !== "undefined") { window.QFLogic = QFLogic; }
     // Value case changes the literal that reaches the database, so it belongs
     // on the summary line too rather than only inside the open card.
     if (L.str(f.valueCase)) badges.push(f.valueCase === "upper" ? "UPPERCASE values" : "lowercase values");
+    // Same reasoning as valueCase: it changes how the comparison itself runs,
+    // not just an advanced default, so it belongs on the collapsed summary too.
+    if (f.caseInsensitive) badges.push("case-insensitive");
 
     var needsDomain = f.type === "enum" || (f.type === "array" && f.itemType === "enum");
     var summaryBad = !name || (needsDomain && L.list(f.values).length === 0);
@@ -1934,6 +1961,13 @@ if (typeof window !== "undefined") { window.QFLogic = QFLogic; }
             '</select>' +
             '<p class="hint" style="margin:.2rem 0 0">Applies when the query is built, not before: the model still uses the ' +
             'spelling above and validation still checks it. A <code>regex</code> value is never recased.</p></div></div>'
+          : '') +
+        // Case-insensitive search sits beside value case because the two solve
+        // the same mismatch from opposite ends and cannot both be set — but it
+        // only ever applies to a plain string field: an enum's case belongs in
+        // its values list, not in a comparison-time toggle.
+        (f.type === "string"
+          ? '<div class="row"><div><label class="check"><input type="checkbox" data-path="fields.' + i + '.caseInsensitive" data-kind="checkbox"' + (f.caseInsensitive ? " checked" : "") + '><span>case-insensitive search</span></label>' + info("caseInsensitive") + '</div></div>'
           : '') +
         '<div class="row"><div><label>synonyms <span class="q">· comma-separated; what people actually say</span>' + info("synonyms") + '</label>' +
           '<input type="text" data-path="fields.' + i + '.synonyms" data-kind="structural" placeholder="state, order status"' + attr("value", f.synonyms) + '></div></div>' +

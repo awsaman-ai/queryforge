@@ -1,0 +1,10 @@
+{
+  "entity": "Order",
+  "fields": [
+    {
+      "name": "total",
+      "type": "number",
+      "caseInsensitive": true
+    }
+  ]
+}
