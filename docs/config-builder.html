@@ -98,7 +98,13 @@
   .row.c2 { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
   .row.c3 { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
   .row.c4 { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
-  .check { display: flex; align-items: center; gap: .4rem; font-size: .9rem; font-weight: 400; margin: 0; }
+  /* inline-flex, not flex: a checkbox label is usually followed by an info
+     bubble as a plain sibling in the same <div> (indexed, case-insensitive
+     search). A block-level flex container forces that sibling onto its own
+     line below; inline-flex keeps the checkbox row shrink-wrapped so the
+     bubble sits beside it. Inside a grid (.opgrid, #denyBox) this makes no
+     difference — a grid item's outer display is blockified regardless. */
+  .check { display: inline-flex; align-items: center; gap: .4rem; font-size: .9rem; font-weight: 400; margin: 0; }
   .check input { width: auto; }
 
   /* Info bubbles. Every setting carries one: an ⓘ that explains what the key
