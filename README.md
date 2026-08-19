@@ -13,7 +13,8 @@
 [![PyPI](https://img.shields.io/pypi/v/queryforge-ai?label=pypi)](https://pypi.org/project/queryforge-ai/)
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.awsaman-ai/queryforge?label=maven%20central)](https://central.sonatype.com/artifact/io.github.awsaman-ai/queryforge)
 
-[**Website**](https://queryforge-service.amtry.in) · [**Docs**](https://awsaman-ai.github.io/queryforge/) · [**Config builder**](https://awsaman-ai.github.io/queryforge/config-builder.html) · [**MCP server**](https://github.com/awsaman-ai/queryforge_mcp) · [**qfeval**](https://github.com/awsaman-ai/qfeval)
+[![Website](https://img.shields.io/badge/Website-2f6feb?style=for-the-badge&logo=googlechrome&logoColor=white)](https://queryforge-service.amtry.in)
+[![Config Builder](https://img.shields.io/badge/Config%20Builder-2f6feb?style=for-the-badge&logo=json&logoColor=white)](https://awsaman-ai.github.io/queryforge/config-builder.html)
 
 </div>
 
@@ -416,8 +417,6 @@ go test ./...
 
 Every component ships happy-path and adversarial "try to break it" tests — injection strings, unknown fields, illegal operator/type pairs, out-of-domain enums, deep nesting, oversized limits. CI also runs [golangci-lint](https://golangci-lint.run) against [`.golangci.yml`](.golangci.yml).
 
-What tests *cannot* cover is **comprehension** — whether the model reads a real sentence the way your user meant it. That's a statistical property of a remote service, so it needs a corpus and a pass rate. **[qfeval](https://github.com/awsaman-ai/qfeval)** grades a config against a CSV of sentences and the queries they should compile to. On its 25-case example corpus `gemini-3.1-flash-lite` scores **24/25** — and the one failure is an ambiguous sentence, not a misread one. A 573-case dataset covering every capability flag ships with it.
-
 ## Architecture
 
 | File | Role | AI? |
@@ -442,7 +441,6 @@ The planner is the only place a model runs. Validate → generate → explain is
 | Project | What it is |
 |---|---|
 | **[queryforge_mcp](https://github.com/awsaman-ai/queryforge_mcp)** | QueryForge over the Model Context Protocol, so Claude Desktop, Cursor or any MCP client can query your data. The tool schema is generated from your config, so the model picks from your vocabulary instead of guessing. Hidden fields and physical column names never leave the process. |
-| **[qfeval](https://github.com/awsaman-ai/qfeval)** | Scores a config against a golden file of sentences and expected queries. Compare two models on the same corpus before you pay for one. |
 | [Documentation](https://awsaman-ai.github.io/queryforge/) | Guide, full configuration reference, and the Query AST explained. |
 | [Config builder](https://awsaman-ai.github.io/queryforge/config-builder.html) | Build a config in a form and download it, with live validation. Runs entirely in the browser. |
 

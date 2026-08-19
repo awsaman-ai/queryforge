@@ -17,84 +17,114 @@
 <meta property="og:image:height" content="640">
 <meta name="twitter:card" content="summary_large_image">
 <style>
-  /* Palette is shared with docs/index.html and docs/config.html so the three
-     pages read as one site. Light is the default; dark follows the OS. */
+  /* ============================================================
+     Design tokens — a card/tag/button system shared by every part
+     of the page, so the whole thing reads as one connected UI
+     instead of five different forms glued together. Light is the
+     default; dark follows the OS, or an explicit data-theme.
+     ============================================================ */
   :root {
     --bg: #ffffff; --fg: #1a1d24; --muted: #5b6472; --border: #e2e6ec;
-    --card: #f6f8fa; --accent: #2f6feb; --code-bg: #f0f3f7; --code-fg: #0b3a8a;
-    --th-bg: #eef2f7; --warn-bg: #fff7e6; --warn-bd: #ffd591;
+    --card: #f6f8fa; --chip: #eef1f6; --accent: #2f6feb; --accent-tint: #eaf1fe;
+    --accent-700: #1f4fa8; --code-bg: #f0f3f7; --code-fg: #0b3a8a;
+    --warn-bg: #fff7e6; --warn-bd: #ffd591;
     --err-bg: #fff1f0; --err-bd: #ffa39e; --err-fg: #a8071a;
     --ok-bg: #f6ffed; --ok-bd: #b7eb8f; --ok-fg: #135200;
     --input-bg: #ffffff;
+    --radius: 14px; --radius-sm: 9px; --radius-pill: 999px;
+    --shadow-sm: 0 1px 2px rgba(16,24,40,.06);
+    --shadow-md: 0 10px 28px rgba(16,24,40,.12);
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #0f1319; --fg: #e6e9ef; --muted: #9aa4b2; --border: #232a35;
-      --card: #161b23; --accent: #6fa0ff; --code-bg: #1a212b; --code-fg: #9ecbff;
-      --th-bg: #1a212b; --warn-bg: #2a2413; --warn-bd: #6b5518;
+      --card: #161b23; --chip: #1c232d; --accent: #6fa0ff; --accent-tint: rgba(111,160,255,.14);
+      --accent-700: #bcd4ff; --code-bg: #1a212b; --code-fg: #9ecbff;
+      --warn-bg: #2a2413; --warn-bd: #6b5518;
       --err-bg: #2b1416; --err-bd: #6b1f24; --err-fg: #ff9c99;
       --ok-bg: #14210f; --ok-bd: #2f5c1c; --ok-fg: #a9e78a;
       --input-bg: #0c1015;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,.4); --shadow-md: 0 10px 28px rgba(0,0,0,.5);
     }
   }
   :root[data-theme="dark"] {
     --bg: #0f1319; --fg: #e6e9ef; --muted: #9aa4b2; --border: #232a35;
-    --card: #161b23; --accent: #6fa0ff; --code-bg: #1a212b; --code-fg: #9ecbff;
-    --th-bg: #1a212b; --warn-bg: #2a2413; --warn-bd: #6b5518;
+    --card: #161b23; --chip: #1c232d; --accent: #6fa0ff; --accent-tint: rgba(111,160,255,.14);
+    --accent-700: #bcd4ff; --code-bg: #1a212b; --code-fg: #9ecbff;
+    --warn-bg: #2a2413; --warn-bd: #6b5518;
     --err-bg: #2b1416; --err-bd: #6b1f24; --err-fg: #ff9c99;
     --ok-bg: #14210f; --ok-bd: #2f5c1c; --ok-fg: #a9e78a;
     --input-bg: #0c1015;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.4); --shadow-md: 0 10px 28px rgba(0,0,0,.5);
   }
   :root[data-theme="light"] {
     --bg: #ffffff; --fg: #1a1d24; --muted: #5b6472; --border: #e2e6ec;
-    --card: #f6f8fa; --accent: #2f6feb; --code-bg: #f0f3f7; --code-fg: #0b3a8a;
-    --th-bg: #eef2f7; --warn-bg: #fff7e6; --warn-bd: #ffd591;
+    --card: #f6f8fa; --chip: #eef1f6; --accent: #2f6feb; --accent-tint: #eaf1fe;
+    --accent-700: #1f4fa8; --code-bg: #f0f3f7; --code-fg: #0b3a8a;
+    --warn-bg: #fff7e6; --warn-bd: #ffd591;
     --err-bg: #fff1f0; --err-bd: #ffa39e; --err-fg: #a8071a;
     --ok-bg: #f6ffed; --ok-bd: #b7eb8f; --ok-fg: #135200;
     --input-bg: #ffffff;
+    --shadow-sm: 0 1px 2px rgba(16,24,40,.06);
+    --shadow-md: 0 10px 28px rgba(16,24,40,.12);
   }
   * { box-sizing: border-box; }
   body {
     margin: 0; background: var(--bg); color: var(--fg);
     font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   }
-  .wrap { max-width: 1400px; margin: 0 auto; padding: 1.5rem 1.25rem 5rem; }
-  h1 { font-size: 2rem; margin: 0 0 .25rem; }
-  h2 { font-size: 1.25rem; margin: 0 0 .5rem; }
+  .wrap { max-width: 1400px; margin: 0 auto; padding: 2rem 1.25rem 5rem; }
+  h1 { font-size: 1.9rem; margin: 0 0 .4rem; letter-spacing: -.01em; }
+  h2 { font-size: 1.2rem; margin: 0; }
   h3 { font-size: 1rem; margin: 1.25rem 0 .4rem; }
-  .lead { color: var(--muted); font-size: 1.02rem; margin: .25rem 0 1.25rem; }
+  .lead { color: var(--muted); font-size: 1rem; max-width: 76ch; margin: 0 0 1.5rem; }
   a { color: var(--accent); }
-  code { background: var(--code-bg); color: var(--code-fg); padding: .1em .35em; border-radius: 4px;
+  code { background: var(--code-bg); color: var(--code-fg); padding: .1em .35em; border-radius: 5px;
          font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .88em; }
-  pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 1rem;
+  pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 1rem;
         overflow-x: auto; margin: 0; }
   pre code { background: none; color: var(--fg); padding: 0; }
-  .note { background: var(--warn-bg); border: 1px solid var(--warn-bd); border-radius: 8px;
-          padding: .7rem .9rem; margin: 1rem 0; font-size: .93rem; }
   .muted { color: var(--muted); }
-  .pill { display: inline-block; background: var(--card); border: 1px solid var(--border);
-          border-radius: 999px; padding: .02rem .5rem; font-size: .78rem; color: var(--muted); }
+
+  /* Warning card — same card system as everything else, with an icon in
+     place of a flat colour band, so it reads as part of the page rather
+     than a banner glued on top of it. */
+  .note {
+    display: flex; align-items: flex-start; gap: .7rem;
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 1rem 1.1rem; margin: 0 0 1.75rem; font-size: .88rem; box-shadow: var(--shadow-sm);
+  }
+  .note svg { flex: none; margin-top: .1rem; color: var(--accent-700); }
+
+  /* Tags / chips — the step key, field type, counts, and status. */
+  .pill { display: inline-flex; align-items: center; font-family: ui-monospace, Menlo, monospace;
+          background: var(--chip); border: 1px solid var(--border); color: var(--muted);
+          border-radius: var(--radius-pill); padding: .1rem .55rem; font-size: .74rem; font-weight: 600; }
 
   /* Two-column shell: the form scrolls, the JSON preview sticks alongside it. */
-  .cols { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,460px); gap: 1.5rem; align-items: start; }
+  .cols { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,440px); gap: 1.5rem; align-items: start; }
   @media (max-width: 1050px) { .cols { grid-template-columns: minmax(0,1fr); } .side { position: static !important; } }
 
-  section.panel { background: var(--card); border: 1px solid var(--border); border-radius: 10px;
-                  padding: 1rem 1.1rem; margin-bottom: 1.1rem; }
-  section.panel > .hdr { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; margin-bottom: .35rem; }
-  section.panel > .hdr .step { font-size: .78rem; color: var(--muted); font-weight: 600; letter-spacing: .04em; }
-  .hint { color: var(--muted); font-size: .88rem; margin: .1rem 0 .8rem; }
+  section.panel { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+                  padding: 1.5rem 1.6rem; margin-bottom: 1.25rem; box-shadow: var(--shadow-sm); }
+  section.panel > .hdr { display: flex; align-items: baseline; gap: .65rem; flex-wrap: wrap; margin-bottom: .5rem; }
+  section.panel > .hdr .step { font-size: .72rem; color: var(--accent-700); font-weight: 700;
+                                letter-spacing: .1em; text-transform: uppercase; }
+  .hint { color: var(--muted); font-size: .87rem; margin: .1rem 0 .9rem; max-width: 68ch; }
 
   /* Form primitives. */
-  label { display: block; font-size: .82rem; font-weight: 600; margin-bottom: .18rem; }
+  label { display: block; font-size: .81rem; font-weight: 600; margin-bottom: .22rem; }
   label .q { font-weight: 400; color: var(--muted); }
   input[type=text], input[type=number], select, textarea {
     width: 100%; background: var(--input-bg); color: var(--fg); border: 1px solid var(--border);
-    border-radius: 6px; padding: .4rem .5rem; font: inherit; font-size: .93rem;
+    border-radius: var(--radius-sm); padding: .48rem .6rem; font: inherit; font-size: .92rem;
+    transition: border-color .12s ease, box-shadow .12s ease;
   }
   textarea { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .85rem; }
-  input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-  .row { display: grid; gap: .6rem .7rem; margin-bottom: .6rem; }
+  input:focus, select:focus, textarea:focus {
+    outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint);
+  }
+  .row { display: grid; gap: .7rem .8rem; margin-bottom: .7rem; }
   .row.c2 { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
   .row.c3 { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
   .row.c4 { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
@@ -104,8 +134,8 @@
      line below; inline-flex keeps the checkbox row shrink-wrapped so the
      bubble sits beside it. Inside a grid (.opgrid, #denyBox) this makes no
      difference — a grid item's outer display is blockified regardless. */
-  .check { display: inline-flex; align-items: center; gap: .4rem; font-size: .9rem; font-weight: 400; margin: 0; }
-  .check input { width: auto; }
+  .check { display: inline-flex; align-items: center; gap: .45rem; font-size: .89rem; font-weight: 400; margin: 0; }
+  .check input { width: auto; accent-color: var(--accent); }
 
   /* Info bubbles. Every setting carries one: an ⓘ that explains what the key
      does and shows a worked example, so the form can stay short without the
@@ -125,16 +155,16 @@
        text-transform: none; letter-spacing: normal; }
   .i:hover, .i:focus { border-color: var(--accent); color: var(--accent); outline: none; }
   .i > .tip { display: none; position: absolute; top: calc(100% + 6px); left: 0; z-index: 40;
-              width: 300px; max-width: 78vw; padding: .6rem .7rem; text-align: left;
-              background: var(--card); border: 1px solid var(--accent); border-radius: 8px;
-              box-shadow: 0 8px 24px rgba(0,0,0,.28);
+              width: 300px; max-width: 78vw; padding: .65rem .75rem; text-align: left;
+              background: var(--card); border: 1px solid var(--border); border-top: 2px solid var(--accent);
+              border-radius: var(--radius-sm); box-shadow: var(--shadow-md);
               font-size: .82rem; font-weight: 400; font-style: normal; line-height: 1.45;
               color: var(--fg); cursor: auto; white-space: normal;
               text-transform: none; letter-spacing: normal; text-align: left;
               font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }
   .i:hover > .tip, .i:focus > .tip, .i:focus-within > .tip { display: block; }
   .i > .tip b { display: block; font-family: ui-monospace, Menlo, monospace; font-size: .82rem;
-                margin-bottom: .25rem; color: var(--accent); }
+                margin-bottom: .25rem; color: var(--accent-700); }
   .i > .tip .ex { display: block; margin-top: .45rem; padding-top: .4rem; border-top: 1px dashed var(--border);
                   font-family: ui-monospace, Menlo, monospace; font-size: .76rem; color: var(--muted);
                   white-space: pre-wrap; word-break: break-word; }
@@ -144,8 +174,8 @@
 
   /* Progressive disclosure. The four blocks most configs never touch live
      behind this, so a field card opens showing four controls instead of forty. */
-  details.adv { margin-top: .7rem; border-top: 1px dashed var(--border); padding-top: .5rem; }
-  details.adv > summary { cursor: pointer; font-size: .8rem; font-weight: 700; letter-spacing: .04em;
+  details.adv { margin-top: .8rem; border-top: 1px dashed var(--border); padding-top: .6rem; }
+  details.adv > summary { cursor: pointer; font-size: .78rem; font-weight: 700; letter-spacing: .06em;
                           text-transform: uppercase; color: var(--muted); list-style: none;
                           display: flex; align-items: center; gap: .4rem; }
   details.adv > summary::-webkit-details-marker { display: none; }
@@ -153,111 +183,106 @@
   details.adv[open] > summary::before { content: "▾"; }
   details.adv > summary:hover { color: var(--accent); }
   details.adv > summary .lbl { font-weight: 400; text-transform: none; letter-spacing: 0; font-size: .82rem; }
-  details.adv > .advbody { padding-top: .2rem; }
+  details.adv > .advbody { padding-top: .3rem; }
   /* Inside a disclosure the first subgroup's own rule would double the divider. */
   details.adv > .advbody > .subgroup:first-child { border-top: 0; margin-top: .2rem; padding-top: 0; }
 
   /* A whole panel can fold too, for the two steps most users leave alone. */
   details.foldpanel > summary { cursor: pointer; list-style: none; display: flex; align-items: baseline;
-                                gap: .6rem; flex-wrap: wrap; margin-bottom: .35rem; }
+                                gap: .65rem; flex-wrap: wrap; margin-bottom: .5rem; }
   details.foldpanel > summary::-webkit-details-marker { display: none; }
   details.foldpanel > summary::before { content: "▸"; color: var(--muted); align-self: center; }
   details.foldpanel[open] > summary::before { content: "▾"; }
   details.foldpanel > summary h2 { margin: 0; }
   details.foldpanel > summary:hover h2 { color: var(--accent); }
 
-  button { font: inherit; font-size: .88rem; cursor: pointer; border-radius: 6px;
-           border: 1px solid var(--border); background: var(--bg); color: var(--fg); padding: .35rem .7rem; }
-  button:hover { border-color: var(--accent); color: var(--accent); }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
-  button.primary:hover { color: #fff; opacity: .92; }
-  button.danger:hover { border-color: var(--err-bd); color: var(--err-fg); }
-  button.icon { padding: .2rem .45rem; line-height: 1.2; }
+  /* Buttons — filled primary, outlined secondary, ghost icon. */
+  button { font: inherit; font-size: .85rem; font-weight: 600; cursor: pointer; border-radius: var(--radius-sm);
+           border: 1px solid var(--border); background: var(--bg); color: var(--fg); padding: .48rem .85rem;
+           transition: transform .12s ease, box-shadow .12s ease, filter .12s ease, background .12s ease,
+                       border-color .12s ease, color .12s ease; }
+  button:hover { border-color: var(--accent); color: var(--accent-700); background: var(--accent-tint); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: var(--shadow-sm); }
+  button.primary:hover { color: #fff; filter: brightness(1.07); transform: translateY(-1px); box-shadow: var(--shadow-md); }
+  button.danger:hover { border-color: var(--err-bd); color: var(--err-fg); background: var(--err-bg); }
+  button.icon { padding: .3rem; width: 1.9rem; height: 1.9rem; line-height: 1; }
   /* A backend with no generator behind it is shown greyed rather than hidden,
      so the page answers "is Elasticsearch supported?" instead of leaving it open. */
-  button[disabled] { cursor: not-allowed; opacity: .5; }
-  button[disabled]:hover { border-color: var(--border); color: var(--fg); }
+  button[disabled] { cursor: not-allowed; opacity: .48; }
+  button[disabled]:hover { border-color: var(--border); color: var(--fg); background: var(--bg); transform: none; box-shadow: none; }
   .btnbar { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
 
   /* Field cards. */
-  details.fieldcard { border: 1px solid var(--border); border-radius: 8px; background: var(--bg); margin-bottom: .7rem; }
-  details.fieldcard > summary { cursor: pointer; padding: .5rem .7rem; display: flex; align-items: center;
+  details.fieldcard { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg);
+                      margin-bottom: .75rem; transition: box-shadow .12s ease; }
+  details.fieldcard[open] { box-shadow: var(--shadow-sm); }
+  details.fieldcard > summary { cursor: pointer; padding: .55rem .8rem; display: flex; align-items: center;
                                 gap: .5rem; flex-wrap: wrap; font-size: .93rem; }
   details.fieldcard > summary::-webkit-details-marker { display: none; }
   details.fieldcard > summary::before { content: "▸"; color: var(--muted); }
   details.fieldcard[open] > summary::before { content: "▾"; }
   details.fieldcard > summary .fname { font-weight: 600; font-family: ui-monospace, Menlo, monospace; }
   details.fieldcard > summary .spacer { flex: 1 1 auto; }
-  details.fieldcard > summary.bad { background: var(--err-bg); border-radius: 7px 7px 0 0; }
-  .cardbody { padding: .3rem .7rem .8rem; border-top: 1px solid var(--border); }
-  .subgroup { border-top: 1px dashed var(--border); margin-top: .7rem; padding-top: .6rem; }
-  .subgroup > .t { font-size: .78rem; font-weight: 700; letter-spacing: .04em; color: var(--muted);
-                   text-transform: uppercase; margin-bottom: .4rem; }
-  .opgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: .1rem .6rem; }
+  details.fieldcard > summary.bad { background: var(--err-bg);
+                                    border-radius: calc(var(--radius-sm) - 1px) calc(var(--radius-sm) - 1px) 0 0; }
+  .cardbody { padding: .4rem .8rem .9rem; border-top: 1px solid var(--border); }
+  .subgroup { border-top: 1px dashed var(--border); margin-top: .75rem; padding-top: .65rem; }
+  .subgroup > .t { font-size: .76rem; font-weight: 700; letter-spacing: .06em; color: var(--muted);
+                   text-transform: uppercase; margin-bottom: .45rem; }
+  .opgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: .15rem .6rem; }
   .opgrid label.check { font-family: ui-monospace, Menlo, monospace; font-size: .84rem; }
   .opgrid label.check.odd span { color: var(--muted); }
   fieldset { border: 0; padding: 0; margin: 0; }
   fieldset[disabled] .opgrid { opacity: .45; }
 
-  /* Output side panel. Its sticky offset clears the floating navbar below,
-     otherwise the preview slides under the bar instead of stopping at it. */
-  .side { position: sticky; top: 4.25rem; }
-  .side pre { max-height: 46vh; overflow: auto; font-size: .8rem; }
-  .diag { list-style: none; padding: 0; margin: .6rem 0 0; font-size: .88rem; }
-  .diag li { border: 1px solid var(--border); border-radius: 6px; padding: .35rem .55rem; margin-bottom: .35rem; }
-  .diag li.err { background: var(--err-bg); border-color: var(--err-bd); }
-  .diag li.warn { background: var(--warn-bg); border-color: var(--warn-bd); }
-  .diag li.ok { background: var(--ok-bg); border-color: var(--ok-bd); color: var(--ok-fg); }
+  /* Output side panel. Its sticky offset clears the header below, otherwise
+     the preview slides under the bar instead of stopping at it. */
+  .side { position: sticky; top: 4.5rem; }
+  .side pre { max-height: 44vh; overflow: auto; font-size: .8rem; }
+  .diag { list-style: none; padding: 0; margin: .7rem 0 0; font-size: .87rem; }
+  .diag li { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .4rem .6rem; margin-bottom: .4rem; }
+  .diag li.err { background: var(--err-bg); border-color: var(--err-bd); border-left: 3px solid var(--err-fg); }
+  .diag li.warn { background: var(--warn-bg); border-color: var(--warn-bd); border-left: 3px solid #ad8b1f; }
+  .diag li.ok { background: var(--ok-bg); border-color: var(--ok-bd); color: var(--ok-fg); border-left: 3px solid var(--ok-fg); }
   .diag li .w { font-family: ui-monospace, Menlo, monospace; font-size: .8rem; color: var(--muted); }
   .stat { font-size: .82rem; color: var(--muted); }
 </style>
 <style>
-  /* ---- Floating site navbar -------------------------------------------
-     Identical block to docs/index.html and docs/config.html so the three
-     pages share one bar, plus the extras this page needs: a live validity
-     chip and always-reachable Download / Copy buttons, so neither the answer
-     to "does this load?" nor the file itself is ever a scroll away.
-     Still no framework, no webfont and no remote asset — the page has to keep
-     working opened straight from disk. */
+  /* ---- Simplified sticky header ----------------------------------------
+     No cross-page links here: the builder is a self-contained tool, so the
+     bar carries only what belongs to it — the brand (back to the docs), the
+     live validity chip, and the two actions that matter most, always in
+     reach while the form scrolls underneath. Still no framework, no webfont
+     and no remote asset — the page has to keep working opened from disk. */
   .qfnav {
-    position: sticky; top: 0; z-index: 50;          /* floats above the form */
-    background: var(--bg);                          /* opaque fallback where blur is unsupported */
+    position: sticky; top: 0; z-index: 50;
+    background: var(--bg);
     border-bottom: 1px solid var(--border);
   }
   @supports (backdrop-filter: blur(8px)) {
-    /* Translucent + blurred, so the form scrolling underneath stays legible. */
-    .qfnav { background: color-mix(in srgb, var(--bg) 80%, transparent); backdrop-filter: saturate(170%) blur(10px); }
+    .qfnav { background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: saturate(170%) blur(10px); }
   }
   .qfnav-in {
-    max-width: 1400px; margin: 0 auto;              /* matches .wrap on this page */
-    padding: .5rem 1.25rem;
-    display: flex; align-items: center; gap: .35rem;
+    max-width: 1400px; margin: 0 auto;
+    padding: .65rem 1.25rem;
+    display: flex; align-items: center; gap: .6rem;
   }
   .qfnav-brand {
-    display: inline-flex; align-items: center; gap: .5rem;
+    display: inline-flex; align-items: center; gap: .55rem;
     color: var(--fg); text-decoration: none; font-weight: 700; white-space: nowrap;
   }
   .qfnav-mark {
     display: inline-grid; place-items: center; width: 1.6rem; height: 1.6rem;
-    border-radius: 6px; background: var(--accent); color: #fff; font-size: .7rem; font-weight: 800;
+    border-radius: 7px; background: var(--accent); color: #fff; font-size: .7rem; font-weight: 800;
   }
-  .qfnav-links { display: flex; gap: .1rem; margin-left: .6rem; }
-  .qfnav-links a {
-    color: var(--muted); text-decoration: none; font-size: .9rem;
-    padding: .35rem .5rem; border-radius: 7px;
-    white-space: nowrap;                            /* a two-word label must not wrap to two lines */
-  }
-  .qfnav-links a:hover { color: var(--fg); background: var(--card); }
-  /* aria-current marks the page you are already on, so the bar doubles as a "you are here". */
-  .qfnav-links a[aria-current="page"] { color: var(--fg); background: var(--card); font-weight: 600; }
-  .qfnav-sp { flex: 1 1 auto; }                     /* pushes the actions to the right edge */
+  .qfnav-sub { color: var(--muted); font-size: .82rem; font-weight: 500; margin-right: auto; white-space: nowrap; }
 
   /* Live validity chip — the same verdict the diagnostics panel shows, in one line. */
   .qfnav-stat {
     display: inline-flex; align-items: center; gap: .4rem;
-    font-size: .84rem; color: var(--muted); white-space: nowrap;
+    font-size: .83rem; color: var(--muted); white-space: nowrap;
     border: 1px solid var(--border); background: var(--card);
-    border-radius: 999px; padding: .25rem .65rem;
+    border-radius: var(--radius-pill); padding: .28rem .7rem;
   }
   .qfnav-stat .d { width: .5rem; height: .5rem; border-radius: 50%; background: var(--muted); flex: none; }
   .qfnav-stat.ok  { color: var(--ok-fg);  background: var(--ok-bg);  border-color: var(--ok-bd); }
@@ -268,72 +293,61 @@
   .qfnav-cta {
     display: inline-flex; align-items: center; gap: .45rem;
     background: var(--accent); color: #fff; text-decoration: none;
-    font-weight: 600; font-size: .9rem; padding: .45rem .85rem; border-radius: 8px; white-space: nowrap;
-    box-shadow: 0 1px 2px rgba(0,0,0,.14);
+    font-weight: 700; font-size: .87rem; padding: .48rem .9rem; border-radius: var(--radius-sm); white-space: nowrap;
+    box-shadow: var(--shadow-sm); border: 0; cursor: pointer; font-family: inherit;
     transition: transform .12s ease, box-shadow .12s ease, filter .12s ease;
   }
-  button.qfnav-cta, button.qfnav-btn { border: 0; cursor: pointer; font-family: inherit; }
-  .qfnav-cta:hover { filter: brightness(1.08); transform: translateY(-1px); box-shadow: 0 5px 14px rgba(47,111,235,.34); }
+  .qfnav-cta:hover { filter: brightness(1.08); transform: translateY(-1px); box-shadow: var(--shadow-md); color: #fff; }
   .qfnav-btn {
-    background: transparent; color: var(--accent); border: 1px solid var(--border);
-    font-size: .88rem; font-weight: 600; padding: .4rem .7rem; border-radius: 8px; white-space: nowrap;
+    background: transparent; color: var(--fg); border: 1px solid var(--border);
+    font-size: .85rem; font-weight: 600; padding: .46rem .8rem; border-radius: var(--radius-sm); white-space: nowrap;
+    cursor: pointer; font-family: inherit;
   }
-  .qfnav-btn:hover { background: var(--card); border-color: var(--accent); }
+  .qfnav-btn:hover { background: var(--card); border-color: var(--accent); color: var(--accent-700); }
   @media (prefers-reduced-motion: reduce) { .qfnav-cta { transition: none; } }
-  @media (max-width: 1120px) {
-    /* This bar carries more on its right-hand side than the other two pages —
-       the validity chip and two buttons — so it runs out of room sooner. The
-       two off-site links go first: they are reachable from every other page,
-       and losing them keeps the in-site links on one line instead of wrapping. */
-    .qfnav-links a.qfnav-off { display: none; }
-  }
-  @media (max-width: 900px) {
+  @media (max-width: 640px) {
     /* The form itself is the point on a narrow screen; the bar keeps only the
        brand and the two actions. */
-    .qfnav-links, .qfnav-stat, .qfnav-long { display: none; }
-    .qfnav-in { padding: .5rem .9rem; }
+    .qfnav-sub, .qfnav-stat { display: none; }
+    .qfnav-in { padding: .55rem .9rem; }
   }
 </style>
 </head>
 <body>
 
-<!-- ===================== floating navbar (shared across docs) =====================
-     On this page the right-hand side is live: the chip reports what the
-     diagnostics panel reports, and the two buttons carry the same data-act
-     values as the ones in the side panel, so the existing delegated click
-     handler drives them with no extra wiring. -->
+<!-- ===================== sticky header =====================
+     Self-contained tool, so no cross-page link list here. The right-hand
+     side is live: the chip reports what the diagnostics panel reports, and
+     the two buttons carry the same data-act values as the ones in the side
+     panel, so the existing delegated click handler drives them with no
+     extra wiring. -->
 <header class="qfnav">
   <div class="qfnav-in">
     <a class="qfnav-brand" href="index.html"><span class="qfnav-mark">QF</span>QueryForge</a>
-    <nav class="qfnav-links">
-      <a href="index.html">Overview</a>
-      <a href="index.html#get-started">Get started</a>
-      <a href="config.html">Config reference</a>
-      <a href="config-builder.html" aria-current="page">Config builder</a>
-      <a class="qfnav-off" href="https://github.com/awsaman-ai/qfeval">Evaluate</a>
-      <a class="qfnav-off" href="https://github.com/awsaman-ai/queryforge">GitHub</a>
-    </nav>
-    <span class="qfnav-sp"></span>
+    <span class="qfnav-sub">Config Builder</span>
     <span class="qfnav-stat" id="navStat"><span class="d"></span>Start with the entity name</span>
     <button type="button" class="qfnav-btn" data-act="copy">Copy</button>
-    <button type="button" class="qfnav-cta" data-act="download">⤓ Download<span class="qfnav-long">&nbsp;config</span></button>
+    <button type="button" class="qfnav-cta" data-act="download">⤓ Download</button>
   </div>
 </header>
 
 <div class="wrap">
 
-  <h1>QueryForge — Config Builder</h1>
-  <p class="lead">Fill in the form, watch the JSON build itself, download the file. Each field starts with the four
-  settings that matter and folds the rest behind <strong>Advanced</strong>; hover any <span class="i" tabindex="0"
-  role="note" aria-label="Example help bubble">i<span class="tip"><b>this is an ⓘ</b>Every setting has one. It says what
-  the key does and shows a worked example of the behaviour it produces, so you can stay on this page.<span class="ex">Try the one next to elemMatch on a nested Mongo field: it shows both filters side by side.</span></span></span>
-  for what a setting does and an example. Every option here is a real key in the loader (<code>ParseConfig</code>),
-  documented in the <a href="config.html">configuration reference</a>. Nothing leaves your browser — there is no server,
-  no upload, and no analytics on this page.</p>
+  <h1>Build your config, step by step</h1>
+  <p class="lead">Fill in the form and watch the JSON build itself on the right. Nothing here leaves your browser —
+  there is no server, no upload, and nothing is saved until you press Download. Every option is a real key in the
+  loader (<code>ParseConfig</code>), documented in the <a href="config.html">configuration reference</a>; hover any
+  <span class="i" tabindex="0" role="note" aria-label="Example help bubble">i<span class="tip"><b>this is an ⓘ</b>Every
+  setting has one. It says what the key does and shows a worked example of the behaviour it produces, so you can stay
+  on this page.<span class="ex">Try the one next to elemMatch on a nested Mongo field: it shows both filters side by
+  side.</span></span></span> for what a setting does and an example.</p>
 
-  <div class="note"><strong>Your API key never belongs in a config file.</strong> The <code>apiKeyEnv</code> box takes the
-  <em>name</em> of an environment variable (e.g. <code>QF_API_KEY</code>); the key itself stays in your environment.
-  This builder rejects a pasted key exactly as the loader does.</div>
+  <div class="note">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"></path><path d="M12 17h.01"></path><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"></path></svg>
+    <div><strong>Your API key never belongs in a config file.</strong> The <code>apiKeyEnv</code> box takes the
+    <em>name</em> of an environment variable (e.g. <code>QF_API_KEY</code>); the key itself stays in your environment.
+    This builder rejects a pasted key exactly as the loader does.</div>
+  </div>
 
   <div class="cols">
 
