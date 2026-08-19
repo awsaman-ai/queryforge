@@ -31,9 +31,9 @@
     --err-bg: #fff1f0; --err-bd: #ffa39e; --err-fg: #a8071a;
     --ok-bg: #f6ffed; --ok-bd: #b7eb8f; --ok-fg: #135200;
     --input-bg: #ffffff;
-    --radius: 14px; --radius-sm: 9px; --radius-pill: 999px;
-    --shadow-sm: 0 1px 2px rgba(16,24,40,.06);
-    --shadow-md: 0 10px 28px rgba(16,24,40,.12);
+    --radius: 18px; --radius-sm: 10px; --radius-pill: 999px;
+    --shadow-sm: 0 1px 2px rgba(16,24,40,.05), 0 1px 1px rgba(16,24,40,.04);
+    --shadow-md: 0 14px 32px rgba(16,24,40,.14);
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -44,7 +44,7 @@
       --err-bg: #2b1416; --err-bd: #6b1f24; --err-fg: #ff9c99;
       --ok-bg: #14210f; --ok-bd: #2f5c1c; --ok-fg: #a9e78a;
       --input-bg: #0c1015;
-      --shadow-sm: 0 1px 2px rgba(0,0,0,.4); --shadow-md: 0 10px 28px rgba(0,0,0,.5);
+      --shadow-sm: 0 1px 2px rgba(0,0,0,.4), 0 1px 1px rgba(0,0,0,.3); --shadow-md: 0 14px 32px rgba(0,0,0,.55);
     }
   }
   :root[data-theme="dark"] {
@@ -65,8 +65,8 @@
     --err-bg: #fff1f0; --err-bd: #ffa39e; --err-fg: #a8071a;
     --ok-bg: #f6ffed; --ok-bd: #b7eb8f; --ok-fg: #135200;
     --input-bg: #ffffff;
-    --shadow-sm: 0 1px 2px rgba(16,24,40,.06);
-    --shadow-md: 0 10px 28px rgba(16,24,40,.12);
+    --shadow-sm: 0 1px 2px rgba(16,24,40,.05), 0 1px 1px rgba(16,24,40,.04);
+    --shadow-md: 0 14px 32px rgba(16,24,40,.14);
   }
   * { box-sizing: border-box; }
   body {
@@ -74,10 +74,10 @@
     font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   }
   .wrap { max-width: 1400px; margin: 0 auto; padding: 2rem 1.25rem 5rem; }
-  h1 { font-size: 1.9rem; margin: 0 0 .4rem; letter-spacing: -.01em; }
-  h2 { font-size: 1.2rem; margin: 0; }
+  h1 { font-size: 2.3rem; font-weight: 800; margin: 0 0 .5rem; letter-spacing: -.02em; }
+  h2 { font-size: 1.22rem; font-weight: 700; margin: 0; letter-spacing: -.005em; }
   h3 { font-size: 1rem; margin: 1.25rem 0 .4rem; }
-  .lead { color: var(--muted); font-size: 1rem; max-width: 76ch; margin: 0 0 1.5rem; }
+  .lead { color: var(--muted); font-size: 1.04rem; line-height: 1.65; max-width: 74ch; margin: 0 0 1.75rem; }
   a { color: var(--accent); }
   code { background: var(--code-bg); color: var(--code-fg); padding: .1em .35em; border-radius: 5px;
          font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .88em; }
@@ -96,21 +96,27 @@
   }
   .note svg { flex: none; margin-top: .1rem; color: var(--accent-700); }
 
-  /* Tags / chips — the step key, field type, counts, and status. */
+  /* Tags / chips — the step key, field type, counts, and status. Neutral by
+     default; .pill-accent is the one variant that carries colour, reserved
+     for the thing actually worth calling out (a field's type). */
   .pill { display: inline-flex; align-items: center; font-family: ui-monospace, Menlo, monospace;
           background: var(--chip); border: 1px solid var(--border); color: var(--muted);
-          border-radius: var(--radius-pill); padding: .1rem .55rem; font-size: .74rem; font-weight: 600; }
+          border-radius: var(--radius-pill); padding: .15rem .6rem; font-size: .74rem; font-weight: 600; }
+  .pill-accent { background: var(--accent-tint); border-color: transparent; color: var(--accent-700); }
 
   /* Two-column shell: the form scrolls, the JSON preview sticks alongside it. */
-  .cols { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,440px); gap: 1.5rem; align-items: start; }
+  .cols { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,440px); gap: 1.75rem; align-items: start; }
   @media (max-width: 1050px) { .cols { grid-template-columns: minmax(0,1fr); } .side { position: static !important; } }
 
   section.panel { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
-                  padding: 1.5rem 1.6rem; margin-bottom: 1.25rem; box-shadow: var(--shadow-sm); }
-  section.panel > .hdr { display: flex; align-items: baseline; gap: .65rem; flex-wrap: wrap; margin-bottom: .5rem; }
-  section.panel > .hdr .step { font-size: .72rem; color: var(--accent-700); font-weight: 700;
-                                letter-spacing: .1em; text-transform: uppercase; }
-  .hint { color: var(--muted); font-size: .87rem; margin: .1rem 0 .9rem; max-width: 68ch; }
+                  padding: 1.85rem 2rem; margin-bottom: 1.5rem; box-shadow: var(--shadow-sm); }
+  section.panel > .hdr { display: flex; align-items: center; gap: .7rem; flex-wrap: wrap; margin-bottom: .6rem; }
+  section.panel > .hdr .step {
+    display: inline-flex; align-items: center; font-size: .72rem; color: var(--accent-700); font-weight: 800;
+    letter-spacing: .1em; text-transform: uppercase; background: var(--accent-tint);
+    border-radius: var(--radius-pill); padding: .22rem .65rem .18rem;
+  }
+  .hint { color: var(--muted); font-size: .89rem; line-height: 1.55; margin: .15rem 0 1rem; max-width: 68ch; }
 
   /* Form primitives. */
   label { display: block; font-size: .81rem; font-weight: 600; margin-bottom: .22rem; }
@@ -196,21 +202,31 @@
   details.foldpanel > summary h2 { margin: 0; }
   details.foldpanel > summary:hover h2 { color: var(--accent); }
 
-  /* Buttons — filled primary, outlined secondary, ghost icon. */
+  /* Buttons — three distinct weights, not one box recoloured on hover:
+     ghost by default (transparent, only a hover fill), a filled accent for
+     the one primary action per step, and a fully circular ghost icon button
+     for the compact controls on a field card. */
   button { font: inherit; font-size: .85rem; font-weight: 600; cursor: pointer; border-radius: var(--radius-sm);
-           border: 1px solid var(--border); background: var(--bg); color: var(--fg); padding: .48rem .85rem;
+           border: 1px solid var(--border); background: var(--bg); color: var(--fg); padding: .52rem .95rem;
            transition: transform .12s ease, box-shadow .12s ease, filter .12s ease, background .12s ease,
                        border-color .12s ease, color .12s ease; }
-  button:hover { border-color: var(--accent); color: var(--accent-700); background: var(--accent-tint); }
+  button:hover { border-color: var(--accent); color: var(--accent-700); background: var(--accent-tint); transform: translateY(-1px); }
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: var(--shadow-sm); }
-  button.primary:hover { color: #fff; filter: brightness(1.07); transform: translateY(-1px); box-shadow: var(--shadow-md); }
+  button.primary:hover { color: #fff; filter: brightness(1.08); transform: translateY(-1px); box-shadow: var(--shadow-md); }
   button.danger:hover { border-color: var(--err-bd); color: var(--err-fg); background: var(--err-bg); }
-  button.icon { padding: .3rem; width: 1.9rem; height: 1.9rem; line-height: 1; }
+  button.icon {
+    padding: 0; width: 2.05rem; height: 2.05rem; line-height: 1; border-radius: 50%;
+    background: transparent; border-color: transparent; color: var(--muted);
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  button.icon:hover { background: var(--chip); border-color: transparent; color: var(--accent-700); transform: none; }
+  button.icon.danger:hover { background: var(--err-bg); color: var(--err-fg); }
+  button.icon svg { display: block; }
   /* A backend with no generator behind it is shown greyed rather than hidden,
      so the page answers "is Elasticsearch supported?" instead of leaving it open. */
-  button[disabled] { cursor: not-allowed; opacity: .48; }
+  button[disabled] { cursor: not-allowed; opacity: .45; }
   button[disabled]:hover { border-color: var(--border); color: var(--fg); background: var(--bg); transform: none; box-shadow: none; }
-  .btnbar { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+  .btnbar { display: flex; gap: .55rem; flex-wrap: wrap; align-items: center; }
 
   /* Field cards. */
   details.fieldcard { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg);
@@ -1621,6 +1637,14 @@ if (typeof window !== "undefined") { window.QFLogic = QFLogic; }
   "use strict";
   var L = window.QFLogic;
 
+  // Small icon set for the compact per-row controls (reorder / duplicate /
+  // remove), used instead of text glyphs so the buttons read as one
+  // designed system rather than whatever the platform font ships for ↑ ↓ ✕.
+  var ICON_UP  = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15l-6-6-6 6"></path></svg>';
+  var ICON_DN  = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg>';
+  var ICON_DUP = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+  var ICON_X   = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"></path><path d="M6 6l12 12"></path></svg>';
+
   var state = L.blankState();
   var filenameEdited = false;   // once the user names the file, stop tracking the entity
 
@@ -1746,9 +1770,9 @@ if (typeof window !== "undefined") { window.QFLogic = QFLogic; }
         '<div class="btnbar" style="justify-content:space-between;margin-bottom:.4rem">' +
           '<strong style="font-size:.85rem">Fallback #' + (i + 1) + '</strong>' +
           '<span class="btnbar">' +
-            '<button type="button" class="icon" data-act="moveFallback" data-i="' + i + '" data-d="-1" title="Move earlier">↑</button>' +
-            '<button type="button" class="icon" data-act="moveFallback" data-i="' + i + '" data-d="1" title="Move later">↓</button>' +
-            '<button type="button" class="icon danger" data-act="delFallback" data-i="' + i + '" title="Remove">✕</button>' +
+            '<button type="button" class="icon" data-act="moveFallback" data-i="' + i + '" data-d="-1" title="Move earlier">' + ICON_UP + '</button>' +
+            '<button type="button" class="icon" data-act="moveFallback" data-i="' + i + '" data-d="1" title="Move later">' + ICON_DN + '</button>' +
+            '<button type="button" class="icon danger" data-act="delFallback" data-i="' + i + '" title="Remove">' + ICON_X + '</button>' +
           '</span>' +
         '</div>' +
         modelFields("models." + i, state.models[i]) +
@@ -1937,13 +1961,13 @@ if (typeof window !== "undefined") { window.QFLogic = QFLogic; }
     return '<details class="fieldcard"' + (f.open ? " open" : "") + ' data-fi="' + i + '">' +
       '<summary class="' + (summaryBad ? "bad" : "") + '">' +
         '<span class="fname">' + esc(name || "(unnamed)") + '</span>' +
-        '<span class="pill">' + esc(f.type) + '</span>' +
+        '<span class="pill pill-accent">' + esc(f.type) + '</span>' +
         (badges.length ? '<span class="muted" style="font-size:.8rem">' + esc(badges.join(" · ")) + '</span>' : "") +
         '<span class="spacer"></span>' +
-        '<button type="button" class="icon" data-act="moveField" data-i="' + i + '" data-d="-1" title="Move up">↑</button>' +
-        '<button type="button" class="icon" data-act="moveField" data-i="' + i + '" data-d="1" title="Move down">↓</button>' +
-        '<button type="button" class="icon" data-act="dupField" data-i="' + i + '" title="Duplicate">⧉</button>' +
-        '<button type="button" class="icon danger" data-act="delField" data-i="' + i + '" title="Remove">✕</button>' +
+        '<button type="button" class="icon" data-act="moveField" data-i="' + i + '" data-d="-1" title="Move up">' + ICON_UP + '</button>' +
+        '<button type="button" class="icon" data-act="moveField" data-i="' + i + '" data-d="1" title="Move down">' + ICON_DN + '</button>' +
+        '<button type="button" class="icon" data-act="dupField" data-i="' + i + '" title="Duplicate">' + ICON_DUP + '</button>' +
+        '<button type="button" class="icon danger" data-act="delField" data-i="' + i + '" title="Remove">' + ICON_X + '</button>' +
       '</summary>' +
       '<div class="cardbody">' +
         '<div class="row c3">' +
