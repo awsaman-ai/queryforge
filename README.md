@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/og.png" alt="QueryForge — one sentence, every database: a question compiles through a validated Query AST to PostgreSQL, MySQL and MongoDB. Available for Go, Python, Java and MCP." width="840">
+<img src="docs/og.png" alt="QueryForge — one sentence, every database: a question compiles through a validated Query AST to PostgreSQL, MySQL, MongoDB and Elasticsearch. Available for Go, Python, Java and MCP." width="840">
 
 # QueryForge
 
@@ -14,7 +14,7 @@
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.awsaman-ai/queryforge?label=maven%20central)](https://central.sonatype.com/artifact/io.github.awsaman-ai/queryforge)
 
 [![Website](https://img.shields.io/badge/Website-2f6feb?style=for-the-badge&logo=googlechrome&logoColor=white)](https://queryforge-service.amtry.in)
-[![Config Builder](https://img.shields.io/badge/Config%20Builder-2f6feb?style=for-the-badge&logo=json&logoColor=white)](https://queryforge-service.amtry.in/config-builder)
+[![Config Builder](https://img.shields.io/badge/Config%20Builder-2f6feb?style=for-the-badge&logo=json&logoColor=white)](https://queryforge-service.amtry.in/config-builder.html)
 
 </div>
 
@@ -63,7 +63,7 @@ Everything that must be *guaranteed* lives on the deterministic side, where it c
 
 ## Install
 
-Four ways to call it. All need the same two things and nothing else: a **config file** describing your data ([build one in your browser](https://queryforge-service.amtry.in/config-builder)) and a **model API key** in the environment. No server, no Docker, no database connection.
+Four ways to call it. All need the same two things and nothing else: a **config file** describing your data ([build one in your browser](https://queryforge-service.amtry.in/config-builder.html)) and a **model API key** in the environment. No server, no Docker, no database connection.
 
 <details open>
 <summary><b>🐹 Go — the library</b></summary>
@@ -192,7 +192,7 @@ One JSON file is the prompt context, the validation rulebook, the field→backen
 }
 ```
 
-**Don't hand-write it — build it.** The [config builder](https://queryforge-service.amtry.in/config-builder) is a single self-contained page (open it straight from disk, nothing leaves the browser). Four settings per field up front, the rest behind **Advanced**, every one with an ⓘ and a worked example, validated as you type by the same rules the loader enforces.
+**Don't hand-write it — build it.** The [config builder](https://queryforge-service.amtry.in/config-builder.html) is a single self-contained page (open it straight from disk, nothing leaves the browser). Four settings per field up front, the rest behind **Advanced**, every one with an ⓘ and a worked example, validated as you type by the same rules the loader enforces.
 
 📖 **[Full configuration reference →](https://awsaman-ai.github.io/queryforge/)**
 
@@ -444,7 +444,7 @@ The planner is the only place a model runs. Validate → generate → explain is
 |---|---|
 | **[queryforge_mcp](https://github.com/awsaman-ai/queryforge_mcp)** | QueryForge over the Model Context Protocol, so Claude Desktop, Cursor or any MCP client can query your data. The tool schema is generated from your config, so the model picks from your vocabulary instead of guessing. Hidden fields and physical column names never leave the process. |
 | [Documentation](https://awsaman-ai.github.io/queryforge/) | Guide, full configuration reference, and the Query AST explained. |
-| [Config builder](https://queryforge-service.amtry.in/config-builder) | Build a config in a form and download it, with live validation. Runs entirely in the browser. |
+| [Config builder](https://queryforge-service.amtry.in/config-builder.html) | Build a config in a form and download it, with live validation. Runs entirely in the browser. |
 
 ## Roadmap
 

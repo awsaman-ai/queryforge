@@ -145,9 +145,10 @@
     <div class="ast">Query AST</div>
 
     <svg class="fan" viewBox="0 0 62 172" fill="none">
-      <path d="M0 86 C 30 86, 32 26, 62 26" stroke="#33415a" stroke-width="1.6"/>
-      <path d="M0 86 H 62"                  stroke="#33415a" stroke-width="1.6"/>
-      <path d="M0 86 C 30 86, 32 146, 62 146" stroke="#33415a" stroke-width="1.6"/>
+      <path d="M0 86 C 30 86, 32 18, 62 18" stroke="#33415a" stroke-width="1.6"/>
+      <path d="M0 86 C 30 86, 32 64, 62 64" stroke="#33415a" stroke-width="1.6"/>
+      <path d="M0 86 C 30 86, 32 109, 62 109" stroke="#33415a" stroke-width="1.6"/>
+      <path d="M0 86 C 30 86, 32 154, 62 154" stroke="#33415a" stroke-width="1.6"/>
       <circle cx="1.5" cy="86" r="3" fill="#3b82f6"/>
     </svg>
 
@@ -167,6 +168,11 @@
         <div class="label">MongoDB</div>
         <code>{ amount: { $gt: 500 }, status: { $ne: … } }</code>
       </div>
+      <div class="db">
+        <div class="dot" style="background:#fec514"></div>
+        <div class="label">Elasticsearch</div>
+        <code>{ range: { amount: { gt: 500 } } }, must_not: …</code>
+      </div>
     </div>
   </div>
 
@@ -174,7 +180,6 @@
     <div class="guarantee">No invented columns. No injection. No mutation.</div>
     <div class="soon">
       <div class="lead">Next</div>
-      <div class="chip">Elasticsearch</div>
       <div class="chip">DynamoDB</div>
       <div class="chip">Cassandra</div>
       <div class="chip">ClickHouse</div>
