@@ -1,0 +1,19 @@
+{
+  "entity": "Order",
+  "backends": {
+    "elasticsearch": {
+      "routing": {
+        "strategy": "pattern",
+        "field": "tenantId",
+        "indexPattern": "tenant-{tenantId}-orders"
+      }
+    }
+  },
+  "fields": [
+    {
+      "name": "tenantId",
+      "type": "string",
+      "routingField": true
+    }
+  ]
+}

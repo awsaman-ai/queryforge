@@ -1,0 +1,58 @@
+{
+  "entity": "Order",
+  "backends": {
+    "elasticsearch": {
+      "routing": {
+        "strategy": "rules",
+        "rules": [
+          {
+            "when": {
+              "field": "region",
+              "operator": "equals",
+              "value": "US"
+            },
+            "indexes": [
+              "orders-us"
+            ]
+          },
+          {
+            "when": {
+              "field": "region",
+              "operator": "notEquals",
+              "value": "US"
+            },
+            "indexes": [
+              "orders-non-us"
+            ]
+          },
+          {
+            "when": {
+              "field": "amount",
+              "operator": "gt",
+              "value": "1000"
+            },
+            "indexes": [
+              "orders-big"
+            ],
+            "priority": 1
+          }
+        ],
+        "default": [
+          "orders-global"
+        ]
+      }
+    }
+  },
+  "fields": [
+    {
+      "name": "region",
+      "type": "string",
+      "routingField": true
+    },
+    {
+      "name": "amount",
+      "type": "number",
+      "routingField": true
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "entity": "Order",
+  "backends": {
+    "elasticsearch": {
+      "index": "orders"
+    }
+  },
+  "fields": [
+    {
+      "name": "customerName",
+      "type": "string",
+      "mapping": {
+        "elasticsearch": "customerName"
+      },
+      "keywordMapping": {
+        "elasticsearch": "customerName.keyword"
+      },
+      "searchable": true
+    },
+    {
+      "name": "sku",
+      "type": "string",
+      "mapping": {
+        "elasticsearch": "items.sku"
+      },
+      "nestedPath": "items"
+    },
+    {
+      "name": "qty",
+      "type": "number",
+      "mapping": {
+        "elasticsearch": "items.qty"
+      },
+      "nestedPath": "items"
+    }
+  ]
+}

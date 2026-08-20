@@ -1,0 +1,17 @@
+{
+  "entity": "Order",
+  "backends": {
+    "elasticsearch": {
+      "indexes": [
+        "orders-2025",
+        "orders-2026"
+      ]
+    }
+  },
+  "fields": [
+    {
+      "name": "status",
+      "type": "string"
+    }
+  ]
+}

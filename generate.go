@@ -56,9 +56,11 @@ func NewRegistry() *Registry {
 // DefaultRegistry returns a registry pre-loaded with the shipped backends.
 func DefaultRegistry() *Registry {
 	r := NewRegistry()
-	r.Register(SQLGenerator{})   // relational, Postgres dialect ("sql")
-	r.Register(MySQLGenerator{}) // relational, MySQL dialect ("mysql")
-	r.Register(MongoGenerator{}) // document store
+	r.Register(SQLGenerator{})        // relational, Postgres dialect ("sql")
+	r.Register(MySQLGenerator{})      // relational, MySQL dialect ("mysql")
+	r.Register(MongoGenerator{})      // document store
+	r.Register(ESGenerator{})         // search, Elasticsearch dialect ("elasticsearch")
+	r.Register(OpenSearchGenerator{}) // search, OpenSearch dialect ("opensearch")
 	return r
 }
 

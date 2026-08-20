@@ -1,0 +1,23 @@
+{
+  "entity": "Order",
+  "backends": {
+    "elasticsearch": {
+      "routing": {
+        "strategy": "date",
+        "field": "createdAt",
+        "indexPattern": "orders-{yyyy-MM}",
+        "granularity": "MONTH",
+        "default": [
+          "orders-legacy"
+        ]
+      }
+    }
+  },
+  "fields": [
+    {
+      "name": "createdAt",
+      "type": "date",
+      "routingField": true
+    }
+  ]
+}

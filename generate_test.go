@@ -271,7 +271,7 @@ func TestDefaultLimitApplied(t *testing.T) {
 // TestRegistry exercises the plugin registry.
 func TestRegistry(t *testing.T) {
 	r := DefaultRegistry()
-	if got := r.Backends(); !reflect.DeepEqual(got, []string{"mongo", "mysql", "sql"}) {
+	if got := r.Backends(); !reflect.DeepEqual(got, []string{"elasticsearch", "mongo", "mysql", "opensearch", "sql"}) {
 		t.Errorf("backends = %v", got)
 	}
 	if _, ok := r.Get("sql"); !ok {

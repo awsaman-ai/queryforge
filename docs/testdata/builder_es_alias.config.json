@@ -1,0 +1,14 @@
+{
+  "entity": "Order",
+  "backends": {
+    "opensearch": {
+      "alias": "orders-alias"
+    }
+  },
+  "fields": [
+    {
+      "name": "status",
+      "type": "string"
+    }
+  ]
+}

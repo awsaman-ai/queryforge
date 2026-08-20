@@ -45,6 +45,21 @@ func TestBuilderOutputLoads(t *testing.T) {
 		"docs/testdata/builder_full.config.json",             // every documented key, all six field types
 		"docs/testdata/builder_roundtrip_orders.config.json", // examples/orders.config.json, imported and re-emitted
 		"docs/testdata/builder_nested.config.json",           // embedded documents and arrays of sub-documents
+
+		// Elasticsearch/OpenSearch: one fixture per source mode / routing
+		// strategy, each verbatim output of qf-logic.js's buildConfig for a
+		// builder state exercising that mode. See
+		// TestBuilderElasticFixturesGenerateCorrectly for the behavioural half
+		// of this check — that these configs don't just load, but resolve to
+		// the right index/DSL.
+		"docs/testdata/builder_es_direct.config.json",
+		"docs/testdata/builder_es_multiple.config.json",
+		"docs/testdata/builder_es_alias.config.json",
+		"docs/testdata/builder_es_pattern.config.json",
+		"docs/testdata/builder_es_date.config.json",
+		"docs/testdata/builder_es_rules.config.json",
+		"docs/testdata/builder_es_ifelse.config.json",
+		"docs/testdata/builder_es_nested_keyword.config.json",
 	}
 	for _, p := range paths {
 		t.Run(filepath.Base(p), func(t *testing.T) {
@@ -330,6 +345,8 @@ func TestBuilderInvalidOutputIsRejected(t *testing.T) {
 		{"valuecase_wrong_type.json", "not strings"},
 		{"caseinsensitive_wrong_type.json", "applies to string fields only"},
 		{"caseinsensitive_with_valuecase.json", "cannot both apply"},
+		{"es_missing_default.json", "requires a non-empty default"},
+		{"es_not_routing_field.json", "not marked routingField:true"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.file, func(t *testing.T) {
@@ -347,6 +364,149 @@ func TestBuilderInvalidOutputIsRejected(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestBuilderElasticFixturesGenerateCorrectly is the behavioural half of the
+// Elasticsearch/OpenSearch builder fixtures: loading is not enough for a
+// business-rule config, since a wrong strategy still parses and simply
+// resolves to the wrong index. Each case was cross-checked against the
+// actual builder output (queryforge_service/qf-logic.js's buildConfig, run
+// under Node against representative UI state) before being saved as a
+// fixture, so this pins that the two stay in sync going forward.
+func TestBuilderElasticFixturesGenerateCorrectly(t *testing.T) {
+	gen := ESGenerator{}
+	genOpts := GenOptions{Now: fixedNow}
+
+	t.Run("pattern falls back to default without the routing field", func(t *testing.T) {
+		c, err := LoadConfig("docs/testdata/builder_es_pattern.config.json")
+		if err != nil {
+			t.Fatalf("load: %v", err)
+		}
+		q := NewQuery("Order")
+		q.Filter = comp("tenantId", OpEquals, vStr("acme"))
+		r, err := gen.Generate(q, c, genOpts)
+		if err != nil {
+			t.Fatalf("generate: %v", err)
+		}
+		if idx := r.Doc.(*ESQuery).Index; len(idx) != 1 || idx[0] != "tenant-acme-orders" {
+			t.Errorf("index = %v, want [tenant-acme-orders]", idx)
+		}
+
+		q = NewQuery("Order") // no tenantId in the query at all
+		r, err = gen.Generate(q, c, genOpts)
+		if err != nil {
+			t.Fatalf("generate: %v", err)
+		}
+		if idx := r.Doc.(*ESQuery).Index; len(idx) != 1 || idx[0] != "tenant-default-orders" {
+			t.Errorf("fallback index = %v, want [tenant-default-orders]", idx)
+		}
+	})
+
+	t.Run("date range expands to every partition it spans", func(t *testing.T) {
+		c, err := LoadConfig("docs/testdata/builder_es_date.config.json")
+		if err != nil {
+			t.Fatalf("load: %v", err)
+		}
+		q := NewQuery("Order")
+		q.Filter = comp("createdAt", OpBetween, &Value{Kind: KindArray, V: []any{"2025-11-15", "2026-02-10"}})
+		r, err := gen.Generate(q, c, genOpts)
+		if err != nil {
+			t.Fatalf("generate: %v", err)
+		}
+		want := []string{"orders-2025-11", "orders-2025-12", "orders-2026-01", "orders-2026-02"}
+		got := r.Doc.(*ESQuery).Index
+		if len(got) != len(want) {
+			t.Fatalf("index = %v, want %v", got, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Errorf("index[%d] = %q, want %q", i, got[i], want[i])
+			}
+		}
+	})
+
+	t.Run("rules: higher priority wins, notEquals matches", func(t *testing.T) {
+		c, err := LoadConfig("docs/testdata/builder_es_rules.config.json")
+		if err != nil {
+			t.Fatalf("load: %v", err)
+		}
+		q := NewQuery("Order")
+		q.Filter = comp("amount", OpGt, vNum(2000))
+		r, err := gen.Generate(q, c, genOpts)
+		if err != nil {
+			t.Fatalf("generate: %v", err)
+		}
+		if idx := r.Doc.(*ESQuery).Index; len(idx) != 1 || idx[0] != "orders-big" {
+			t.Errorf("index = %v, want [orders-big] (the higher-priority rule)", idx)
+		}
+
+		q = NewQuery("Order")
+		q.Filter = comp("region", OpEquals, vStr("FR"))
+		r, err = gen.Generate(q, c, genOpts)
+		if err != nil {
+			t.Fatalf("generate: %v", err)
+		}
+		if idx := r.Doc.(*ESQuery).Index; len(idx) != 1 || idx[0] != "orders-non-us" {
+			t.Errorf("index = %v, want [orders-non-us] (region notEquals US)", idx)
+		}
+	})
+
+	t.Run("ifElse: branch order and else fallback", func(t *testing.T) {
+		c, err := LoadConfig("docs/testdata/builder_es_ifelse.config.json")
+		if err != nil {
+			t.Fatalf("load: %v", err)
+		}
+		q := NewQuery("Order")
+		q.Filter = comp("createdAt", OpEquals, vStr("2026-06-01"))
+		r, err := gen.Generate(q, c, genOpts)
+		if err != nil {
+			t.Fatalf("generate: %v", err)
+		}
+		if idx := r.Doc.(*ESQuery).Index; len(idx) != 1 || idx[0] != "orders-2026" {
+			t.Errorf("index = %v, want [orders-2026]", idx)
+		}
+
+		q = NewQuery("Order")
+		q.Filter = comp("createdAt", OpEquals, vStr("2024-06-01"))
+		r, err = gen.Generate(q, c, genOpts)
+		if err != nil {
+			t.Fatalf("generate: %v", err)
+		}
+		if idx := r.Doc.(*ESQuery).Index; len(idx) != 1 || idx[0] != "orders-legacy" {
+			t.Errorf("index = %v, want [orders-legacy] (the else branch)", idx)
+		}
+	})
+
+	t.Run("keyword path for equals, nested folding for sibling predicates", func(t *testing.T) {
+		c, err := LoadConfig("docs/testdata/builder_es_nested_keyword.config.json")
+		if err != nil {
+			t.Fatalf("load: %v", err)
+		}
+		q := NewQuery("Order")
+		q.Filter = and(
+			comp("customerName", OpEquals, vStr("John Smith")),
+			comp("sku", OpEquals, vStr("ABC")),
+			comp("qty", OpGt, vNum(10)),
+		)
+		r, err := gen.Generate(q, c, genOpts)
+		if err != nil {
+			t.Fatalf("generate: %v", err)
+		}
+		body, _ := json.Marshal(r.Doc.(*ESQuery).Query)
+		s := string(body)
+		if !strings.Contains(s, `"customerName.keyword":"John Smith"`) {
+			t.Errorf("equals should hit the keyword sub-field, got: %s", s)
+		}
+		if !strings.Contains(s, `"nested"`) || !strings.Contains(s, `"path":"items"`) {
+			t.Errorf("sku/qty should fold into one nested query, got: %s", s)
+		}
+		// A single "nested" occurrence proves sku and qty folded together
+		// rather than each producing its own independent nested query, which
+		// would let them match two different array elements.
+		if n := strings.Count(s, `"nested"`); n != 1 {
+			t.Errorf("expected exactly one nested clause (folded), got %d: %s", n, s)
+		}
+	})
 }
 
 // The page-level checks used to live here as TestBuilderPageShipsWithTheLibrary:

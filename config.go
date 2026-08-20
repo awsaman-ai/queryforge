@@ -232,6 +232,28 @@ type BackendConfig struct {
 	Collection string `json:"collection,omitempty"`
 	Index      string `json:"index,omitempty"`
 	Name       string `json:"name,omitempty"` // generic fallback for custom backends
+
+	// --- Elasticsearch/OpenSearch-only source modes. At most one of Index,
+	// Indexes, Alias, and Routing may be set; none set falls back to the
+	// entity name as a direct index, matching every other backend's fallback.
+
+	// Indexes lists several concrete physical indexes to search at once
+	// (Elasticsearch/OpenSearch "MULTIPLE_INDEX"), e.g.
+	// ["orders-2025","orders-2026"], rendered as a comma-joined path segment.
+	Indexes []string `json:"indexes,omitempty"`
+
+	// Alias names an Elasticsearch/OpenSearch alias to search. It resolves to
+	// the identical request shape as Index (GET /<name>/_search) — ES itself
+	// does not distinguish an alias from a concrete index at that URL — but is
+	// tracked as its own source mode so a caller introspecting the resolved
+	// query can still tell "this is an alias" from "this is a concrete index".
+	Alias string `json:"alias,omitempty"`
+
+	// Routing configures business-rule index resolution: which physical
+	// index/indexes a query hits is derived deterministically from the
+	// query's own (config-declared) routing-field value, rather than fixed in
+	// config. See IndexRouting.
+	Routing *IndexRouting `json:"routing,omitempty"`
 }
 
 // Source returns the configured physical source name for the backend.
@@ -242,6 +264,141 @@ func (b BackendConfig) Source() string {
 		}
 	}
 	return ""
+}
+
+// SourceType names how a backend's physical index/indexes were determined.
+// Elasticsearch/OpenSearch only — every other backend has exactly one
+// physical source and no notion of "how it was chosen".
+type SourceType string
+
+const (
+	SourceDirectIndex   SourceType = "DIRECT_INDEX"
+	SourceMultipleIndex SourceType = "MULTIPLE_INDEX"
+	SourceAlias         SourceType = "ALIAS"
+	SourceBusinessRule  SourceType = "BUSINESS_RULE_INDEX"
+)
+
+// elasticSourceCount reports how many of the mutually exclusive ES source
+// modes this backend config sets, for the "at most one" load-time check.
+func (b BackendConfig) elasticSourceCount() int {
+	n := 0
+	if b.Index != "" {
+		n++
+	}
+	if len(b.Indexes) > 0 {
+		n++
+	}
+	if b.Alias != "" {
+		n++
+	}
+	if b.Routing != nil {
+		n++
+	}
+	return n
+}
+
+// IndexRoutingStrategy selects how IndexRouting resolves physical indexes
+// from a query.
+type IndexRoutingStrategy string
+
+const (
+	RoutingPattern IndexRoutingStrategy = "pattern"
+	RoutingDate    IndexRoutingStrategy = "date"
+	RoutingRules   IndexRoutingStrategy = "rules"
+	RoutingIfElse  IndexRoutingStrategy = "ifElse"
+)
+
+// DateGranularity is the partition size a "date" routing strategy resolves
+// to, and the format of its IndexPattern token: YEAR needs "{yyyy}", MONTH
+// needs "{yyyy-MM}", DAY needs "{yyyy-MM-dd}".
+type DateGranularity string
+
+const (
+	GranularityYear  DateGranularity = "YEAR"
+	GranularityMonth DateGranularity = "MONTH"
+	GranularityDay   DateGranularity = "DAY"
+)
+
+// IndexRouting configures Elasticsearch/OpenSearch business-rule index
+// resolution. It is entirely config, never query: the query only ever
+// supplies the VALUE of a field this config has explicitly opted into
+// routing (Field.RoutingField); every index name it can possibly resolve to
+// — Default, a rule's Indexes, a branch's Indexes, or IndexPattern's literal
+// text — is written here by whoever owns this config. See the package-level
+// security note in source_es.go for why that separation matters.
+type IndexRouting struct {
+	Strategy IndexRoutingStrategy `json:"strategy"`
+
+	// Field is the routing field driving resolution. Required for "pattern"
+	// and "date"; "rules" and "ifElse" instead name a field on each
+	// condition, since different rules/branches may key off different
+	// fields.
+	Field string `json:"field,omitempty"`
+
+	// IndexPattern is a physical index name template containing exactly one
+	// "{token}" placeholder, e.g. "orders-{yyyy}" or "tenant-{tenantId}-orders".
+	// Required for "pattern" and "date"; for "date" the token must match
+	// Granularity exactly ("{yyyy}"/"{yyyy-MM}"/"{yyyy-MM-dd}").
+	IndexPattern string `json:"indexPattern,omitempty"`
+
+	// Granularity is the partition size for "date" routing.
+	Granularity DateGranularity `json:"granularity,omitempty"`
+
+	// Rules is the rule list for "rules" routing. Every rule whose condition
+	// the query's known field value satisfies is a candidate; ties at the
+	// highest Priority are rejected as ambiguous rather than guessed at.
+	Rules []IndexRule `json:"rules,omitempty"`
+
+	// Branches is the ordered branch list for "ifElse" routing. The first
+	// branch whose condition matches wins. A branch may set Else:true instead
+	// of If to match unconditionally; at most one branch may do so, and it
+	// must be the last.
+	Branches []IndexBranch `json:"branches,omitempty"`
+
+	// Default is the index (or indexes) to search when the routing field is
+	// absent from the query, its value cannot be resolved to a single
+	// comparable literal, or (for "rules"/"ifElse") no rule/branch matches.
+	// Required — QueryForge never silently falls back to an unrestricted
+	// wildcard, so an unconfigured fallback means the query is rejected
+	// rather than searching every index.
+	Default []string `json:"default,omitempty"`
+}
+
+// RoutingCondition is one equality/range test used by "rules" and "ifElse"
+// routing. It is deliberately narrower than the full Operator catalogue:
+// routing picks WHERE to search, and only a single comparable literal — from
+// an equals/gt/gte/lt/lte/before/after predicate reachable through AND alone
+// — is ever sound to route on. See source_es.go.
+type RoutingCondition struct {
+	Field    string   `json:"field"`
+	Operator Operator `json:"operator"` // equals, notEquals, gt, gte, lt, lte only
+	Value    string   `json:"value"`    // literal to compare against, in its field's textual form
+}
+
+// IndexRule is one "rules"-strategy entry: When the condition holds, search
+// Indexes. Priority breaks a tie when more than one rule matches the same
+// query; equal top priority on multiple matches is a runtime resolution
+// error rather than a guess.
+type IndexRule struct {
+	When     RoutingCondition `json:"when"`
+	Indexes  []string         `json:"indexes"`
+	Priority int              `json:"priority,omitempty"`
+}
+
+// IndexBranch is one "ifElse"-strategy entry, evaluated in order. Else:true
+// branches match unconditionally and carry no If.
+type IndexBranch struct {
+	If      *RoutingCondition `json:"if,omitempty"`
+	Else    bool              `json:"else,omitempty"`
+	Indexes []string          `json:"indexes"`
+}
+
+// isElasticBackend reports whether id names one of the Elasticsearch-family
+// backends, which share the source-resolution and mapping rules in this file
+// (Indexes/Alias/Routing, KeywordMapping, NestedPath) that no other backend
+// uses.
+func isElasticBackend(id string) bool {
+	return id == "elasticsearch" || id == "opensearch"
 }
 
 // FieldType is the logical type of a field. It bounds which operators and
@@ -337,6 +494,50 @@ type Field struct {
 	// matches. contains is unaffected on Mongo, which already matches
 	// case-insensitively there regardless of this flag.
 	CaseInsensitive bool `json:"caseInsensitive,omitempty"`
+
+	// KeywordMapping declares, per Elasticsearch/OpenSearch-family backend,
+	// the exact-match "keyword" sub-field backing this logical field — the
+	// standard ES convention of indexing one string twice (an analyzed "text"
+	// path for full-text search, plus an unanalyzed "keyword" path for exact
+	// match, sort, and aggregation) because a single physical field cannot do
+	// both.
+	//
+	// Mapping[backend] is read as the text path; equals/notEquals/in/notIn,
+	// sort, and any future aggregation instead prefer KeywordMapping[backend]
+	// when present, falling back to Mapping[backend] (then the logical name)
+	// when it is not. Only `contains` ever reads the text path.
+	//
+	// Only legal on a field whose values are strings (string, enum, or an
+	// array of them) — load rejects it elsewhere, the same rule ValueCase
+	// uses and for the same reason: a number or date has no text/keyword
+	// split to declare.
+	KeywordMapping map[string]string `json:"keywordMapping,omitempty"`
+
+	// NestedPath names the Elasticsearch/OpenSearch "nested" object/array this
+	// field lives inside, as a dot path from the document root (e.g. "items"
+	// for a field mapped to "items.sku"). Elasticsearch/OpenSearch-only —
+	// Mongo's equivalent problem is solved by ElemMatch, kept as a fully
+	// separate field so the two backends' nested/array semantics never share
+	// validation or generation code.
+	//
+	// Without it, sibling predicates on an ES "nested" field would each be
+	// wrapped in their own independent nested query and could each match a
+	// DIFFERENT array element — the same "sku on item #1, price on item #7"
+	// bug ElemMatch prevents for Mongo. Declaring it makes the generator fold
+	// sibling AND predicates on the same path into one nested query instead.
+	//
+	// Leave it empty for an ES "object" (not "nested") field, where dot
+	// notation is already exact.
+	NestedPath string `json:"nestedPath,omitempty"`
+
+	// RoutingField opts this field into Elasticsearch/OpenSearch business-rule
+	// index resolution (backends.elasticsearch.routing.field, or a
+	// rules/ifElse condition's field). It is deliberately separate from
+	// Filterable: an ordinary filterable field does not thereby select which
+	// physical index is searched, and QueryForge does not guess from a
+	// field's type (e.g. date) that it is meant to shard the index — the
+	// consumer opts a field in explicitly.
+	RoutingField bool `json:"routingField,omitempty"`
 
 	// --- Capability flags: what operations this field may take part in. ---
 	Queryable  *bool `json:"queryable,omitempty"`  // include/exclude from the NLP surface; false = hidden + rejected if referenced (default true)
@@ -562,9 +763,28 @@ func (c *Config) finalize() error {
 				"valueCase forces one case, caseInsensitive matches any case",
 				f.Name, f.ValueCase)
 		}
+		// KeywordMapping is the ES/OpenSearch analogue of ValueCase's own
+		// restriction: it describes a second physical representation of a
+		// string value, so it means nothing on a field that carries no
+		// strings.
+		if len(f.KeywordMapping) > 0 && !f.carriesStrings() {
+			return fmt.Errorf("config: field %q declares keywordMapping but its values are not strings (type %q) — "+
+				"keywordMapping applies to string and enum fields, or arrays of them", f.Name, f.Type)
+		}
+		for backend, phys := range f.KeywordMapping {
+			if phys != "" && !validDotPath(phys) {
+				return fmt.Errorf("config: field %q has an invalid %s keywordMapping %q "+
+					"(expected dot-separated segments, e.g. \"customerName.keyword\")", f.Name, backend, phys)
+			}
+		}
 		// Nested Mongo paths: a malformed dot path or an elemMatch that does not
 		// contain the field yields a query matching nothing, so reject it here.
 		if err := c.validateMongoPaths(f); err != nil {
+			return err
+		}
+		// Nested Elasticsearch/OpenSearch paths: the same shape of check, kept
+		// fully separate from Mongo's (see NestedPath's doc comment).
+		if err := c.validateElasticPaths(f); err != nil {
 			return err
 		}
 		if _, dup := c.fieldByName[f.Name]; dup {
@@ -574,6 +794,17 @@ func (c *Config) finalize() error {
 		c.synonymIndex[strings.ToLower(f.Name)] = f
 		for _, syn := range f.Synonyms {
 			c.synonymIndex[strings.ToLower(syn)] = f
+		}
+	}
+
+	// Business-rule index routing references fields by name, so it can only be
+	// checked once fieldByName is built.
+	for backend, bc := range c.Backends {
+		if !isElasticBackend(backend) {
+			continue
+		}
+		if err := c.validateElasticSource(backend, bc); err != nil {
+			return err
 		}
 	}
 	return nil

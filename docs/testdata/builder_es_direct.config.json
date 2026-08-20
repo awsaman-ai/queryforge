@@ -1,0 +1,14 @@
+{
+  "entity": "Order",
+  "backends": {
+    "elasticsearch": {
+      "index": "orders"
+    }
+  },
+  "fields": [
+    {
+      "name": "status",
+      "type": "string"
+    }
+  ]
+}
