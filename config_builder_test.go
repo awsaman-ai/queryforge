@@ -1,12 +1,15 @@
 package queryforge
 
-// Tests for the contract between docs/config-builder.html and this loader.
+// Tests for the contract between the QueryForge config builder and this loader.
 //
-// The builder is an HTML page: nothing about it can be compiled or type-checked
-// against Config, so the one thing that could quietly rot is the file format it
-// emits. If a key is renamed here, or a new structural rule lands in
-// finalize(), the page keeps producing yesterday's JSON and the first person to
-// notice is a user whose downloaded config will not load.
+// The builder used to be docs/config-builder.html, shipped inside this repo; it
+// now lives at queryforge.amtry.in/config-builder.html, on the QueryForge
+// website (awsaman-ai/queryforge_service), alongside the rest of the site's
+// navigation. It is still an HTML page: nothing about it can be compiled or
+// type-checked against Config, so the one thing that could quietly rot is the
+// file format it emits. If a key is renamed here, or a new structural rule
+// lands in finalize(), the page keeps producing yesterday's JSON and the first
+// person to notice is a user whose downloaded config will not load.
 //
 // The fixtures in docs/testdata/ are therefore not hand-written: each one is
 // verbatim output from the builder, saved as it came out. These tests assert
@@ -14,12 +17,21 @@ package queryforge
 // and re-emitted is unchanged, and that the configs the builder marks as broken
 // are exactly the ones the loader rejects. Regenerate the fixtures from the page
 // whenever its output changes.
+//
+// What this file can no longer check, now that the page lives in a different
+// repo: that the page exists, stays self-contained, and mirrors every
+// AllOperators/FieldType/secretPrefixes value and every Field/ModelConfig JSON
+// key (formerly TestBuilderPageShipsWithTheLibrary, which read
+// docs/config-builder.html directly via os.ReadFile and reflected over Field{}
+// and ModelConfig{}). That verification has to happen by hand on this repo's
+// side now — diff config.go/ast.go against the page's HELP/KNOWN_FIELD/
+// KNOWN_MODEL/ALL_OPERATORS catalogues after any schema change — or by adding
+// an equivalent check in queryforge_service, which does not currently depend
+// on this module.
 
 import (
 	"encoding/json"
-	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -337,104 +349,12 @@ func TestBuilderInvalidOutputIsRejected(t *testing.T) {
 	}
 }
 
-// TestBuilderPageShipsWithTheLibrary guards the small things that make the page
-// usable at all: it must exist, be self-contained (no network fetch, since it is
-// opened straight from disk), and keep its logic block separable so it can be
-// exercised outside a browser.
-func TestBuilderPageShipsWithTheLibrary(t *testing.T) {
-	data, err := os.ReadFile("docs/config-builder.html")
-	if err != nil {
-		t.Fatalf("read builder page: %v", err)
-	}
-	html := string(data)
-
-	// A remote script or stylesheet would break the page for anyone opening it
-	// offline, which is the normal case for a file downloaded with the library.
-	for _, bad := range []string{"<script src=", "<link rel=\"stylesheet\"", "fetch(", "XMLHttpRequest"} {
-		if strings.Contains(html, bad) {
-			t.Errorf("page must be self-contained, found %q", bad)
-		}
-	}
-	// The logic block is extracted verbatim for offline testing; keep the marker.
-	if !strings.Contains(html, `<script id="qf-logic">`) {
-		t.Error("the DOM-free logic block must stay identifiable as id=\"qf-logic\"")
-	}
-
-	// Every operator and field type must appear on the page, so the form cannot
-	// silently lag behind the catalogues it mirrors.
-	for _, op := range AllOperators {
-		if !strings.Contains(html, `"`+string(op)+`"`) {
-			t.Errorf("operator %q is missing from the builder", op)
-		}
-	}
-	for _, ft := range []FieldType{FieldString, FieldNumber, FieldBoolean, FieldEnum, FieldDate, FieldArray} {
-		if !strings.Contains(html, `"`+string(ft)+`"`) {
-			t.Errorf("field type %q is missing from the builder", ft)
-		}
-	}
-	// And every secret prefix the loader rejects, so the page rejects the same set.
-	for _, p := range secretPrefixes {
-		if !strings.Contains(html, `"`+p+`"`) {
-			t.Errorf("secret prefix %q is missing from the builder", p)
-		}
-	}
-
-	// Every JSON key on Field must be listed in the page's KNOWN_FIELD array.
-	// That array drives both the import path and the unknown-key report, so a
-	// key added here and forgotten there is silently dropped on import — the
-	// exact failure mode that lost an array-of-enum domain once already
-	// (BUG-011). Reflection means the check cannot go stale.
-	known := between(html, "var KNOWN_FIELD", "];")
-	if known == "" {
-		t.Fatal("could not find KNOWN_FIELD in the builder page")
-	}
-	ft := reflect.TypeOf(Field{})
-	for i := 0; i < ft.NumField(); i++ {
-		key := strings.Split(ft.Field(i).Tag.Get("json"), ",")[0]
-		if key == "" || key == "-" {
-			continue
-		}
-		if !strings.Contains(known, `"`+key+`"`) {
-			t.Errorf("field key %q is missing from the builder's KNOWN_FIELD list, so importing a config that uses it would drop it", key)
-		}
-	}
-
-	// The same guarantee for ModelConfig. The model block gains keys too —
-	// protocol, timeoutSeconds, maxRetries, retryBackoffMs all arrived after the
-	// page was written — and the failure is identical: a key the page does not
-	// know is reported as unknown on import, or worse, dropped on re-export.
-	knownModel := between(html, "var KNOWN_MODEL", "];")
-	if knownModel == "" {
-		t.Fatal("could not find KNOWN_MODEL in the builder page")
-	}
-	mt := reflect.TypeOf(ModelConfig{})
-	for i := 0; i < mt.NumField(); i++ {
-		key := strings.Split(mt.Field(i).Tag.Get("json"), ",")[0]
-		if key == "" || key == "-" {
-			continue
-		}
-		if !strings.Contains(knownModel, `"`+key+`"`) {
-			t.Errorf("model key %q is missing from the builder's KNOWN_MODEL list, so a config using it would not round-trip", key)
-		}
-		// Knowing the key is not enough: the page has to carry it through its
-		// own state, or import accepts it and export silently loses it.
-		if !strings.Contains(html, "."+key) {
-			t.Errorf("model key %q is in KNOWN_MODEL but the page never reads or writes it", key)
-		}
-	}
-}
-
-// between returns the text after the first occurrence of start up to the next
-// end, or "" when either marker is absent.
-func between(s, start, end string) string {
-	i := strings.Index(s, start)
-	if i < 0 {
-		return ""
-	}
-	rest := s[i+len(start):]
-	j := strings.Index(rest, end)
-	if j < 0 {
-		return ""
-	}
-	return rest[:j]
-}
+// The page-level checks used to live here as TestBuilderPageShipsWithTheLibrary:
+// that the file exists, stays self-contained (no network fetch — the normal
+// case is opening it straight from disk), keeps its DOM-free logic block
+// identifiable, and — via reflection over Field{} and ModelConfig{} — that
+// every JSON key, every AllOperators value, every FieldType and every entry in
+// secretPrefixes is mirrored in the page's own catalogues. All of that read
+// docs/config-builder.html directly, which no longer exists in this repo now
+// that the page lives at queryforge.amtry.in/config-builder.html. See the
+// package comment above for what replaces it.
