@@ -117,7 +117,7 @@ public final class QueryForgeLogging {
     static final String LANGUAGE_NAME = "java";
 
     /** The SDK's version, reported on every record. Kept in step with the pom by a test. */
-    static final String SDK_VERSION = "1.1.5";
+    static final String SDK_VERSION = "1.2.0";
 
     private static final Logger ROOT = Logger.getLogger(LOGGER_NAME);
 

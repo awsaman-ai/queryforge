@@ -14,7 +14,7 @@
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.awsaman-ai/queryforge?label=maven%20central)](https://central.sonatype.com/artifact/io.github.awsaman-ai/queryforge)
 
 [![Website](https://img.shields.io/badge/Website-2f6feb?style=for-the-badge&logo=googlechrome&logoColor=white)](https://queryforge-service.amtry.in)
-[![Config Builder](https://img.shields.io/badge/Config%20Builder-2f6feb?style=for-the-badge&logo=json&logoColor=white)](https://queryforge.amtry.in/config-builder.html)
+[![Config Builder](https://img.shields.io/badge/Config%20Builder-2f6feb?style=for-the-badge&logo=json&logoColor=white)](https://queryforge-service.amtry.in/config-builder)
 
 </div>
 
@@ -63,7 +63,7 @@ Everything that must be *guaranteed* lives on the deterministic side, where it c
 
 ## Install
 
-Four ways to call it. All need the same two things and nothing else: a **config file** describing your data ([build one in your browser](https://queryforge.amtry.in/config-builder.html)) and a **model API key** in the environment. No server, no Docker, no database connection.
+Four ways to call it. All need the same two things and nothing else: a **config file** describing your data ([build one in your browser](https://queryforge-service.amtry.in/config-builder)) and a **model API key** in the environment. No server, no Docker, no database connection.
 
 <details open>
 <summary><b>🐹 Go — the library</b></summary>
@@ -192,7 +192,7 @@ One JSON file is the prompt context, the validation rulebook, the field→backen
 }
 ```
 
-**Don't hand-write it — build it.** The [config builder](https://queryforge.amtry.in/config-builder.html) is a single self-contained page (open it straight from disk, nothing leaves the browser). Four settings per field up front, the rest behind **Advanced**, every one with an ⓘ and a worked example, validated as you type by the same rules the loader enforces.
+**Don't hand-write it — build it.** The [config builder](https://queryforge-service.amtry.in/config-builder) is a single self-contained page (open it straight from disk, nothing leaves the browser). Four settings per field up front, the rest behind **Advanced**, every one with an ⓘ and a worked example, validated as you type by the same rules the loader enforces.
 
 📖 **[Full configuration reference →](https://awsaman-ai.github.io/queryforge/)**
 
@@ -213,10 +213,11 @@ go run ./examples -config examples/orders.config.json -backend sql \
 
 | | |
 |---|---|
-| 🗄 **Three backends, one brain** | Postgres, MySQL and MongoDB ship today. A new database is one generator — not a prompt change, not a rewrite. |
+| 🗄 **Five backends, one brain** | Postgres, MySQL, MongoDB, Elasticsearch and OpenSearch ship today. A new database is one generator — not a prompt change, not a rewrite. |
 | 🔒 **Scope filters** | Tenant, user and subscription predicates AND-ed onto every query, after the model has answered. |
 | 🔁 **Model fallback** | List several models; the first that answers wins. A rate limit on one provider falls through to the next. |
 | 🧩 **Nested Mongo documents** | Dot paths for embedded docs, `elemMatch` for arrays of sub-documents so one element must satisfy every condition. [Rules →](https://awsaman-ai.github.io/queryforge/config.html#nested) |
+| 🔎 **Elasticsearch and OpenSearch** | Search for exact values and free text on the same field, search inside nested objects, and point a query at the right index automatically — by name, by date, or by your own routing rules. |
 | 🔤 **Value case folding** | The column stores `SHIPPED`, people say "shipped". Say so once on the field. [Rules →](https://awsaman-ai.github.io/queryforge/config.html#valuecase) |
 | 📊 **Observability** | One optional callback reports model latency, tokens and outcomes. QueryForge itself never writes a log line. |
 | 🗣 **Plain-English readback** | `res.Explain` says what it understood, keeping forced predicates visibly apart from the user's own. |
@@ -424,7 +425,8 @@ Every component ships happy-path and adversarial "try to break it" tests — inj
 | `ast.go` | Query AST types + JSON (de)serialization | — |
 | `config.go` | Config types + loader + capability flags | — |
 | `validate.go` | **The guarantee**: field/operator/type/enum/depth + capability checks, with suggestions | No |
-| `generate.go`, `gen_sql.go`, `gen_mongo.go` | Registry + backend generators (parameterized, read-only) | No |
+| `generate.go`, `gen_sql.go`, `gen_mongo.go`, `gen_es.go` | Registry + backend generators (parameterized, read-only) | No |
+| `elastic_config.go`, `source_es.go` | Elasticsearch/OpenSearch config validation and index resolution | No |
 | `scope.go` | Caller-supplied filters → typed predicates AND-ed onto the query root | No |
 | `explain.go` | AST → prose (dry-run, no execution) | No |
 | `provider.go` | `ModelProvider` interface + OpenAI-compatible default + test stub | Yes |
@@ -442,12 +444,12 @@ The planner is the only place a model runs. Validate → generate → explain is
 |---|---|
 | **[queryforge_mcp](https://github.com/awsaman-ai/queryforge_mcp)** | QueryForge over the Model Context Protocol, so Claude Desktop, Cursor or any MCP client can query your data. The tool schema is generated from your config, so the model picks from your vocabulary instead of guessing. Hidden fields and physical column names never leave the process. |
 | [Documentation](https://awsaman-ai.github.io/queryforge/) | Guide, full configuration reference, and the Query AST explained. |
-| [Config builder](https://queryforge.amtry.in/config-builder.html) | Build a config in a form and download it, with live validation. Runs entirely in the browser. |
+| [Config builder](https://queryforge-service.amtry.in/config-builder) | Build a config in a form and download it, with live validation. Runs entirely in the browser. |
 
 ## Roadmap
 
-- **Shipped** — Go library, JSON config, validator, SQL/MySQL/Mongo generators, scope filters, model fallback, observability seam, CLI, MCP server, Python and Java SDKs.
-- **Next** — Elasticsearch/OpenSearch generator, YAML config, confidence scores, REST facade.
+- **Shipped** — Go library, JSON config, validator, SQL/MySQL/Mongo/Elasticsearch/OpenSearch generators, scope filters, model fallback, observability seam, CLI, MCP server, Python and Java SDKs.
+- **Next** — YAML config, confidence scores, REST facade.
 - **Later** — Node and .NET SDKs over the same [stdio protocol](cmd/queryforge/PROTOCOL.md), a persistent engine process, an aggregation AST node, more backends (DynamoDB, Cassandra, ClickHouse).
 
 ## Contributing
