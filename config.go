@@ -428,6 +428,39 @@ type Field struct {
 	Operators []Operator `json:"operators,omitempty"` // explicit comparison-operator whitelist; empty = type defaults
 	Synonyms  []string   `json:"synonyms,omitempty"`  // alternate phrasings that resolve to this field
 
+	// --- LLM-facing metadata: what the model (and Explain's prose readback) is
+	// told about this field, beyond its name and type. All optional on an
+	// ordinary field. CustomField makes Description — and, on a searchable
+	// string field, ValueHint — mandatory, because a generically- or
+	// per-tenant-named field (e.g. "txt01") gives the model nothing to go on
+	// without it. See validateFieldMetadata. ---
+
+	// CustomField marks a field whose logical name does not explain itself.
+	// It changes nothing about how the field is queried or compiled; it only
+	// tightens config-load validation so such a field cannot ship without real
+	// context for the model.
+	CustomField bool `json:"customField,omitempty"`
+
+	// DisplayName is a human label shown to the model (alongside, never instead
+	// of, the field's logical Name — the model still must emit Name in the AST)
+	// and used by Explain's prose readback in place of the raw field name.
+	// Always optional, even on a custom field: falls back to Name when empty.
+	DisplayName string `json:"displayName,omitempty"`
+
+	// Description is a one-line note on what the field means, shown to the
+	// model in the prompt. Optional on an ordinary field; REQUIRED when
+	// CustomField is true.
+	Description string `json:"description,omitempty"`
+
+	// ValueHint describes what a free-text field typically contains, since the
+	// model cannot see real values the way it can an enum's Values. Legal only
+	// on a searchable string field (type "string" with EffectiveSearchable()
+	// true) — load rejects it elsewhere, the same restriction ValueCase and
+	// KeywordMapping already apply to fields their meaning cannot reach.
+	// Optional on an ordinary searchable string field; REQUIRED when
+	// CustomField is true on one.
+	ValueHint string `json:"valueHint,omitempty"`
+
 	// mapping decouples the logical name from the physical column/field per
 	// backend, e.g. {"sql":"customer_name","mongo":"customerName"}. For Mongo the
 	// value may be a dot path into an embedded document ("address.city"), which
@@ -621,6 +654,18 @@ const (
 	defaultMaxSuggestCalls = 10
 )
 
+// Length ceilings on the LLM-facing metadata strings (DisplayName/Description/
+// ValueHint), applied at config load. They exist so one field's config cannot
+// silently bloat every prompt this config ever sends — a config author who
+// wants more than a couple of sentences here almost certainly means a summary
+// of the DATA, which is ValueHint's job, not a hand-written essay repeated on
+// every translate call.
+const (
+	maxDisplayNameLength = 200
+	maxDescriptionLength = 500
+	maxValueHintLength   = 1000
+)
+
 // limitOr returns the configured bound, the default when unset, or 0 (meaning
 // "no bound") when the config explicitly set a negative value.
 func limitOr(configured, def int) int {
@@ -735,6 +780,9 @@ func (c *Config) finalize() error {
 			if !isKnownOperator(op) {
 				return fmt.Errorf("config: field %q lists unknown operator %q", f.Name, op)
 			}
+		}
+		if err := validateFieldMetadata(f); err != nil {
+			return err
 		}
 		// The value-case rule is rejected rather than ignored when it cannot
 		// apply, because both mistakes it catches are invisible at runtime: a
@@ -887,6 +935,56 @@ func validDotPath(s string) bool {
 		}
 	}
 	return true
+}
+
+// validateFieldMetadata enforces the LLM-facing metadata rules: length
+// ceilings on every field, ValueHint's restriction to searchable string
+// fields, and CustomField's requirement that a field whose name does not
+// explain itself still carries real context. Checked at load so a broken rule
+// fails here, not as a silently useless (or missing) prompt line at runtime.
+func validateFieldMetadata(f *Field) error {
+	if len(f.DisplayName) > maxDisplayNameLength {
+		return fmt.Errorf("config: field %q displayName is %d characters, over the %d-character limit",
+			f.Name, len(f.DisplayName), maxDisplayNameLength)
+	}
+	if len(f.Description) > maxDescriptionLength {
+		return fmt.Errorf("config: field %q description is %d characters, over the %d-character limit",
+			f.Name, len(f.Description), maxDescriptionLength)
+	}
+	if len(f.ValueHint) > maxValueHintLength {
+		return fmt.Errorf("config: field %q valueHint is %d characters, over the %d-character limit",
+			f.Name, len(f.ValueHint), maxValueHintLength)
+	}
+
+	// freeText is the only shape of field a valueHint can describe: a string
+	// field whose search operators (contains/regex/…) are actually enabled.
+	// A non-searchable string has no free-text operator to give the model
+	// context for, and no other type carries unstructured text at all.
+	freeText := f.Type == FieldString && f.EffectiveSearchable()
+	if f.ValueHint != "" && !freeText {
+		return fmt.Errorf("config: field %q declares valueHint but is not a searchable string field (type %q) — "+
+			"valueHint describes free-text content the model cannot otherwise see, so it only applies there",
+			f.Name, f.Type)
+	}
+
+	if f.CustomField {
+		// A label is not context: displayName alone (or nothing at all) leaves
+		// the model guessing what a generically-named field like "txt01" means.
+		if strings.TrimSpace(f.Description) == "" {
+			return fmt.Errorf("config: field %q is marked customField but has no description — "+
+				"a generically- or per-tenant-named field needs explicit context for the model to use it correctly",
+				f.Name)
+		}
+		// An enum customField's equivalent need — a defined domain — is already
+		// covered by the pre-existing "enum must list values" check above, so
+		// no separate rule is needed here for that case.
+		if freeText && strings.TrimSpace(f.ValueHint) == "" {
+			return fmt.Errorf("config: field %q is marked customField and is a searchable free-text field, "+
+				"but has no valueHint — describe what this field typically contains so the model can use it",
+				f.Name)
+		}
+	}
+	return nil
 }
 
 // validateMongoPaths checks the field's Mongo dot path and its elemMatch

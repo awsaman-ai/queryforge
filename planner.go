@@ -152,6 +152,11 @@ func (pl *Planner) SystemPrompt(now time.Time) string {
 
 	// Fields the model may use (queryable only — excluded fields are hidden).
 	b.WriteString("Allowed fields:\n")
+	// Only spend a prompt line on this reminder when some field actually sets a
+	// label — an unused feature must add nothing to a config's prompt.
+	if fieldsCarryLabels(c.Fields) {
+		b.WriteString("Some fields below show a label=\"…\" for context — always reference the field by the name shown first on its line, never by its label.\n")
+	}
 	for i := range c.Fields {
 		f := &c.Fields[i]
 		if !f.EffectiveQueryable() {
@@ -186,12 +191,35 @@ func (pl *Planner) SystemPrompt(now time.Time) string {
 	return b.String()
 }
 
+// fieldsCarryLabels reports whether any queryable field sets DisplayName, so
+// the prompt's "reference by name, not label" reminder only appears when it is
+// actually relevant.
+func fieldsCarryLabels(fields []Field) bool {
+	for i := range fields {
+		if fields[i].EffectiveQueryable() && fields[i].DisplayName != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // describeFieldForPrompt renders one field's contract as a compact line so the
-// model sees exactly what it may emit for that field.
+// model sees exactly what it may emit for that field. The leading token is
+// always the field's logical Name — the only thing the model may emit back in
+// the AST — with label/desc/hint appended purely as context, never in its place.
 func describeFieldForPrompt(f *Field) string {
 	var parts []string
 	parts = append(parts, fmt.Sprintf("- %s (%s)", f.Name, f.Type)) // name + type
 
+	if f.DisplayName != "" { // human label — context only, never a substitute for Name
+		parts = append(parts, fmt.Sprintf("label=%q", f.DisplayName))
+	}
+	if f.Description != "" {
+		parts = append(parts, fmt.Sprintf("desc=%q", f.Description))
+	}
+	if f.ValueHint != "" { // what a free-text field typically contains
+		parts = append(parts, fmt.Sprintf("hint=%q", f.ValueHint))
+	}
 	if f.Type == FieldEnum && len(f.Values) > 0 { // enum domain
 		parts = append(parts, "values=["+strings.Join(f.Values, ",")+"]")
 	}

@@ -39,7 +39,7 @@ func Explain(q *Query, c *Config) string {
 	// Filter clause — the user's conditions only; scope is reported below.
 	if userFilter != nil {
 		sb.WriteString(" where ")
-		sb.WriteString(describeCondition(userFilter))
+		sb.WriteString(describeCondition(userFilter, c))
 	}
 
 	// Sort clause.
@@ -71,7 +71,7 @@ func Explain(q *Query, c *Config) string {
 	if len(scoped) > 0 {
 		parts := make([]string, len(scoped))
 		for i, cond := range scoped {
-			parts[i] = describeComparison(cond)
+			parts[i] = describeComparison(cond, c)
 		}
 		sb.WriteString(" Always scoped to ")
 		sb.WriteString(strings.Join(parts, ", "))
@@ -135,26 +135,28 @@ func sameElementArrays(cond *Condition, c *Config) []string {
 }
 
 // describeCondition renders one node of the filter tree as prose, parenthesizing
-// nested groups so precedence is unambiguous.
-func describeCondition(cond *Condition) string {
+// nested groups so precedence is unambiguous. c is threaded through purely to
+// resolve a field's DisplayName; it may be nil, in which case every field
+// falls back to its raw AST name.
+func describeCondition(cond *Condition, c *Config) string {
 	if cond == nil {
 		return "(nil)"
 	}
 	switch cond.Type {
 	case CondComparison:
-		return describeComparison(cond)
+		return describeComparison(cond, c)
 	case CondLogical:
-		return describeLogical(cond)
+		return describeLogical(cond, c)
 	default:
 		return fmt.Sprintf("(unknown condition %q)", cond.Type)
 	}
 }
 
 // describeLogical joins children with AND/OR or negates a single child.
-func describeLogical(cond *Condition) string {
+func describeLogical(cond *Condition, c *Config) string {
 	parts := make([]string, len(cond.Children)) // one phrase per child
 	for i, ch := range cond.Children {
-		parts[i] = describeCondition(ch)
+		parts[i] = describeCondition(ch, c)
 	}
 	switch cond.Op {
 	case OpAND:
@@ -171,13 +173,28 @@ func describeLogical(cond *Condition) string {
 	}
 }
 
-// describeComparison renders "field <phrase> value".
-func describeComparison(cond *Condition) string {
+// describeComparison renders "field <phrase> value", using the field's
+// configured DisplayName in place of its raw AST name when one is set.
+func describeComparison(cond *Condition, c *Config) string {
+	label := fieldLabel(cond.Field, c)
 	phrase := operatorPhrase(cond.Operator) // English for the operator
 	if isNullOperator(cond.Operator) {      // null operators take no value
-		return cond.Field + " " + phrase
+		return label + " " + phrase
 	}
-	return cond.Field + " " + phrase + " " + describeValue(cond.Operator, cond.Value)
+	return label + " " + phrase + " " + describeValue(cond.Operator, cond.Value)
+}
+
+// fieldLabel returns the field's configured DisplayName for prose, falling
+// back to the raw AST field name when the field isn't registered (e.g. an
+// unmapped scope key — see Scope's doc comment) or sets no label.
+func fieldLabel(name string, c *Config) string {
+	if c == nil {
+		return name
+	}
+	if f, ok := c.FieldByName(name); ok && f.DisplayName != "" {
+		return f.DisplayName
+	}
+	return name
 }
 
 // operatorPhrase maps an operator to a readable phrase.

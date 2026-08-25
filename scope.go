@@ -70,9 +70,11 @@ type ScopeFilter struct {
 
 // String renders the filter for logs, e.g. `subscriptionId equals "SUB-42"`.
 func (s ScopeFilter) String() string {
+	// No *Config in scope here (this is a standalone log-line renderer, not the
+	// Explain readback), so the field always renders by its raw AST name.
 	return describeComparison(&Condition{
 		Type: CondComparison, Field: s.Field, Operator: s.Operator, Value: s.Value,
-	})
+	}, nil)
 }
 
 // normalizeScope turns the caller's map into an ordered, typed, validated list
