@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/awsaman-ai/queryforge/internal/testutil"
 )
 
 // --- Tier 1 prompt-injection tests: what the model actually sees.
@@ -22,7 +24,7 @@ var fixedPromptTime = time.Date(2026, 7, 28, 0, 0, 0, 0, time.UTC)
 // same prompt line it would have before this feature existed — no label=,
 // desc=, hint=, or reminder sentence anywhere.
 func TestPromptUnchangedWhenTier1Unused(t *testing.T) {
-	c := mustParse(t, `{
+	c := testutil.MustParse(t, `{
 	  "entity":"Order","model":{},
 	  "fields":[{"name":"status","type":"enum","values":["PLACED","DELIVERED"],"operators":["equals"]}]
 	}`)
@@ -44,7 +46,7 @@ func TestPromptUnchangedWhenTier1Unused(t *testing.T) {
 // full context block (label, description, valueHint) must reach the prompt,
 // since that context is the entire reason the field can be shipped at all.
 func TestPromptIncludesCustomFieldContext(t *testing.T) {
-	c := mustParse(t, `{
+	c := testutil.MustParse(t, `{
 	  "entity":"Order","model":{},
 	  "fields":[
 	    {"name":"txt01","type":"string","customField":true,
@@ -72,7 +74,7 @@ func TestPromptIncludesCustomFieldContext(t *testing.T) {
 // feature. A regression here would silently break every custom field, since
 // the model would emit an unknown field name and every request would refuse.
 func TestPromptFieldNameStaysThePrimaryToken(t *testing.T) {
-	c := mustParse(t, `{
+	c := testutil.MustParse(t, `{
 	  "entity":"Order","model":{},
 	  "fields":[
 	    {"name":"txt01","type":"string","customField":true,
@@ -97,7 +99,7 @@ func TestPromptFieldNameStaysThePrimaryToken(t *testing.T) {
 // sets description/valueHint (no displayName) has no label to be confused by,
 // and an ordinary config never using the feature must not pay for it either.
 func TestPromptReminderOnlyAppearsWhenALabelIsSet(t *testing.T) {
-	c := mustParse(t, `{
+	c := testutil.MustParse(t, `{
 	  "entity":"Order","model":{},
 	  "fields":[
 	    {"name":"txt01","type":"string","customField":true,
@@ -117,7 +119,7 @@ func TestPromptReminderOnlyAppearsWhenALabelIsSet(t *testing.T) {
 // description/valueHint) must not create a second, accidental path for a
 // hidden field's data to leak into the prompt.
 func TestPromptNeverLeaksHiddenCustomFieldMetadata(t *testing.T) {
-	c := mustParse(t, `{
+	c := testutil.MustParse(t, `{
 	  "entity":"Order","model":{},
 	  "fields":[
 	    {"name":"visible","type":"string"},
@@ -141,7 +143,7 @@ func TestPromptNeverLeaksHiddenCustomFieldMetadata(t *testing.T) {
 // This is what actually proves the label/description addition does not break
 // the pipeline, as opposed to merely inspecting the prompt string.
 func TestCustomFieldRoundTripsThroughPlanAndValidate(t *testing.T) {
-	c := mustParse(t, `{
+	c := testutil.MustParse(t, `{
 	  "entity":"Order","model":{},
 	  "fields":[
 	    {"name":"txt01","type":"string","customField":true,

@@ -46,6 +46,7 @@ import (
 	"time"
 
 	"github.com/awsaman-ai/queryforge/internal/planner"
+	"github.com/awsaman-ai/queryforge/internal/testutil"
 	"github.com/awsaman-ai/queryforge/internal/validate"
 )
 
@@ -120,7 +121,7 @@ func FuzzParseConfig(f *testing.F) {
 		``,
 		`{}`,
 		`{"entity":"Order"}`,
-		secConfigJSON,
+		testutil.SecConfigJSON,
 		`{"entity":"Order","fields":[{"name":"a","type":"enum"}]}`,                                // enum with no values
 		`{"entity":"Order","fields":[{"name":"a","type":"nosuchtype"}]}`,                          // unknown type
 		`{"entity":"Order","fields":[{"name":"a","type":"string"},{"name":"a","type":"number"}]}`, // duplicate
@@ -177,7 +178,7 @@ func FuzzParseConfig(f *testing.F) {
 			if !ok {
 				continue
 			}
-			_, _ = g.Generate(q, c, GenOptions{Now: fixedNow})
+			_, _ = g.Generate(q, c, GenOptions{Now: testutil.FixedNow})
 		}
 	})
 }
@@ -250,7 +251,7 @@ func FuzzValidate(f *testing.F) {
 			if !ok {
 				continue
 			}
-			if _, gerr := g.Generate(&q, c, GenOptions{Now: fixedNow}); gerr != nil {
+			if _, gerr := g.Generate(&q, c, GenOptions{Now: testutil.FixedNow}); gerr != nil {
 				// A generator may legitimately refuse an empty projection, which
 				// is a config property rather than an AST one.
 				if strings.Contains(gerr.Error(), "projection") {
@@ -313,7 +314,7 @@ func FuzzUnsafeRegexShape(f *testing.F) {
 // finding.
 func mustParseFuzzConfig(f *testing.F) *Config {
 	f.Helper()
-	c, err := ParseConfig([]byte(secConfigJSON))
+	c, err := ParseConfig([]byte(testutil.SecConfigJSON))
 	if err != nil {
 		f.Fatalf("fuzz config does not parse: %v", err)
 	}

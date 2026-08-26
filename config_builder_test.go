@@ -34,6 +34,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/awsaman-ai/queryforge/internal/testutil"
 )
 
 // TestBuilderOutputLoads parses every config the builder produced. These files
@@ -279,14 +281,14 @@ func TestBuilderNestedConfigCompiles(t *testing.T) {
 
 	// Two conditions on one array must compile to one $elemMatch.
 	q := NewQuery("Order")
-	q.Filter = and(
-		comp("itemSku", OpEquals, vStr("ABC")),
-		comp("itemQty", OpGte, vNum(2)),
+	q.Filter = testutil.And(
+		testutil.Comp("itemSku", OpEquals, testutil.VStr("ABC")),
+		testutil.Comp("itemQty", OpGte, testutil.VNum(2)),
 	)
 	if err := Validate(q, c); err != nil {
 		t.Fatalf("validate: %v", err)
 	}
-	got := filterJSON(t, genMongo(t, c, q))
+	got := testutil.FilterJSON(t, testutil.GenMongo(t, c, q))
 	want := `{"items":{"$elemMatch":{"qty":{"$gte":2},"sku":"ABC"}}}`
 	if got != want {
 		t.Errorf("filter = %s, want %s", got, want)
@@ -375,7 +377,7 @@ func TestBuilderInvalidOutputIsRejected(t *testing.T) {
 // fixture, so this pins that the two stay in sync going forward.
 func TestBuilderElasticFixturesGenerateCorrectly(t *testing.T) {
 	gen := ESGenerator{}
-	genOpts := GenOptions{Now: fixedNow}
+	genOpts := GenOptions{Now: testutil.FixedNow}
 
 	t.Run("pattern falls back to default without the routing field", func(t *testing.T) {
 		c, err := LoadConfig("docs/testdata/builder_es_pattern.config.json")
@@ -383,7 +385,7 @@ func TestBuilderElasticFixturesGenerateCorrectly(t *testing.T) {
 			t.Fatalf("load: %v", err)
 		}
 		q := NewQuery("Order")
-		q.Filter = comp("tenantId", OpEquals, vStr("acme"))
+		q.Filter = testutil.Comp("tenantId", OpEquals, testutil.VStr("acme"))
 		r, err := gen.Generate(q, c, genOpts)
 		if err != nil {
 			t.Fatalf("generate: %v", err)
@@ -408,7 +410,7 @@ func TestBuilderElasticFixturesGenerateCorrectly(t *testing.T) {
 			t.Fatalf("load: %v", err)
 		}
 		q := NewQuery("Order")
-		q.Filter = comp("createdAt", OpBetween, &Value{Kind: KindArray, V: []any{"2025-11-15", "2026-02-10"}})
+		q.Filter = testutil.Comp("createdAt", OpBetween, &Value{Kind: KindArray, V: []any{"2025-11-15", "2026-02-10"}})
 		r, err := gen.Generate(q, c, genOpts)
 		if err != nil {
 			t.Fatalf("generate: %v", err)
@@ -431,7 +433,7 @@ func TestBuilderElasticFixturesGenerateCorrectly(t *testing.T) {
 			t.Fatalf("load: %v", err)
 		}
 		q := NewQuery("Order")
-		q.Filter = comp("amount", OpGt, vNum(2000))
+		q.Filter = testutil.Comp("amount", OpGt, testutil.VNum(2000))
 		r, err := gen.Generate(q, c, genOpts)
 		if err != nil {
 			t.Fatalf("generate: %v", err)
@@ -441,7 +443,7 @@ func TestBuilderElasticFixturesGenerateCorrectly(t *testing.T) {
 		}
 
 		q = NewQuery("Order")
-		q.Filter = comp("region", OpEquals, vStr("FR"))
+		q.Filter = testutil.Comp("region", OpEquals, testutil.VStr("FR"))
 		r, err = gen.Generate(q, c, genOpts)
 		if err != nil {
 			t.Fatalf("generate: %v", err)
@@ -457,7 +459,7 @@ func TestBuilderElasticFixturesGenerateCorrectly(t *testing.T) {
 			t.Fatalf("load: %v", err)
 		}
 		q := NewQuery("Order")
-		q.Filter = comp("createdAt", OpEquals, vStr("2026-06-01"))
+		q.Filter = testutil.Comp("createdAt", OpEquals, testutil.VStr("2026-06-01"))
 		r, err := gen.Generate(q, c, genOpts)
 		if err != nil {
 			t.Fatalf("generate: %v", err)
@@ -467,7 +469,7 @@ func TestBuilderElasticFixturesGenerateCorrectly(t *testing.T) {
 		}
 
 		q = NewQuery("Order")
-		q.Filter = comp("createdAt", OpEquals, vStr("2024-06-01"))
+		q.Filter = testutil.Comp("createdAt", OpEquals, testutil.VStr("2024-06-01"))
 		r, err = gen.Generate(q, c, genOpts)
 		if err != nil {
 			t.Fatalf("generate: %v", err)
@@ -483,10 +485,10 @@ func TestBuilderElasticFixturesGenerateCorrectly(t *testing.T) {
 			t.Fatalf("load: %v", err)
 		}
 		q := NewQuery("Order")
-		q.Filter = and(
-			comp("customerName", OpEquals, vStr("John Smith")),
-			comp("sku", OpEquals, vStr("ABC")),
-			comp("qty", OpGt, vNum(10)),
+		q.Filter = testutil.And(
+			testutil.Comp("customerName", OpEquals, testutil.VStr("John Smith")),
+			testutil.Comp("sku", OpEquals, testutil.VStr("ABC")),
+			testutil.Comp("qty", OpGt, testutil.VNum(10)),
 		)
 		r, err := gen.Generate(q, c, genOpts)
 		if err != nil {

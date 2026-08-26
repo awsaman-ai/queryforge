@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/awsaman-ai/queryforge/internal/testutil"
 )
 
 // --- Tier 2: cross-field business-rule validation (policy.requires) ---
@@ -36,7 +38,7 @@ const policyConfigJSON = `{
   }
 }`
 
-func policyConfig(t *testing.T) *Config { return mustParse(t, policyConfigJSON) }
+func policyConfig(t *testing.T) *Config { return testutil.MustParse(t, policyConfigJSON) }
 
 // traveler wraps one filter condition into a Query against the "Traveler"
 // entity policyConfigJSON declares (single(), from validate_test.go, is
@@ -73,7 +75,7 @@ func TestPolicyRequiresHappyPath(t *testing.T) {
 // key is omitted again on the way back out — an untouched config produces
 // byte-identical output, same as every other section of Policy.
 func TestPolicyRequiresOmittedByDefault(t *testing.T) {
-	c := mustParse(t, `{"entity":"Order","fields":[{"name":"amount","type":"number"}]}`)
+	c := testutil.MustParse(t, `{"entity":"Order","fields":[{"name":"amount","type":"number"}]}`)
 	if len(c.Policy.Requires) != 0 {
 		t.Errorf("expected no rules by default, got %+v", c.Policy.Requires)
 	}
@@ -135,7 +137,7 @@ func TestPolicyRequiresLoadRejections(t *testing.T) {
 // question is rejected with a *PolicyViolationError, not a generic one.
 func TestPolicyViolationOnTriggerAlone(t *testing.T) {
 	c := policyConfig(t)
-	q := traveler(comp("passportExpiry", OpBefore, vRel("day", 0)))
+	q := traveler(testutil.Comp("passportExpiry", OpBefore, testutil.VRel("day", 0)))
 
 	err := Validate(q, c)
 	if err == nil {
@@ -158,8 +160,8 @@ func TestPolicyViolationOnTriggerAlone(t *testing.T) {
 func TestPolicyPassesWithEitherCompanionField(t *testing.T) {
 	c := policyConfig(t)
 	cases := map[string]*Query{
-		"country present":  traveler(and(comp("passportExpiry", OpBefore, vRel("day", 0)), comp("country", OpEquals, vStr("IN")))),
-		"visaType present": traveler(and(comp("passportExpiry", OpBefore, vRel("day", 0)), comp("visaType", OpEquals, vEnum("WORK")))),
+		"country present":  traveler(testutil.And(testutil.Comp("passportExpiry", OpBefore, testutil.VRel("day", 0)), testutil.Comp("country", OpEquals, testutil.VStr("IN")))),
+		"visaType present": traveler(testutil.And(testutil.Comp("passportExpiry", OpBefore, testutil.VRel("day", 0)), testutil.Comp("visaType", OpEquals, testutil.VEnum("WORK")))),
 	}
 	for name, q := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -176,7 +178,7 @@ func TestPolicyPassesWithEitherCompanionField(t *testing.T) {
 // specific date that would need a country to interpret.
 func TestPolicyIgnoresNonTriggeringOperator(t *testing.T) {
 	c := policyConfig(t)
-	q := traveler(comp("passportExpiry", OpIsNull, nil))
+	q := traveler(testutil.Comp("passportExpiry", OpIsNull, nil))
 	if err := Validate(q, c); err != nil {
 		t.Errorf("isNull should not trigger the rule, got: %v", err)
 	}
@@ -188,9 +190,9 @@ func TestPolicyIgnoresNonTriggeringOperator(t *testing.T) {
 // branch here and still satisfies the rule.
 func TestPolicyCompanionFoundAcrossBranches(t *testing.T) {
 	c := policyConfig(t)
-	q := traveler(and(
-		comp("passportExpiry", OpBefore, vRel("day", 0)),
-		or(comp("country", OpEquals, vStr("IN")), comp("name", OpContains, vStr("smith"))),
+	q := traveler(testutil.And(
+		testutil.Comp("passportExpiry", OpBefore, testutil.VRel("day", 0)),
+		testutil.Or(testutil.Comp("country", OpEquals, testutil.VStr("IN")), testutil.Comp("name", OpContains, testutil.VStr("smith"))),
 	))
 	if err := Validate(q, c); err != nil {
 		t.Errorf("expected no violation with country nested in an OR branch, got: %v", err)
@@ -201,12 +203,12 @@ func TestPolicyCompanionFoundAcrossBranches(t *testing.T) {
 // explains itself, naming both sides of the rule, rather than surfacing a
 // blank string.
 func TestPolicyDefaultMessageWhenUnconfigured(t *testing.T) {
-	c := mustParse(t, `{
+	c := testutil.MustParse(t, `{
 	  "entity":"Traveler",
 	  "fields":[{"name":"passportExpiry","type":"date"},{"name":"country","type":"string"}],
 	  "policy":{"requires":[{"when":{"field":"passportExpiry"},"requireAlsoOneOf":["country"]}]}
 	}`)
-	q := traveler(comp("passportExpiry", OpBefore, vRel("day", 0)))
+	q := traveler(testutil.Comp("passportExpiry", OpBefore, testutil.VRel("day", 0)))
 	err := Validate(q, c)
 	var perr *PolicyViolationError
 	if !errors.As(err, &perr) {
@@ -224,9 +226,9 @@ func TestPolicyDefaultMessageWhenUnconfigured(t *testing.T) {
 // even though the passport rule would also fire.
 func TestPolicyDoesNotRunOnAStructurallyBrokenAST(t *testing.T) {
 	c := policyConfig(t)
-	q := traveler(and(
-		comp("passportExpiry", OpBefore, vRel("day", 0)), // would violate the policy alone
-		comp("passportNumber", OpEquals, vStr("X")),      // unknown field: structural error
+	q := traveler(testutil.And(
+		testutil.Comp("passportExpiry", OpBefore, testutil.VRel("day", 0)), // would violate the policy alone
+		testutil.Comp("passportNumber", OpEquals, testutil.VStr("X")),      // unknown field: structural error
 	))
 	err := Validate(q, c)
 	if err == nil {
@@ -248,7 +250,7 @@ func TestPolicyDoesNotRunOnAStructurallyBrokenAST(t *testing.T) {
 // ValidationErrors.
 func TestPolicyErrorIsNotAValidationError(t *testing.T) {
 	c := policyConfig(t)
-	q := traveler(comp("passportExpiry", OpBefore, vRel("day", 0)))
+	q := traveler(testutil.Comp("passportExpiry", OpBefore, testutil.VRel("day", 0)))
 	err := Validate(q, c)
 
 	var ves ValidationErrors
@@ -267,7 +269,7 @@ func TestPolicyErrorIsNotAValidationError(t *testing.T) {
 // VALIDATION_FAILED and UNSUPPORTED_REQUEST.
 func TestClassifyMapsPolicyViolation(t *testing.T) {
 	c := policyConfig(t)
-	q := traveler(comp("passportExpiry", OpBefore, vRel("day", 0)))
+	q := traveler(testutil.Comp("passportExpiry", OpBefore, testutil.VRel("day", 0)))
 	err := Validate(q, c)
 	if code := Classify(err); code != FailurePolicy {
 		t.Errorf("Classify = %q, want %q", code, FailurePolicy)
@@ -282,7 +284,7 @@ func TestClassifyMapsPolicyViolation(t *testing.T) {
 // business rule the config declares.
 func TestGenerateFromEnforcesPolicyToo(t *testing.T) {
 	e := NewWithProvider(policyConfig(t), &StubProvider{})
-	q := traveler(comp("passportExpiry", OpBefore, vRel("day", 0)))
+	q := traveler(testutil.Comp("passportExpiry", OpBefore, testutil.VRel("day", 0)))
 
 	_, err := e.GenerateFrom(q, "sql", nil)
 	var perr *PolicyViolationError

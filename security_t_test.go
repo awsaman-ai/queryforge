@@ -22,52 +22,18 @@ import (
 
 	"github.com/awsaman-ai/queryforge/internal/config"
 	"github.com/awsaman-ai/queryforge/internal/observe"
+	"github.com/awsaman-ai/queryforge/internal/testutil"
 	"github.com/awsaman-ai/queryforge/internal/validate"
 )
 
-// secConfigJSON is the entity these tests attack. It carries one field of each
-// shape a security control acts on:
-//
-//	status        an enum, to prove out-of-domain values are rejected
-//	customerName  a string permitting regex, the ReDoS surface
-//	ssn           returnable:false — must never appear in a projection
-//	internalNote  queryable:false — must never be filterable or sortable
-//	tenantId      declared but hidden, the scope target
-//
-// `order` and `key` are reserved words in at least one supported dialect, and
-// are here so the quoting path (S-5) is exercised by the same fixture.
-const secConfigJSON = `{
-  "entity":"Order","model":{},
-  "backends":{"sql":{"table":"orders"},"mongo":{"collection":"orders"}},
-  "fields":[
-    {"name":"status","type":"enum","values":["PLACED","DELIVERED","CANCELLED"],
-     "operators":["equals","notEquals","in","notIn"],
-     "indexed":true,"mapping":{"sql":"status","mongo":"status"}},
-    {"name":"customerName","type":"string",
-     "operators":["equals","contains","startsWith","regex"],
-     "mapping":{"sql":"customer_name","mongo":"customerName"}},
-    {"name":"amount","type":"number","operators":["gt","lt","between","in"],
-     "mapping":{"sql":"amount","mongo":"amount"}},
-    {"name":"ssn","type":"string","returnable":false,
-     "mapping":{"sql":"ssn","mongo":"ssn"}},
-    {"name":"internalNote","type":"string","queryable":false,
-     "mapping":{"sql":"internal_note","mongo":"internalNote"}},
-    {"name":"tenantId","type":"string","queryable":false,
-     "mapping":{"sql":"tenant_id","mongo":"tenantId"}},
-    {"name":"sortOrder","type":"number","operators":["gt","lt"],
-     "mapping":{"sql":"order","mongo":"order"}}
-  ],
-  "defaults":{"limit":50,"maxLimit":500}
-}`
-
-func secConfig(t *testing.T) *Config { return mustParse(t, secConfigJSON) }
+func secConfig(t *testing.T) *Config { return testutil.MustParse(t, testutil.SecConfigJSON) }
 
 // secEngine builds an engine on that config with a fixed clock, so every
 // assertion below is about the security control and never about the date.
 func secEngine(t *testing.T, p ModelProvider) *Engine {
 	t.Helper()
 	e := NewWithProvider(secConfig(t), p)
-	e.Now = func() time.Time { return fixedNow }
+	e.Now = func() time.Time { return testutil.FixedNow }
 	return e
 }
 
@@ -287,7 +253,7 @@ func TestS3RegexShapeGuard(t *testing.T) {
 func TestS3ValidatorRejectsCatastrophicRegex(t *testing.T) {
 	c := secConfig(t)
 	q := NewQuery("Order")
-	q.Filter = comp("customerName", OpRegex, vStr(`(a+)+$`))
+	q.Filter = testutil.Comp("customerName", OpRegex, testutil.VStr(`(a+)+$`))
 
 	err := Validate(q, c)
 	if err == nil {
@@ -310,7 +276,7 @@ func TestS3LengthCapWinsOverShape(t *testing.T) {
 	c := secConfig(t)
 	long := "(a+)+" + strings.Repeat("b", config.DefaultMaxRegexLength)
 	q := NewQuery("Order")
-	q.Filter = comp("customerName", OpRegex, vStr(long))
+	q.Filter = testutil.Comp("customerName", OpRegex, testutil.VStr(long))
 
 	err := Validate(q, c)
 	if err == nil {
@@ -345,7 +311,7 @@ func TestS3QuoteMetaOperatorsAreUntouched(t *testing.T) {
 	c := secConfig(t)
 	for _, op := range []Operator{OpContains, OpStartsWith} {
 		q := NewQuery("Order")
-		q.Filter = comp("customerName", op, vStr(`(a+)+$`))
+		q.Filter = testutil.Comp("customerName", op, testutil.VStr(`(a+)+$`))
 		if err := Validate(q, c); err != nil {
 			t.Errorf("%s with a regex-shaped literal was rejected: %v", op, err)
 		}
@@ -368,7 +334,7 @@ func TestS4SuggestionBudgetIsBounded(t *testing.T) {
 	// would otherwise produce suggestions for all of them.
 	var kids []*Condition
 	for i := 0; i < 200; i++ {
-		kids = append(kids, comp(fmt.Sprintf("statu%d", i), OpEquals, vStr("x")))
+		kids = append(kids, testutil.Comp(fmt.Sprintf("statu%d", i), OpEquals, testutil.VStr("x")))
 	}
 	q := NewQuery("Order")
 	q.Filter = &Condition{Type: CondLogical, Op: OpAND, Children: kids}
@@ -404,7 +370,7 @@ func TestS4SuggestionBudgetIsBounded(t *testing.T) {
 func TestS5ReservedWordMappingIsQuoted(t *testing.T) {
 	c := secConfig(t)
 	q := NewQuery("Order")
-	q.Filter = comp("sortOrder", OpGt, vNum(5))
+	q.Filter = testutil.Comp("sortOrder", OpGt, testutil.VNum(5))
 
 	r, err := genSQLFor(t, c, q, "sql")
 	if err != nil {
@@ -816,7 +782,7 @@ func genSQLFor(t *testing.T, c *Config, q *Query, backend string) (*Result, erro
 	if !ok {
 		t.Fatalf("no generator for %q", backend)
 	}
-	return g.Generate(q, c, GenOptions{Now: fixedNow})
+	return g.Generate(q, c, GenOptions{Now: testutil.FixedNow})
 }
 
 // renderQuery flattens a compiled result to one searchable string, so a

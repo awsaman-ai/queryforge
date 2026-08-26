@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	qscope "github.com/awsaman-ai/queryforge/internal/scope"
+	"github.com/awsaman-ai/queryforge/internal/testutil"
 )
 
 // caseConfigJSON registers the same logical fields twice — once plain, once
@@ -41,20 +42,20 @@ const caseConfigJSON = `{
   "defaults":{"limit":50}
 }`
 
-func caseConfig(t *testing.T) *Config { return mustParse(t, caseConfigJSON) }
+func caseConfig(t *testing.T) *Config { return testutil.MustParse(t, caseConfigJSON) }
 
 // argsOf runs the SQL generator and returns just the bound arguments, which is
 // where every user-supplied value lands in that backend.
 func argsOf(t *testing.T, c *Config, cmp *Condition) []any {
 	t.Helper()
-	return genSQL(t, c, single(cmp)).Args
+	return testutil.GenSQL(t, c, testutil.Single(cmp)).Args
 }
 
 // mongoFilterOf renders the Mongo filter document as key-sorted JSON, so a test
 // can pin the exact value in one readable string.
 func mongoFilterOf(t *testing.T, c *Config, cmp *Condition) string {
 	t.Helper()
-	b, err := json.Marshal(genMongo(t, c, single(cmp)).Filter)
+	b, err := json.Marshal(testutil.GenMongo(t, c, testutil.Single(cmp)).Filter)
 	if err != nil {
 		t.Fatalf("marshal filter: %v", err)
 	}
@@ -73,15 +74,15 @@ func TestValueCaseAppliesToBothBackends(t *testing.T) {
 		arg   any    // expected single bound SQL argument
 		mongo string // expected Mongo filter document
 	}{
-		{"enum equals is upper-cased", comp("status", OpEquals, vEnum("shipped")),
+		{"enum equals is upper-cased", testutil.Comp("status", OpEquals, testutil.VEnum("shipped")),
 			"SHIPPED", `{"status":"SHIPPED"}`},
-		{"string equals is upper-cased", comp("code", OpEquals, vStr("ab-12")),
+		{"string equals is upper-cased", testutil.Comp("code", OpEquals, testutil.VStr("ab-12")),
 			"AB-12", `{"code":"AB-12"}`},
-		{"lower rule folds down", comp("email", OpEquals, vStr("Sam@Example.COM")),
+		{"lower rule folds down", testutil.Comp("email", OpEquals, testutil.VStr("Sam@Example.COM")),
 			"sam@example.com", `{"email":"sam@example.com"}`},
-		{"notEquals is covered too", comp("status", OpNotEquals, vEnum("cancelled")),
+		{"notEquals is covered too", testutil.Comp("status", OpNotEquals, testutil.VEnum("cancelled")),
 			"CANCELLED", `{"status":{"$exists":true,"$ne":"CANCELLED"}}`},
-		{"no rule leaves the value alone", comp("statusPlain", OpEquals, vEnum("shipped")),
+		{"no rule leaves the value alone", testutil.Comp("statusPlain", OpEquals, testutil.VEnum("shipped")),
 			"shipped", `{"status2":"shipped"}`},
 	}
 	for _, tc := range cases {
@@ -110,26 +111,26 @@ func TestValueCaseAppliesToEveryStringOperator(t *testing.T) {
 		args  []any
 		mongo string
 	}{
-		{"in list", comp("status", OpIn, vArr("shipped", "cancelled")),
+		{"in list", testutil.Comp("status", OpIn, testutil.VArr("shipped", "cancelled")),
 			[]any{"SHIPPED", "CANCELLED"}, `{"status":{"$in":["SHIPPED","CANCELLED"]}}`},
-		{"notIn list", comp("status", OpNotIn, vArr("shipped")),
+		{"notIn list", testutil.Comp("status", OpNotIn, testutil.VArr("shipped")),
 			[]any{"SHIPPED"}, `{"status":{"$exists":true,"$nin":["SHIPPED"]}}`},
-		{"between endpoints", comp("code", OpBetween, vArr("aa", "zz")),
+		{"between endpoints", testutil.Comp("code", OpBetween, testutil.VArr("aa", "zz")),
 			[]any{"AA", "ZZ"}, `{"code":{"$gte":"AA","$lte":"ZZ"}}`},
 		// LIKE and $regex build a pattern around the value: the fold must happen
 		// to the value only, leaving the wildcards and anchors where they were.
-		{"startsWith pattern", comp("code", OpStartsWith, vStr("ab")),
+		{"startsWith pattern", testutil.Comp("code", OpStartsWith, testutil.VStr("ab")),
 			[]any{"AB%"}, `{"code":{"$regex":"^AB"}}`},
-		{"endsWith pattern", comp("code", OpEndsWith, vStr("ab")),
+		{"endsWith pattern", testutil.Comp("code", OpEndsWith, testutil.VStr("ab")),
 			[]any{"%AB"}, `{"code":{"$regex":"AB$"}}`},
-		{"contains on a string", comp("email", OpContains, vStr("EXAMPLE")),
+		{"contains on a string", testutil.Comp("email", OpContains, testutil.VStr("EXAMPLE")),
 			[]any{"%example%"}, `{"email":{"$options":"i","$regex":"example"}}`},
 		// Array fields fold their elements, whether one or many.
-		{"contains on an array", comp("tags", OpContains, vStr("vip")),
+		{"contains on an array", testutil.Comp("tags", OpContains, testutil.VStr("vip")),
 			[]any{"VIP"}, `{"tags":"VIP"}`},
-		{"containsAny", comp("tags", OpContainsAny, vArr("vip", "gold")),
+		{"containsAny", testutil.Comp("tags", OpContainsAny, testutil.VArr("vip", "gold")),
 			[]any{"VIP", "GOLD"}, `{"tags":{"$in":["VIP","GOLD"]}}`},
-		{"containsAll", comp("tags", OpContainsAll, vArr("vip", "gold")),
+		{"containsAll", testutil.Comp("tags", OpContainsAll, testutil.VArr("vip", "gold")),
 			[]any{"VIP", "GOLD"}, `{"tags":{"$all":["VIP","GOLD"]}}`},
 	}
 	for _, tc := range cases {
@@ -157,7 +158,7 @@ func TestValueCaseNeverTouchesARegexPattern(t *testing.T) {
 	c := caseConfig(t)
 	pattern := `^ab-\d+$` // upper-casing this would flip \d to \D
 
-	cmp := comp("code", OpRegex, vStr(pattern))
+	cmp := testutil.Comp("code", OpRegex, testutil.VStr(pattern))
 	if args := argsOf(t, c, cmp); len(args) != 1 || args[0] != pattern {
 		t.Errorf("sql args = %#v, want the pattern verbatim [%q]", args, pattern)
 	}
@@ -175,13 +176,13 @@ func TestValueCaseLeavesNonStringsAlone(t *testing.T) {
 	c := caseConfig(t)
 
 	q := NewQuery("Order")
-	q.Filter = and(
-		comp("status", OpEquals, vEnum("shipped")), // the cased field
-		comp("total", OpGt, vNum(99.5)),
-		comp("createdAt", OpAfter, vStr("2026-01-02")),
+	q.Filter = testutil.And(
+		testutil.Comp("status", OpEquals, testutil.VEnum("shipped")), // the cased field
+		testutil.Comp("total", OpGt, testutil.VNum(99.5)),
+		testutil.Comp("createdAt", OpAfter, testutil.VStr("2026-01-02")),
 	)
 
-	args := genSQL(t, c, q).Args
+	args := testutil.GenSQL(t, c, q).Args
 	want := []any{"SHIPPED", 99.5, "2026-01-02"}
 	if len(args) != len(want) {
 		t.Fatalf("sql args = %#v, want %#v", args, want)
@@ -201,16 +202,16 @@ func TestValueCaseLeavesNonStringsAlone(t *testing.T) {
 func TestValueCaseDoesNotMutateTheAST(t *testing.T) {
 	c := caseConfig(t)
 
-	scalar := vEnum("shipped")
-	list := vArr("vip", "gold")
+	scalar := testutil.VEnum("shipped")
+	list := testutil.VArr("vip", "gold")
 	q := NewQuery("Order")
-	q.Filter = and(comp("status", OpEquals, scalar), comp("tags", OpContainsAny, list))
+	q.Filter = testutil.And(testutil.Comp("status", OpEquals, scalar), testutil.Comp("tags", OpContainsAny, list))
 
 	// Parenthesised: a composite literal cannot start an if-statement header.
-	if _, err := (SQLGenerator{}).Generate(q, c, GenOptions{Now: fixedNow}); err != nil {
+	if _, err := (SQLGenerator{}).Generate(q, c, GenOptions{Now: testutil.FixedNow}); err != nil {
 		t.Fatalf("sql generate: %v", err)
 	}
-	if _, err := (MongoGenerator{}).Generate(q, c, GenOptions{Now: fixedNow}); err != nil {
+	if _, err := (MongoGenerator{}).Generate(q, c, GenOptions{Now: testutil.FixedNow}); err != nil {
 		t.Fatalf("mongo generate: %v", err)
 	}
 
@@ -233,10 +234,10 @@ func TestValueCaseDoesNotMutateTheAST(t *testing.T) {
 func TestValueCaseIsInvisibleToValidation(t *testing.T) {
 	c := caseConfig(t)
 
-	if err := Validate(single(comp("status", OpEquals, vEnum("shipped"))), c); err != nil {
+	if err := Validate(testutil.Single(testutil.Comp("status", OpEquals, testutil.VEnum("shipped"))), c); err != nil {
 		t.Fatalf("the config's own spelling must validate, got %v", err)
 	}
-	if err := Validate(single(comp("status", OpEquals, vEnum("SHIPPED"))), c); err == nil {
+	if err := Validate(testutil.Single(testutil.Comp("status", OpEquals, testutil.VEnum("SHIPPED"))), c); err == nil {
 		t.Fatal("a value outside the declared domain must be rejected, even when it is the case the query will use")
 	}
 }
@@ -245,7 +246,7 @@ func TestValueCaseIsInvisibleToValidation(t *testing.T) {
 // path, which re-keys the predicate relative to an array element and is the one
 // place a value could reach the filter through a different function.
 func TestValueCaseAppliesInsideElemMatch(t *testing.T) {
-	c := mustParse(t, `{
+	c := testutil.MustParse(t, `{
       "entity":"Order","model":{},
       "backends":{"mongo":{"collection":"orders"}},
       "fields":[
@@ -253,7 +254,7 @@ func TestValueCaseAppliesInsideElemMatch(t *testing.T) {
          "operators":["equals"],"mapping":{"mongo":"items.sku"},"elemMatch":"items"}
       ]}`)
 
-	got := mongoFilterOf(t, c, comp("itemSku", OpEquals, vStr("ab-12")))
+	got := mongoFilterOf(t, c, testutil.Comp("itemSku", OpEquals, testutil.VStr("ab-12")))
 	want := `{"items":{"$elemMatch":{"sku":"AB-12"}}}`
 	if got != want {
 		t.Errorf("mongo filter = %s, want %s", got, want)
@@ -268,7 +269,7 @@ func TestValueCaseAppliesToInjectedScope(t *testing.T) {
 	c := caseConfig(t)
 
 	q := NewQuery("Order")
-	q.Filter = comp("total", OpGt, vNum(10))
+	q.Filter = testutil.Comp("total", OpGt, testutil.VNum(10))
 	filters, err := qscope.Normalize(Scope{"code": "ab-12"}, c)
 	if err != nil {
 		t.Fatalf("normalize scope: %v", err)
@@ -283,7 +284,7 @@ func TestValueCaseAppliesToInjectedScope(t *testing.T) {
 // mongoFilterOf2 is mongoFilterOf for a whole query rather than one predicate.
 func mongoFilterOf2(t *testing.T, c *Config, q *Query) string {
 	t.Helper()
-	b, err := json.Marshal(genMongo(t, c, q).Filter)
+	b, err := json.Marshal(testutil.GenMongo(t, c, q).Filter)
 	if err != nil {
 		t.Fatalf("marshal filter: %v", err)
 	}
@@ -315,7 +316,7 @@ func TestValueCaseOddValues(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			args := argsOf(t, c, comp("code", OpEquals, vStr(tc.in)))
+			args := argsOf(t, c, testutil.Comp("code", OpEquals, testutil.VStr(tc.in)))
 			if len(args) != 1 || args[0] != tc.want {
 				t.Errorf("sql args = %#v, want [%q]", args, tc.want)
 			}
@@ -330,7 +331,7 @@ func TestValueCaseOddValues(t *testing.T) {
 func TestValueCaseIgnoresNonStringElements(t *testing.T) {
 	c := caseConfig(t)
 
-	got := mongoFilterOf(t, c, comp("tags", OpContainsAny, vArr("vip", 7, true, nil)))
+	got := mongoFilterOf(t, c, testutil.Comp("tags", OpContainsAny, testutil.VArr("vip", 7, true, nil)))
 	want := `{"tags":{"$in":["VIP",7,true,null]}}`
 	if got != want {
 		t.Errorf("mongo filter = %s, want %s", got, want)

@@ -17,6 +17,7 @@ import (
 	"github.com/awsaman-ai/queryforge/internal/ast"
 	"github.com/awsaman-ai/queryforge/internal/config"
 	"github.com/awsaman-ai/queryforge/internal/explain"
+	"github.com/awsaman-ai/queryforge/internal/testutil"
 )
 
 // tConfig is a small config covering the shapes these tests need: an enum, a
@@ -40,20 +41,6 @@ func tConfig(t *testing.T) *Config {
 		t.Fatalf("parse config: %v", err)
 	}
 	return c
-}
-
-// tGen compiles an AST for one backend, failing the test on error.
-func tGen(t *testing.T, c *Config, q *Query, backend string) *Result {
-	t.Helper()
-	g, ok := DefaultRegistry().Get(backend)
-	if !ok {
-		t.Fatalf("no generator for %q", backend)
-	}
-	r, err := g.Generate(q, c, GenOptions{Now: time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)})
-	if err != nil {
-		t.Fatalf("generate %s: %v", backend, err)
-	}
-	return r
 }
 
 // tFilter renders a Mongo filter document as canonical JSON for comparison.
@@ -252,7 +239,7 @@ func TestQFT004NegationRequiresTheFieldToExist(t *testing.T) {
 			if err := Validate(q, c); err != nil {
 				t.Fatalf("test AST is invalid: %v", err)
 			}
-			if got := tFilter(t, tGen(t, c, q, "mongo")); got != tc.want {
+			if got := tFilter(t, testutil.TGen(t, c, q, "mongo")); got != tc.want {
 				t.Errorf("mongo filter = %s\nwant %s", got, tc.want)
 			}
 		})
@@ -268,7 +255,7 @@ func TestQFT004NullOperatorsAreNotGuarded(t *testing.T) {
 	q.Filter = &Condition{Type: CondLogical, Op: OpNOT, Children: []*Condition{
 		{Type: CondComparison, Field: "status", Operator: OpIsNotNull}}}
 
-	got := tFilter(t, tGen(t, c, q, "mongo"))
+	got := tFilter(t, testutil.TGen(t, c, q, "mongo"))
 	if strings.Contains(got, "$exists") {
 		t.Errorf("existence guard wrongly applied to a null operator: %s", got)
 	}
@@ -291,7 +278,7 @@ func TestQFT005MySQLDialect(t *testing.T) {
 		t.Fatalf("test AST is invalid: %v", err)
 	}
 
-	r := tGen(t, c, q, "mysql")
+	r := testutil.TGen(t, c, q, "mysql")
 	if r.Backend != "mysql" {
 		t.Errorf("backend = %q", r.Backend)
 	}
@@ -317,7 +304,7 @@ func TestQFT005MySQLDialect(t *testing.T) {
 	}
 
 	// Postgres output must be untouched by the refactor.
-	pg := tGen(t, c, q, "sql")
+	pg := testutil.TGen(t, c, q, "sql")
 	for _, want := range []string{"status = $1", "amount BETWEEN $2 AND $3", "customerName ~ $4", "tags @> ARRAY[$5]"} {
 		if !strings.Contains(pg.SQL, want) {
 			t.Errorf("postgres output changed: missing %q in %s", want, pg.SQL)
@@ -332,7 +319,7 @@ func TestQFT005MySQLOffsetWithoutLimit(t *testing.T) {
 	q := NewQuery("Order")
 	q.Offset = ast.IntPtr(20)
 
-	sql := tGen(t, c, q, "mysql").SQL
+	sql := testutil.TGen(t, c, q, "mysql").SQL
 	if !strings.Contains(sql, "LIMIT 18446744073709551615 OFFSET 20") {
 		t.Errorf("offset-only MySQL query is not parseable: %s", sql)
 	}
@@ -508,7 +495,7 @@ func TestQFT009ReservedWordsAreQuoted(t *testing.T) {
 	q.Filter = &Condition{Type: CondComparison, Field: "desc", Operator: OpEquals,
 		Value: &Value{Kind: KindString, V: "x"}}
 
-	pg := tGen(t, c, q, "sql").SQL
+	pg := testutil.TGen(t, c, q, "sql").SQL
 	if !strings.Contains(pg, `SELECT "desc", plain FROM "order"`) {
 		t.Errorf("reserved words not quoted for postgres: %s", pg)
 	}
@@ -516,7 +503,7 @@ func TestQFT009ReservedWordsAreQuoted(t *testing.T) {
 		t.Errorf("reserved word not quoted in the predicate: %s", pg)
 	}
 
-	my := tGen(t, c, q, "mysql").SQL
+	my := testutil.TGen(t, c, q, "mysql").SQL
 	if !strings.Contains(my, "SELECT `desc`, plain FROM `order`") {
 		t.Errorf("reserved words not backticked for mysql: %s", my)
 	}
@@ -638,12 +625,12 @@ func TestNegationIsEquivalentAcrossBackends(t *testing.T) {
 	q.Filter = &Condition{Type: CondComparison, Field: "status", Operator: OpNotEquals,
 		Value: &Value{Kind: KindEnum, V: "CANCELLED"}}
 
-	sql := tGen(t, c, q, "sql").SQL
+	sql := testutil.TGen(t, c, q, "sql").SQL
 	if !strings.Contains(sql, "status <> $1") {
 		t.Fatalf("unexpected SQL: %s", sql)
 	}
 	// SQL's <> excludes NULL rows; the Mongo document must exclude missing ones.
-	if got := tFilter(t, tGen(t, c, q, "mongo")); !strings.Contains(got, `"$exists":true`) {
+	if got := tFilter(t, testutil.TGen(t, c, q, "mongo")); !strings.Contains(got, `"$exists":true`) {
 		t.Errorf("mongo would return documents SQL excludes: %s", got)
 	}
 }
@@ -663,7 +650,7 @@ func TestMySQLInheritsSQLMappings(t *testing.T) {
 	q.Filter = &Condition{Type: CondComparison, Field: "customerName", Operator: OpEquals,
 		Value: &Value{Kind: KindString, V: "ada"}}
 
-	sql := tGen(t, c, q, "mysql").SQL
+	sql := testutil.TGen(t, c, q, "mysql").SQL
 	if !strings.Contains(sql, "FROM orders_v2") || !strings.Contains(sql, "customer_name = ?") {
 		t.Errorf("mysql did not inherit the sql mapping: %s", sql)
 	}

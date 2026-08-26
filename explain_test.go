@@ -3,12 +3,14 @@ package queryforge
 import (
 	"strings"
 	"testing"
+
+	"github.com/awsaman-ai/queryforge/internal/testutil"
 )
 
 // TestExplainCanonical renders the design-doc example and checks the prose reads
 // correctly end to end.
 func TestExplainCanonical(t *testing.T) {
-	got := Explain(canonicalQuery(), nil)
+	got := Explain(testutil.CanonicalQuery(), nil)
 	want := `Return all fields from Order where (status equals "DELIVERED" AND refunded equals false AND createdAt is on or after 30 days ago AND tags contains all of [premium, express]), sorted by createdAt (descending), limited to 50 result(s).`
 	if got != want {
 		t.Errorf("explain mismatch:\n got: %s\nwant: %s", got, want)
@@ -20,8 +22,8 @@ func TestExplainProjectionAndOps(t *testing.T) {
 	q := NewQuery("Order")
 	q.Select = []string{"status", "amount"}
 	q.Filter = &Condition{Type: CondLogical, Op: OpOR, Children: []*Condition{
-		comp("amount", OpBetween, vArr(float64(10), float64(100))),
-		comp("status", OpIn, vArr("PLACED", "DELIVERED")),
+		testutil.Comp("amount", OpBetween, testutil.VArr(float64(10), float64(100))),
+		testutil.Comp("status", OpIn, testutil.VArr("PLACED", "DELIVERED")),
 	}}
 	got := Explain(q, nil)
 
@@ -41,7 +43,7 @@ func TestExplainProjectionAndOps(t *testing.T) {
 func TestExplainNullAndNot(t *testing.T) {
 	q := NewQuery("Order")
 	q.Filter = &Condition{Type: CondLogical, Op: OpNOT, Children: []*Condition{
-		comp("status", OpIsNull, nil),
+		testutil.Comp("status", OpIsNull, nil),
 	}}
 	got := Explain(q, nil)
 	if !strings.Contains(got, "NOT status is empty") {
@@ -61,7 +63,7 @@ func TestExplainRelativeDates(t *testing.T) {
 		"future weeks": {"week", 2, "2 weeks from now"},
 	}
 	for name, tc := range cases {
-		q := single(comp("createdAt", OpAfter, vRel(tc.unit, tc.amount)))
+		q := testutil.Single(testutil.Comp("createdAt", OpAfter, testutil.VRel(tc.unit, tc.amount)))
 		if got := Explain(q, nil); !strings.Contains(got, tc.want) {
 			t.Errorf("%s: expected %q in %s", name, tc.want, got)
 		}

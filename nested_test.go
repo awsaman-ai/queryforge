@@ -1,9 +1,10 @@
 package queryforge
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/awsaman-ai/queryforge/internal/testutil"
 )
 
 // nestedConfigJSON exercises every nesting shape the config can express:
@@ -35,18 +36,7 @@ const nestedConfigJSON = `{
   "defaults":{"limit":50}
 }`
 
-func nestedConfig(t *testing.T) *Config { return mustParse(t, nestedConfigJSON) }
-
-// filterJSON renders just the filter document, key-sorted by encoding/json, so
-// a test can pin the exact structure in one readable string.
-func filterJSON(t *testing.T, mq *MongoQuery) string {
-	t.Helper()
-	b, err := json.Marshal(mq.Filter)
-	if err != nil {
-		t.Fatalf("marshal filter: %v", err)
-	}
-	return string(b)
-}
+func nestedConfig(t *testing.T) *Config { return testutil.MustParse(t, nestedConfigJSON) }
 
 // TestMongoEmbeddedDocumentDotPath covers the simple case: a field inside a
 // single embedded document needs no elemMatch, and its dot path becomes the
@@ -54,9 +44,9 @@ func filterJSON(t *testing.T, mq *MongoQuery) string {
 func TestMongoEmbeddedDocumentDotPath(t *testing.T) {
 	c := nestedConfig(t)
 	q := NewQuery("Order")
-	q.Filter = comp("city", OpEquals, vStr("Pune"))
+	q.Filter = testutil.Comp("city", OpEquals, testutil.VStr("Pune"))
 
-	got := filterJSON(t, genMongo(t, c, q))
+	got := testutil.FilterJSON(t, testutil.GenMongo(t, c, q))
 	want := `{"address.city":"Pune"}`
 	if got != want {
 		t.Errorf("filter = %s, want %s", got, want)
@@ -70,12 +60,12 @@ func TestMongoEmbeddedDocumentDotPath(t *testing.T) {
 func TestMongoElemMatchGroupsSiblings(t *testing.T) {
 	c := nestedConfig(t)
 	q := NewQuery("Order")
-	q.Filter = and(
-		comp("itemSku", OpEquals, vStr("ABC")),
-		comp("itemPrice", OpGt, vNum(100)),
+	q.Filter = testutil.And(
+		testutil.Comp("itemSku", OpEquals, testutil.VStr("ABC")),
+		testutil.Comp("itemPrice", OpGt, testutil.VNum(100)),
 	)
 
-	got := filterJSON(t, genMongo(t, c, q))
+	got := testutil.FilterJSON(t, testutil.GenMongo(t, c, q))
 	want := `{"items":{"$elemMatch":{"price":{"$gt":100},"sku":"ABC"}}}`
 	if got != want {
 		t.Errorf("filter = %s, want %s", got, want)
@@ -93,9 +83,9 @@ func TestMongoElemMatchGroupsSiblings(t *testing.T) {
 func TestMongoElemMatchSinglePredicate(t *testing.T) {
 	c := nestedConfig(t)
 	q := NewQuery("Order")
-	q.Filter = comp("itemSku", OpEquals, vStr("ABC"))
+	q.Filter = testutil.Comp("itemSku", OpEquals, testutil.VStr("ABC"))
 
-	got := filterJSON(t, genMongo(t, c, q))
+	got := testutil.FilterJSON(t, testutil.GenMongo(t, c, q))
 	want := `{"items":{"$elemMatch":{"sku":"ABC"}}}`
 	if got != want {
 		t.Errorf("filter = %s, want %s", got, want)
@@ -107,12 +97,12 @@ func TestMongoElemMatchSinglePredicate(t *testing.T) {
 func TestMongoElemMatchDeepRelativePath(t *testing.T) {
 	c := nestedConfig(t)
 	q := NewQuery("Order")
-	q.Filter = and(
-		comp("itemSku", OpEquals, vStr("ABC")),
-		comp("itemWidth", OpGte, vNum(10)),
+	q.Filter = testutil.And(
+		testutil.Comp("itemSku", OpEquals, testutil.VStr("ABC")),
+		testutil.Comp("itemWidth", OpGte, testutil.VNum(10)),
 	)
 
-	got := filterJSON(t, genMongo(t, c, q))
+	got := testutil.FilterJSON(t, testutil.GenMongo(t, c, q))
 	want := `{"items":{"$elemMatch":{"dims.w":{"$gte":10},"sku":"ABC"}}}`
 	if got != want {
 		t.Errorf("filter = %s, want %s", got, want)
@@ -125,12 +115,12 @@ func TestMongoElemMatchDeepRelativePath(t *testing.T) {
 func TestMongoElemMatchMergesRangeOnOneKey(t *testing.T) {
 	c := nestedConfig(t)
 	q := NewQuery("Order")
-	q.Filter = and(
-		comp("itemPrice", OpGte, vNum(100)),
-		comp("itemPrice", OpLte, vNum(500)),
+	q.Filter = testutil.And(
+		testutil.Comp("itemPrice", OpGte, testutil.VNum(100)),
+		testutil.Comp("itemPrice", OpLte, testutil.VNum(500)),
 	)
 
-	got := filterJSON(t, genMongo(t, c, q))
+	got := testutil.FilterJSON(t, testutil.GenMongo(t, c, q))
 	want := `{"items":{"$elemMatch":{"price":{"$gte":100,"$lte":500}}}}`
 	if got != want {
 		t.Errorf("filter = %s, want %s", got, want)
@@ -145,12 +135,12 @@ func TestMongoElemMatchMergesRangeOnOneKey(t *testing.T) {
 func TestMongoElemMatchConflictKeepsBothPredicates(t *testing.T) {
 	c := nestedConfig(t)
 	q := NewQuery("Order")
-	q.Filter = and(
-		comp("itemSku", OpEquals, vStr("A")),
-		comp("itemSku", OpEquals, vStr("B")),
+	q.Filter = testutil.And(
+		testutil.Comp("itemSku", OpEquals, testutil.VStr("A")),
+		testutil.Comp("itemSku", OpEquals, testutil.VStr("B")),
 	)
 
-	got := filterJSON(t, genMongo(t, c, q))
+	got := testutil.FilterJSON(t, testutil.GenMongo(t, c, q))
 	want := `{"items":{"$elemMatch":{"$and":[{"sku":"B"}],"sku":"A"}}}`
 	if got != want {
 		t.Errorf("filter = %s, want %s", got, want)
@@ -167,12 +157,12 @@ func TestMongoElemMatchConflictKeepsBothPredicates(t *testing.T) {
 func TestMongoElemMatchRepeatedOperatorKeepsBoth(t *testing.T) {
 	c := nestedConfig(t)
 	q := NewQuery("Order")
-	q.Filter = and(
-		comp("itemPrice", OpGt, vNum(100)),
-		comp("itemPrice", OpGt, vNum(200)),
+	q.Filter = testutil.And(
+		testutil.Comp("itemPrice", OpGt, testutil.VNum(100)),
+		testutil.Comp("itemPrice", OpGt, testutil.VNum(200)),
 	)
 
-	got := filterJSON(t, genMongo(t, c, q))
+	got := testutil.FilterJSON(t, testutil.GenMongo(t, c, q))
 	want := `{"items":{"$elemMatch":{"$and":[{"price":{"$gt":200}}],"price":{"$gt":100}}}}`
 	if got != want {
 		t.Errorf("filter = %s, want %s", got, want)
@@ -184,14 +174,14 @@ func TestMongoElemMatchRepeatedOperatorKeepsBoth(t *testing.T) {
 func TestMongoElemMatchPerArray(t *testing.T) {
 	c := nestedConfig(t)
 	q := NewQuery("Order")
-	q.Filter = and(
-		comp("itemSku", OpEquals, vStr("ABC")),
-		comp("itemPrice", OpGt, vNum(100)),
-		comp("payMethod", OpEquals, vStr("CARD")),
-		comp("payAmount", OpGte, vNum(50)),
+	q.Filter = testutil.And(
+		testutil.Comp("itemSku", OpEquals, testutil.VStr("ABC")),
+		testutil.Comp("itemPrice", OpGt, testutil.VNum(100)),
+		testutil.Comp("payMethod", OpEquals, testutil.VStr("CARD")),
+		testutil.Comp("payAmount", OpGte, testutil.VNum(50)),
 	)
 
-	got := filterJSON(t, genMongo(t, c, q))
+	got := testutil.FilterJSON(t, testutil.GenMongo(t, c, q))
 	want := `{"items":{"$elemMatch":{"price":{"$gt":100},"sku":"ABC"}},` +
 		`"payments":{"$elemMatch":{"amount":{"$gte":50},"method":"CARD"}}}`
 	if got != want {
@@ -204,14 +194,14 @@ func TestMongoElemMatchPerArray(t *testing.T) {
 func TestMongoElemMatchMixedWithPlainFields(t *testing.T) {
 	c := nestedConfig(t)
 	q := NewQuery("Order")
-	q.Filter = and(
-		comp("status", OpEquals, vEnum("DELIVERED")),
-		comp("itemSku", OpEquals, vStr("ABC")),
-		comp("city", OpEquals, vStr("Pune")),
-		comp("itemPrice", OpGt, vNum(100)),
+	q.Filter = testutil.And(
+		testutil.Comp("status", OpEquals, testutil.VEnum("DELIVERED")),
+		testutil.Comp("itemSku", OpEquals, testutil.VStr("ABC")),
+		testutil.Comp("city", OpEquals, testutil.VStr("Pune")),
+		testutil.Comp("itemPrice", OpGt, testutil.VNum(100)),
 	)
 
-	got := filterJSON(t, genMongo(t, c, q))
+	got := testutil.FilterJSON(t, testutil.GenMongo(t, c, q))
 	want := `{"address.city":"Pune","items":{"$elemMatch":{"price":{"$gt":100},"sku":"ABC"}},"status":"DELIVERED"}`
 	if got != want {
 		t.Errorf("filter = %s, want %s", got, want)
@@ -225,12 +215,12 @@ func TestMongoElemMatchMixedWithPlainFields(t *testing.T) {
 func TestMongoElemMatchUnderOrIsNotGrouped(t *testing.T) {
 	c := nestedConfig(t)
 	q := NewQuery("Order")
-	q.Filter = or(
-		comp("itemSku", OpEquals, vStr("ABC")),
-		comp("itemPrice", OpGt, vNum(100)),
+	q.Filter = testutil.Or(
+		testutil.Comp("itemSku", OpEquals, testutil.VStr("ABC")),
+		testutil.Comp("itemPrice", OpGt, testutil.VNum(100)),
 	)
 
-	got := filterJSON(t, genMongo(t, c, q))
+	got := testutil.FilterJSON(t, testutil.GenMongo(t, c, q))
 	want := `{"$or":[{"items":{"$elemMatch":{"sku":"ABC"}}},{"items":{"$elemMatch":{"price":{"$gt":100}}}}]}`
 	if got != want {
 		t.Errorf("filter = %s, want %s", got, want)
@@ -242,9 +232,9 @@ func TestMongoElemMatchUnderOrIsNotGrouped(t *testing.T) {
 func TestMongoElemMatchUnderNot(t *testing.T) {
 	c := nestedConfig(t)
 	q := NewQuery("Order")
-	q.Filter = not(comp("itemSku", OpEquals, vStr("ABC")))
+	q.Filter = testutil.Not(testutil.Comp("itemSku", OpEquals, testutil.VStr("ABC")))
 
-	got := filterJSON(t, genMongo(t, c, q))
+	got := testutil.FilterJSON(t, testutil.GenMongo(t, c, q))
 	want := `{"$nor":[{"items":{"$elemMatch":{"sku":"ABC"}}}]}`
 	if got != want {
 		t.Errorf("filter = %s, want %s", got, want)
@@ -260,7 +250,7 @@ func TestMongoNestedProjectionAndSortUseFullPath(t *testing.T) {
 	q.Select = []string{"itemSku", "city"}
 	q.Sort = []SortSpec{{Field: "itemPrice", Dir: "DESC"}}
 
-	mq := genMongo(t, c, q)
+	mq := testutil.GenMongo(t, c, q)
 	if mq.Projection["items.sku"] != 1 || mq.Projection["address.city"] != 1 {
 		t.Errorf("projection = %v, want full dot paths", mq.Projection)
 	}
@@ -276,14 +266,14 @@ func TestNestedOutputIsDeterministic(t *testing.T) {
 	c := nestedConfig(t)
 	build := func() string {
 		q := NewQuery("Order")
-		q.Filter = and(
-			comp("itemSku", OpEquals, vStr("A")),
-			comp("itemSku", OpEquals, vStr("B")),
-			comp("itemPrice", OpGt, vNum(1)),
-			comp("itemPrice", OpGt, vNum(2)),
-			comp("payMethod", OpEquals, vStr("CARD")),
+		q.Filter = testutil.And(
+			testutil.Comp("itemSku", OpEquals, testutil.VStr("A")),
+			testutil.Comp("itemSku", OpEquals, testutil.VStr("B")),
+			testutil.Comp("itemPrice", OpGt, testutil.VNum(1)),
+			testutil.Comp("itemPrice", OpGt, testutil.VNum(2)),
+			testutil.Comp("payMethod", OpEquals, testutil.VStr("CARD")),
 		)
-		return filterJSON(t, genMongo(t, c, q))
+		return testutil.FilterJSON(t, testutil.GenMongo(t, c, q))
 	}
 	first := build()
 	for i := 0; i < 50; i++ { // enough runs that random map order would show
@@ -299,12 +289,12 @@ func TestNestedOutputIsDeterministic(t *testing.T) {
 func TestNestedFieldsDoNotAffectSQL(t *testing.T) {
 	c := nestedConfig(t)
 	q := NewQuery("Order")
-	q.Filter = and(
-		comp("itemSku", OpEquals, vStr("ABC")),
-		comp("itemPrice", OpGt, vNum(100)),
+	q.Filter = testutil.And(
+		testutil.Comp("itemSku", OpEquals, testutil.VStr("ABC")),
+		testutil.Comp("itemPrice", OpGt, testutil.VNum(100)),
 	)
 
-	r := genSQL(t, c, q)
+	r := testutil.GenSQL(t, c, q)
 	want := "SELECT * FROM orders WHERE (item_sku = $1 AND item_price > $2) LIMIT 50"
 	if r.SQL != want {
 		t.Errorf("SQL = %q, want %q", r.SQL, want)
@@ -316,7 +306,7 @@ func TestNestedFieldsDoNotAffectSQL(t *testing.T) {
 // would invite the model to invent sibling paths that the config never declared.
 func TestNestedFieldsAreInvisibleToTheModel(t *testing.T) {
 	c := nestedConfig(t)
-	prompt := NewPlanner(c, nil).SystemPrompt(fixedNow)
+	prompt := NewPlanner(c, nil).SystemPrompt(testutil.FixedNow)
 
 	for _, physical := range []string{"items.sku", "items.price", "address.city", "$elemMatch", "elemMatch"} {
 		if strings.Contains(prompt, physical) {
@@ -335,9 +325,9 @@ func TestExplainReportsSameElementGrouping(t *testing.T) {
 	c := nestedConfig(t)
 
 	q := NewQuery("Order")
-	q.Filter = and(
-		comp("itemSku", OpEquals, vStr("ABC")),
-		comp("itemPrice", OpGt, vNum(100)),
+	q.Filter = testutil.And(
+		testutil.Comp("itemSku", OpEquals, testutil.VStr("ABC")),
+		testutil.Comp("itemPrice", OpGt, testutil.VNum(100)),
 	)
 	got := Explain(q, c)
 	if !strings.Contains(got, "Conditions on items apply to the same array element.") {
@@ -347,17 +337,17 @@ func TestExplainReportsSameElementGrouping(t *testing.T) {
 	// A single predicate groups nothing, so the note must stay off — an
 	// explanation that always fires teaches the reader to ignore it.
 	single := NewQuery("Order")
-	single.Filter = and(
-		comp("itemSku", OpEquals, vStr("ABC")),
-		comp("status", OpEquals, vEnum("DELIVERED")),
+	single.Filter = testutil.And(
+		testutil.Comp("itemSku", OpEquals, testutil.VStr("ABC")),
+		testutil.Comp("status", OpEquals, testutil.VEnum("DELIVERED")),
 	)
 	if s := Explain(single, c); strings.Contains(s, "same array element") {
 		t.Errorf("explain adds a same-element note where nothing was grouped:\n%s", s)
 	}
 
 	// Ordinary configs must read exactly as before.
-	plain := genConfig(t)
-	if s := Explain(canonicalQuery(), plain); strings.Contains(s, "same array element") {
+	plain := testutil.GenConfig(t)
+	if s := Explain(testutil.CanonicalQuery(), plain); strings.Contains(s, "same array element") {
 		t.Errorf("same-element note leaked into a config with no nested fields:\n%s", s)
 	}
 }
@@ -453,7 +443,7 @@ func TestConfigAcceptsGoodNestedPaths(t *testing.T) {
 // TestMongoElemMatchRelativePathSplit pins the accessor the generator relies on,
 // including the nested-under-nested case (elemMatch "a.b" inside path "a.b.c.d").
 func TestMongoElemMatchRelativePathSplit(t *testing.T) {
-	c := mustParse(t, `{"entity":"Order","model":{},"fields":[
+	c := testutil.MustParse(t, `{"entity":"Order","model":{},"fields":[
 	  {"name":"deep","type":"number","mapping":{"mongo":"a.b.c.d"},"elemMatch":"a.b"},
 	  {"name":"plain","type":"string","mapping":{"mongo":"status"}}
 	]}`)

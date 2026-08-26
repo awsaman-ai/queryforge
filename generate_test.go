@@ -6,74 +6,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/awsaman-ai/queryforge/internal/ast"
 	"github.com/awsaman-ai/queryforge/internal/gen"
+	"github.com/awsaman-ai/queryforge/internal/testutil"
 )
-
-// genConfigJSON carries physical mappings and index/priority hints so the
-// generator golden tests can assert real column names and predicate ordering.
-const genConfigJSON = `{
-  "entity":"Order","model":{},
-  "backends":{"sql":{"table":"orders"},"mongo":{"collection":"orders"}},
-  "fields":[
-    {"name":"status","type":"enum","values":["PLACED","DELIVERED","CANCELLED","REFUNDED"],
-     "operators":["equals","notEquals","in","notIn","isNull","isNotNull"],
-     "indexed":true,"priority":10,"mapping":{"sql":"status","mongo":"status"}},
-    {"name":"refunded","type":"boolean","mapping":{"sql":"refunded","mongo":"refunded"}},
-    {"name":"createdAt","type":"date","operators":["before","after","between"],
-     "indexed":true,"priority":8,"mapping":{"sql":"created_at","mongo":"createdAt"}},
-    {"name":"amount","type":"number","operators":["gt","lt","gte","lte","between","in"],
-     "mapping":{"sql":"amount","mongo":"amount"}},
-    {"name":"tags","type":"array","itemType":"string","operators":["contains","containsAny","containsAll"],
-     "mapping":{"sql":"tags","mongo":"tags"}},
-    {"name":"customerName","type":"string","operators":["contains","startsWith","endsWith","equals","regex"],
-     "searchable":true,"mapping":{"sql":"customer_name","mongo":"customerName"}}
-  ],
-  "defaults":{"limit":50,"maxLimit":500}
-}`
-
-// fixedNow makes relative-date resolution deterministic across runs.
-var fixedNow = time.Date(2026, 7, 28, 12, 0, 0, 0, time.UTC)
-
-func genConfig(t *testing.T) *Config { return mustParse(t, genConfigJSON) }
-
-func genSQL(t *testing.T, c *Config, q *Query) *Result {
-	t.Helper()
-	r, err := SQLGenerator{}.Generate(q, c, GenOptions{Now: fixedNow})
-	if err != nil {
-		t.Fatalf("sql generate: %v", err)
-	}
-	return r
-}
-
-func genMongo(t *testing.T, c *Config, q *Query) *MongoQuery {
-	t.Helper()
-	r, err := MongoGenerator{}.Generate(q, c, GenOptions{Now: fixedNow})
-	if err != nil {
-		t.Fatalf("mongo generate: %v", err)
-	}
-	return r.Doc.(*MongoQuery)
-}
-
-// canonicalQuery is the design-doc §16 example, built programmatically.
-func canonicalQuery() *Query {
-	q := NewQuery("Order")
-	q.Filter = and(
-		comp("status", OpEquals, vEnum("DELIVERED")),
-		comp("refunded", OpEquals, vBool(false)),
-		comp("createdAt", OpAfter, vRel("day", -30)),
-		comp("tags", OpContainsAll, vArr("premium", "express")),
-	)
-	q.Sort = []SortSpec{{Field: "createdAt", Dir: "DESC"}}
-	q.Limit = ast.IntPtr(50)
-	return q
-}
 
 // TestSQLGolden pins the full SQL output, including predicate ordering (indexed
 // fields first, by priority) and parameterization.
 func TestSQLGolden(t *testing.T) {
-	c := genConfig(t)
-	r := genSQL(t, c, canonicalQuery())
+	c := testutil.GenConfig(t)
+	r := testutil.GenSQL(t, c, testutil.CanonicalQuery())
 
 	want := "SELECT * FROM orders WHERE (status = $1 AND created_at >= $2 AND refunded = $3 AND tags @> ARRAY[$4, $5]) ORDER BY created_at DESC LIMIT 50"
 	if r.SQL != want {
@@ -85,7 +26,7 @@ func TestSQLGolden(t *testing.T) {
 	if r.Args[0] != "DELIVERED" || r.Args[2] != false || r.Args[3] != "premium" || r.Args[4] != "express" {
 		t.Errorf("unexpected args: %v", r.Args)
 	}
-	wantTime, err := gen.ResolveRelative(fixedNow, "day", -30)
+	wantTime, err := gen.ResolveRelative(testutil.FixedNow, "day", -30)
 	if err != nil {
 		t.Fatalf("resolveRelative: %v", err)
 	}
@@ -96,8 +37,8 @@ func TestSQLGolden(t *testing.T) {
 
 // TestMongoGolden checks the flattened Mongo filter and options for the same AST.
 func TestMongoGolden(t *testing.T) {
-	c := genConfig(t)
-	mq := genMongo(t, c, canonicalQuery())
+	c := testutil.GenConfig(t)
+	mq := testutil.GenMongo(t, c, testutil.CanonicalQuery())
 
 	if mq.Collection != "orders" {
 		t.Errorf("collection = %q", mq.Collection)
@@ -113,7 +54,7 @@ func TestMongoGolden(t *testing.T) {
 	if !ok {
 		t.Fatalf("createdAt missing: %#v", mq.Filter)
 	}
-	want, err := gen.ResolveRelative(fixedNow, "day", -30)
+	want, err := gen.ResolveRelative(testutil.FixedNow, "day", -30)
 	if err != nil {
 		t.Fatalf("resolveRelative: %v", err)
 	}
@@ -131,9 +72,9 @@ func TestMongoGolden(t *testing.T) {
 // TestInjectionStaysInArgs is the security check: a malicious-looking value must
 // end up as a bound argument, never spliced into the SQL text.
 func TestInjectionStaysInArgs(t *testing.T) {
-	c := genConfig(t)
+	c := testutil.GenConfig(t)
 	evil := "O'Brien'; DROP TABLE orders; --"
-	r := genSQL(t, c, single(comp("customerName", OpEquals, vStr(evil))))
+	r := testutil.GenSQL(t, c, testutil.Single(testutil.Comp("customerName", OpEquals, testutil.VStr(evil))))
 
 	if strings.Contains(strings.ToUpper(r.SQL), "DROP") {
 		t.Errorf("value leaked into SQL text: %s", r.SQL)
@@ -148,13 +89,13 @@ func TestInjectionStaysInArgs(t *testing.T) {
 
 // TestReadOnlySQL confirms every generated statement is a pure read.
 func TestReadOnlySQL(t *testing.T) {
-	c := genConfig(t)
+	c := testutil.GenConfig(t)
 	for _, q := range []*Query{
-		canonicalQuery(),
-		single(comp("status", OpIsNull, nil)),
-		single(comp("amount", OpBetween, vArr(float64(10), float64(100)))),
+		testutil.CanonicalQuery(),
+		testutil.Single(testutil.Comp("status", OpIsNull, nil)),
+		testutil.Single(testutil.Comp("amount", OpBetween, testutil.VArr(float64(10), float64(100)))),
 	} {
-		r := genSQL(t, c, q)
+		r := testutil.GenSQL(t, c, q)
 		up := strings.ToUpper(r.SQL)
 		if !strings.HasPrefix(up, "SELECT ") {
 			t.Errorf("statement is not a SELECT: %s", r.SQL)
@@ -169,23 +110,23 @@ func TestReadOnlySQL(t *testing.T) {
 
 // TestSQLOperators spot-checks individual operator renderings.
 func TestSQLOperators(t *testing.T) {
-	c := genConfig(t)
+	c := testutil.GenConfig(t)
 	cases := []struct {
 		name string
 		cmp  *Condition
 		want string
 		args []any
 	}{
-		{"contains string", comp("customerName", OpContains, vStr("amy")), "SELECT * FROM orders WHERE customer_name LIKE $1 LIMIT 50", []any{"%amy%"}},
-		{"startsWith", comp("customerName", OpStartsWith, vStr("amy")), "SELECT * FROM orders WHERE customer_name LIKE $1 LIMIT 50", []any{"amy%"}},
-		{"endsWith", comp("customerName", OpEndsWith, vStr("amy")), "SELECT * FROM orders WHERE customer_name LIKE $1 LIMIT 50", []any{"%amy"}},
-		{"in enum", comp("status", OpIn, vArr("PLACED", "DELIVERED")), "SELECT * FROM orders WHERE status IN ($1, $2) LIMIT 50", []any{"PLACED", "DELIVERED"}},
-		{"between number", comp("amount", OpBetween, vArr(float64(10), float64(100))), "SELECT * FROM orders WHERE amount BETWEEN $1 AND $2 LIMIT 50", []any{float64(10), float64(100)}},
-		{"isNull", comp("status", OpIsNull, nil), "SELECT * FROM orders WHERE status IS NULL LIMIT 50", nil},
-		{"tags contains", comp("tags", OpContains, vStr("premium")), "SELECT * FROM orders WHERE tags @> ARRAY[$1] LIMIT 50", []any{"premium"}},
+		{"contains string", testutil.Comp("customerName", OpContains, testutil.VStr("amy")), "SELECT * FROM orders WHERE customer_name LIKE $1 LIMIT 50", []any{"%amy%"}},
+		{"startsWith", testutil.Comp("customerName", OpStartsWith, testutil.VStr("amy")), "SELECT * FROM orders WHERE customer_name LIKE $1 LIMIT 50", []any{"amy%"}},
+		{"endsWith", testutil.Comp("customerName", OpEndsWith, testutil.VStr("amy")), "SELECT * FROM orders WHERE customer_name LIKE $1 LIMIT 50", []any{"%amy"}},
+		{"in enum", testutil.Comp("status", OpIn, testutil.VArr("PLACED", "DELIVERED")), "SELECT * FROM orders WHERE status IN ($1, $2) LIMIT 50", []any{"PLACED", "DELIVERED"}},
+		{"between number", testutil.Comp("amount", OpBetween, testutil.VArr(float64(10), float64(100))), "SELECT * FROM orders WHERE amount BETWEEN $1 AND $2 LIMIT 50", []any{float64(10), float64(100)}},
+		{"isNull", testutil.Comp("status", OpIsNull, nil), "SELECT * FROM orders WHERE status IS NULL LIMIT 50", nil},
+		{"tags contains", testutil.Comp("tags", OpContains, testutil.VStr("premium")), "SELECT * FROM orders WHERE tags @> ARRAY[$1] LIMIT 50", []any{"premium"}},
 	}
 	for _, tc := range cases {
-		r := genSQL(t, c, single(tc.cmp))
+		r := testutil.GenSQL(t, c, testutil.Single(tc.cmp))
 		if r.SQL != tc.want {
 			t.Errorf("%s: got %q want %q", tc.name, r.SQL, tc.want)
 		}
@@ -198,16 +139,16 @@ func TestSQLOperators(t *testing.T) {
 // TestProjectionAndOr covers select projection and an OR over the same field
 // (which must not flatten in Mongo).
 func TestProjectionAndOr(t *testing.T) {
-	c := genConfig(t)
+	c := testutil.GenConfig(t)
 
 	// Projection
 	q := NewQuery("Order")
 	q.Select = []string{"status", "amount"}
-	rs := genSQL(t, c, q)
+	rs := testutil.GenSQL(t, c, q)
 	if !strings.HasPrefix(rs.SQL, "SELECT status, amount FROM orders") {
 		t.Errorf("projection SQL wrong: %s", rs.SQL)
 	}
-	mq := genMongo(t, c, q)
+	mq := testutil.GenMongo(t, c, q)
 	if mq.Projection["status"] != 1 || mq.Projection["amount"] != 1 {
 		t.Errorf("projection doc wrong: %#v", mq.Projection)
 	}
@@ -215,14 +156,14 @@ func TestProjectionAndOr(t *testing.T) {
 	// OR over the same field -> $or in Mongo, parenthesized OR in SQL.
 	orQ := NewQuery("Order")
 	orQ.Filter = &Condition{Type: CondLogical, Op: OpOR, Children: []*Condition{
-		comp("status", OpEquals, vEnum("PLACED")),
-		comp("status", OpEquals, vEnum("DELIVERED")),
+		testutil.Comp("status", OpEquals, testutil.VEnum("PLACED")),
+		testutil.Comp("status", OpEquals, testutil.VEnum("DELIVERED")),
 	}}
-	rs2 := genSQL(t, c, orQ)
+	rs2 := testutil.GenSQL(t, c, orQ)
 	if !strings.Contains(rs2.SQL, "(status = $1 OR status = $2)") {
 		t.Errorf("OR SQL wrong: %s", rs2.SQL)
 	}
-	mq2 := genMongo(t, c, orQ)
+	mq2 := testutil.GenMongo(t, c, orQ)
 	if _, ok := mq2.Filter["$or"]; !ok {
 		t.Errorf("expected $or, got %#v", mq2.Filter)
 	}
@@ -230,14 +171,14 @@ func TestProjectionAndOr(t *testing.T) {
 
 // TestPredicateOrdering isolates the indexed-first reordering.
 func TestPredicateOrdering(t *testing.T) {
-	c := genConfig(t)
+	c := testutil.GenConfig(t)
 	q := NewQuery("Order")
 	// amount is non-indexed and listed first; status is indexed and should move up.
-	q.Filter = and(
-		comp("amount", OpGt, vNum(10)),
-		comp("status", OpEquals, vEnum("DELIVERED")),
+	q.Filter = testutil.And(
+		testutil.Comp("amount", OpGt, testutil.VNum(10)),
+		testutil.Comp("status", OpEquals, testutil.VEnum("DELIVERED")),
 	)
-	r := genSQL(t, c, q)
+	r := testutil.GenSQL(t, c, q)
 	if !strings.Contains(r.SQL, "(status = $1 AND amount > $2)") {
 		t.Errorf("indexed field was not ordered first: %s", r.SQL)
 	}
@@ -246,13 +187,13 @@ func TestPredicateOrdering(t *testing.T) {
 // TestIndexWarnings verifies the non-indexed soft warning fires (and only once
 // per field).
 func TestIndexWarnings(t *testing.T) {
-	c := genConfig(t)
-	r := genSQL(t, c, single(comp("amount", OpGt, vNum(10))))
+	c := testutil.GenConfig(t)
+	r := testutil.GenSQL(t, c, testutil.Single(testutil.Comp("amount", OpGt, testutil.VNum(10))))
 	if len(r.Warnings) != 1 || !strings.Contains(r.Warnings[0], "amount") {
 		t.Errorf("expected one non-indexed warning for amount, got %#v", r.Warnings)
 	}
 	// An indexed-only filter produces no warnings.
-	r2 := genSQL(t, c, single(comp("status", OpEquals, vEnum("DELIVERED"))))
+	r2 := testutil.GenSQL(t, c, testutil.Single(testutil.Comp("status", OpEquals, testutil.VEnum("DELIVERED"))))
 	if len(r2.Warnings) != 0 {
 		t.Errorf("indexed filter should not warn, got %#v", r2.Warnings)
 	}
@@ -261,12 +202,12 @@ func TestIndexWarnings(t *testing.T) {
 // TestDefaultLimitApplied checks the config default fills in when the AST omits
 // a limit.
 func TestDefaultLimitApplied(t *testing.T) {
-	c := genConfig(t)
+	c := testutil.GenConfig(t)
 	q := NewQuery("Order") // no explicit limit
-	if r := genSQL(t, c, q); !strings.Contains(r.SQL, "LIMIT 50") {
+	if r := testutil.GenSQL(t, c, q); !strings.Contains(r.SQL, "LIMIT 50") {
 		t.Errorf("default limit not applied: %s", r.SQL)
 	}
-	if mq := genMongo(t, c, q); mq.Limit != 50 {
+	if mq := testutil.GenMongo(t, c, q); mq.Limit != 50 {
 		t.Errorf("default limit not applied to mongo: %d", mq.Limit)
 	}
 }
@@ -307,10 +248,10 @@ const hiddenConfigJSON = `{
 // which returns hidden columns straight from the database and silently defeats
 // returnable:false. Both backends must now emit an explicit allow-list.
 func TestProjectionExcludesNonReturnableByDefault(t *testing.T) {
-	c := mustParse(t, hiddenConfigJSON)
+	c := testutil.MustParse(t, hiddenConfigJSON)
 	q := &Query{Version: "1.0", Entity: "Order"} // no Select: the default path
 
-	sql := genSQL(t, c, q)
+	sql := testutil.GenSQL(t, c, q)
 	if strings.Contains(sql.SQL, "*") {
 		t.Errorf("SELECT * leaks non-returnable columns; got %q", sql.SQL)
 	}
@@ -323,7 +264,7 @@ func TestProjectionExcludesNonReturnableByDefault(t *testing.T) {
 		}
 	}
 
-	mongo, err := MongoGenerator{}.Generate(q, c, GenOptions{Now: fixedNow})
+	mongo, err := MongoGenerator{}.Generate(q, c, GenOptions{Now: testutil.FixedNow})
 	if err != nil {
 		t.Fatalf("mongo generate: %v", err)
 	}
@@ -343,9 +284,9 @@ func TestProjectionExcludesNonReturnableByDefault(t *testing.T) {
 // TestProjectionStaysWideWhenNothingHidden guards against over-correcting: a
 // config that hides nothing should keep the compact "*" form.
 func TestProjectionStaysWideWhenNothingHidden(t *testing.T) {
-	c := genConfig(t) // every field returnable
+	c := testutil.GenConfig(t) // every field returnable
 	q := &Query{Version: "1.0", Entity: "Order"}
-	if got := genSQL(t, c, q).SQL; !strings.Contains(got, "SELECT *") {
+	if got := testutil.GenSQL(t, c, q).SQL; !strings.Contains(got, "SELECT *") {
 		t.Errorf("expected SELECT * when no field is hidden; got %q", got)
 	}
 }
@@ -354,7 +295,7 @@ func TestProjectionStaysWideWhenNothingHidden(t *testing.T) {
 // non-returnable must be a loud error, not "SELECT  FROM t" or a Mongo {} that
 // silently means "return everything".
 func TestProjectionAllFieldsHiddenErrors(t *testing.T) {
-	c := mustParse(t, `{
+	c := testutil.MustParse(t, `{
       "entity":"Order","model":{},
       "backends":{"sql":{"table":"orders"},"mongo":{"collection":"orders"}},
       "fields":[{"name":"secret","type":"string","returnable":false,"mapping":{"sql":"secret","mongo":"secret"}}],
@@ -362,10 +303,10 @@ func TestProjectionAllFieldsHiddenErrors(t *testing.T) {
     }`)
 	q := &Query{Version: "1.0", Entity: "Order"}
 
-	if _, err := (SQLGenerator{}).Generate(q, c, GenOptions{Now: fixedNow}); err == nil {
+	if _, err := (SQLGenerator{}).Generate(q, c, GenOptions{Now: testutil.FixedNow}); err == nil {
 		t.Error("expected an error when no field is returnable (sql)")
 	}
-	if _, err := (MongoGenerator{}).Generate(q, c, GenOptions{Now: fixedNow}); err == nil {
+	if _, err := (MongoGenerator{}).Generate(q, c, GenOptions{Now: testutil.FixedNow}); err == nil {
 		t.Error("expected an error when no field is returnable (mongo)")
 	}
 }

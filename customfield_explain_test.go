@@ -3,6 +3,8 @@ package queryforge
 import (
 	"strings"
 	"testing"
+
+	"github.com/awsaman-ai/queryforge/internal/testutil"
 )
 
 // --- Tier 1 Explain readback tests.
@@ -17,14 +19,14 @@ import (
 
 // TestExplainUsesDisplayNameWhenSet is the positive case.
 func TestExplainUsesDisplayNameWhenSet(t *testing.T) {
-	c := mustParse(t, `{
+	c := testutil.MustParse(t, `{
 	  "entity":"Order",
 	  "fields":[{"name":"txt01","type":"string","customField":true,
 	    "displayName":"Passport Country","description":"ISO country of issuance",
 	    "valueHint":"agent notes"}]
 	}`)
 	q := NewQuery("Order")
-	q.Filter = comp("txt01", OpContains, vStr("France"))
+	q.Filter = testutil.Comp("txt01", OpContains, testutil.VStr("France"))
 
 	got := Explain(q, c)
 	if !strings.Contains(got, "Passport Country contains") {
@@ -39,12 +41,12 @@ func TestExplainUsesDisplayNameWhenSet(t *testing.T) {
 // (the overwhelming majority of fields) reads back exactly as it did before
 // this feature existed.
 func TestExplainFallsBackToNameWithoutDisplayName(t *testing.T) {
-	c := mustParse(t, `{
+	c := testutil.MustParse(t, `{
 	  "entity":"Order",
 	  "fields":[{"name":"amount","type":"number"}]
 	}`)
 	q := NewQuery("Order")
-	q.Filter = comp("amount", OpGt, vNum(100))
+	q.Filter = testutil.Comp("amount", OpGt, testutil.VNum(100))
 
 	got := Explain(q, c)
 	if !strings.Contains(got, "amount is greater than 100") {
@@ -57,7 +59,7 @@ func TestExplainFallsBackToNameWithoutDisplayName(t *testing.T) {
 // be broken by this feature's field-lookup addition.
 func TestExplainWithNilConfigStillWorks(t *testing.T) {
 	q := NewQuery("Order")
-	q.Filter = comp("amount", OpGt, vNum(100))
+	q.Filter = testutil.Comp("amount", OpGt, testutil.VNum(100))
 	got := Explain(q, nil)
 	if !strings.Contains(got, "amount is greater than 100") {
 		t.Errorf("nil config should fall back to the raw field name, got: %s", got)
@@ -69,14 +71,14 @@ func TestExplainWithNilConfigStillWorks(t *testing.T) {
 // explicitly). Explain must not panic or drop the clause — it should simply
 // have no label to show and fall back to the raw name.
 func TestExplainUnregisteredFieldFallsBackToName(t *testing.T) {
-	c := mustParse(t, `{
+	c := testutil.MustParse(t, `{
 	  "entity":"Order",
 	  "fields":[{"name":"amount","type":"number"}]
 	}`)
 	q := NewQuery("Order")
-	q.Filter = and(
-		comp("amount", OpGt, vNum(100)),
-		comp("subscriptionId", OpEquals, vStr("SUB-42")), // not in fields[]
+	q.Filter = testutil.And(
+		testutil.Comp("amount", OpGt, testutil.VNum(100)),
+		testutil.Comp("subscriptionId", OpEquals, testutil.VStr("SUB-42")), // not in fields[]
 	)
 	got := Explain(q, c)
 	if !strings.Contains(got, `subscriptionId equals "SUB-42"`) {

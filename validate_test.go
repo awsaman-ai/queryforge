@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/awsaman-ai/queryforge/internal/ast"
+	"github.com/awsaman-ai/queryforge/internal/testutil"
 )
 
 // validatorConfigJSON is purpose-built to exercise every validation rule:
@@ -33,29 +34,7 @@ const validatorConfigJSON = `{
 
 // --- tiny builders keep the tests readable ---
 
-func comp(field string, op Operator, v *Value) *Condition {
-	return &Condition{Type: CondComparison, Field: field, Operator: op, Value: v}
-}
-func and(children ...*Condition) *Condition {
-	return &Condition{Type: CondLogical, Op: OpAND, Children: children}
-}
-func or(children ...*Condition) *Condition {
-	return &Condition{Type: CondLogical, Op: OpOR, Children: children}
-}
-func not(child *Condition) *Condition {
-	return &Condition{Type: CondLogical, Op: OpNOT, Children: []*Condition{child}}
-}
-func vEnum(s string) *Value       { return &Value{Kind: KindEnum, V: s} }
-func vStr(s string) *Value        { return &Value{Kind: KindString, V: s} }
-func vBool(b bool) *Value         { return &Value{Kind: KindBoolean, V: b} }
-func vNum(n float64) *Value       { return &Value{Kind: KindNumber, V: n} }
-func vArr(items ...any) *Value    { return &Value{Kind: KindArray, V: items} }
-func vRel(u string, a int) *Value { return &Value{Kind: KindRelativeDate, Unit: u, Amount: a} }
-
-// single wraps one comparison into a Query for the adversarial table.
-func single(cmp *Condition) *Query { q := NewQuery("Order"); q.Filter = cmp; return q }
-
-func validatorConfig(t *testing.T) *Config { return mustParse(t, validatorConfigJSON) }
+func validatorConfig(t *testing.T) *Config { return testutil.MustParse(t, validatorConfigJSON) }
 
 // TestValidAST is the happy path: a rich, fully-legal AST must pass, and it
 // must still pass after a JSON round trip (numbers become float64 — the real
@@ -63,13 +42,13 @@ func validatorConfig(t *testing.T) *Config { return mustParse(t, validatorConfig
 func TestValidAST(t *testing.T) {
 	c := validatorConfig(t)
 	q := NewQuery("Order")
-	q.Filter = and(
-		comp("status", OpEquals, vEnum("DELIVERED")),
-		comp("refunded", OpEquals, vBool(false)),
-		comp("createdAt", OpAfter, vRel("day", -30)),
-		comp("tags", OpContainsAll, vArr("premium", "express")),
-		comp("customerName", OpContains, vStr("john")),
-		comp("amount", OpBetween, vArr(float64(10), float64(100))),
+	q.Filter = testutil.And(
+		testutil.Comp("status", OpEquals, testutil.VEnum("DELIVERED")),
+		testutil.Comp("refunded", OpEquals, testutil.VBool(false)),
+		testutil.Comp("createdAt", OpAfter, testutil.VRel("day", -30)),
+		testutil.Comp("tags", OpContainsAll, testutil.VArr("premium", "express")),
+		testutil.Comp("customerName", OpContains, testutil.VStr("john")),
+		testutil.Comp("amount", OpBetween, testutil.VArr(float64(10), float64(100))),
 	)
 	q.Sort = []SortSpec{{Field: "createdAt", Dir: "DESC"}}
 	q.Select = []string{"status", "amount"}
@@ -94,7 +73,7 @@ func TestValidAST(t *testing.T) {
 // rejected and the nearest registered field is suggested.
 func TestUnknownFieldSuggests(t *testing.T) {
 	c := validatorConfig(t)
-	err := Validate(single(comp("statuz", OpEquals, vEnum("DELIVERED"))), c)
+	err := Validate(testutil.Single(testutil.Comp("statuz", OpEquals, testutil.VEnum("DELIVERED"))), c)
 	if err == nil {
 		t.Fatal("expected rejection of unknown field")
 	}
@@ -111,32 +90,32 @@ func TestAdversarial(t *testing.T) {
 	c := validatorConfig(t)
 
 	// depth-4 tree against a maxNestingDepth of 3
-	deep := and(and(and(comp("refunded", OpEquals, vBool(true)))))
+	deep := testutil.And(testutil.And(testutil.And(testutil.Comp("refunded", OpEquals, testutil.VBool(true)))))
 
 	cases := []struct {
 		name string
 		q    *Query
 		want string
 	}{
-		{"operator not allowed", single(comp("status", OpGt, vEnum("PLACED"))), "not allowed"},
-		{"enum out of domain", single(comp("status", OpEquals, vEnum("SHIPPED"))), "not a valid value"},
-		{"type mismatch", single(comp("amount", OpGt, vStr("lots"))), "not compatible"},
-		{"between wrong arity", single(comp("amount", OpBetween, vArr(float64(1)))), "exactly 2"},
-		{"between not array", single(comp("amount", OpBetween, vNum(5))), "expects an array"},
-		{"null op with value", single(comp("status", OpIsNull, vEnum("PLACED"))), "takes no value"},
-		{"missing value", single(comp("status", OpEquals, nil)), "requires a value"},
-		{"text op not searchable", single(comp("note", OpContains, vStr("x"))), "not searchable"},
-		{"regex denied", single(comp("customerName", OpRegex, vStr("^a"))), "regex is denied"},
-		{"queryable false", single(comp("internalId", OpEquals, vStr("x"))), "excluded from queries"},
-		{"filterable false", single(comp("secret", OpEquals, vStr("x"))), "not filterable"},
-		{"array element wrong type", single(comp("tags", OpContainsAll, vArr("a", float64(5)))), "not a valid"},
-		{"numeric below min", single(comp("amount", OpGt, vNum(-5))), "below minimum"},
-		{"date field wrong kind", single(comp("createdAt", OpAfter, vNum(5))), "not compatible"},
+		{"operator not allowed", testutil.Single(testutil.Comp("status", OpGt, testutil.VEnum("PLACED"))), "not allowed"},
+		{"enum out of domain", testutil.Single(testutil.Comp("status", OpEquals, testutil.VEnum("SHIPPED"))), "not a valid value"},
+		{"type mismatch", testutil.Single(testutil.Comp("amount", OpGt, testutil.VStr("lots"))), "not compatible"},
+		{"between wrong arity", testutil.Single(testutil.Comp("amount", OpBetween, testutil.VArr(float64(1)))), "exactly 2"},
+		{"between not array", testutil.Single(testutil.Comp("amount", OpBetween, testutil.VNum(5))), "expects an array"},
+		{"null op with value", testutil.Single(testutil.Comp("status", OpIsNull, testutil.VEnum("PLACED"))), "takes no value"},
+		{"missing value", testutil.Single(testutil.Comp("status", OpEquals, nil)), "requires a value"},
+		{"text op not searchable", testutil.Single(testutil.Comp("note", OpContains, testutil.VStr("x"))), "not searchable"},
+		{"regex denied", testutil.Single(testutil.Comp("customerName", OpRegex, testutil.VStr("^a"))), "regex is denied"},
+		{"queryable false", testutil.Single(testutil.Comp("internalId", OpEquals, testutil.VStr("x"))), "excluded from queries"},
+		{"filterable false", testutil.Single(testutil.Comp("secret", OpEquals, testutil.VStr("x"))), "not filterable"},
+		{"array element wrong type", testutil.Single(testutil.Comp("tags", OpContainsAll, testutil.VArr("a", float64(5)))), "not a valid"},
+		{"numeric below min", testutil.Single(testutil.Comp("amount", OpGt, testutil.VNum(-5))), "below minimum"},
+		{"date field wrong kind", testutil.Single(testutil.Comp("createdAt", OpAfter, testutil.VNum(5))), "not compatible"},
 		{"unknown condition type", &Query{Version: "1.0", Entity: "Order", Filter: &Condition{Type: "weird"}}, "unknown condition type"},
-		{"NOT two children", &Query{Version: "1.0", Entity: "Order", Filter: &Condition{Type: CondLogical, Op: OpNOT, Children: []*Condition{comp("refunded", OpEquals, vBool(true)), comp("refunded", OpEquals, vBool(false))}}}, "exactly one child"},
-		{"empty logical", &Query{Version: "1.0", Entity: "Order", Filter: and()}, "no children"},
+		{"NOT two children", &Query{Version: "1.0", Entity: "Order", Filter: &Condition{Type: CondLogical, Op: OpNOT, Children: []*Condition{testutil.Comp("refunded", OpEquals, testutil.VBool(true)), testutil.Comp("refunded", OpEquals, testutil.VBool(false))}}}, "exactly one child"},
+		{"empty logical", &Query{Version: "1.0", Entity: "Order", Filter: testutil.And()}, "no children"},
 		{"nesting too deep", &Query{Version: "1.0", Entity: "Order", Filter: deep}, "nesting depth"},
-		{"unknown logical op", &Query{Version: "1.0", Entity: "Order", Filter: &Condition{Type: CondLogical, Op: "XOR", Children: []*Condition{comp("refunded", OpEquals, vBool(true))}}}, "unknown logical operator"},
+		{"unknown logical op", &Query{Version: "1.0", Entity: "Order", Filter: &Condition{Type: CondLogical, Op: "XOR", Children: []*Condition{testutil.Comp("refunded", OpEquals, testutil.VBool(true))}}}, "unknown logical operator"},
 	}
 
 	for _, tc := range cases {
@@ -220,9 +199,9 @@ func TestNilQuery(t *testing.T) {
 func TestMultipleErrorsCollected(t *testing.T) {
 	c := validatorConfig(t)
 	q := NewQuery("Order")
-	q.Filter = and(
-		comp("bogus1", OpEquals, vStr("x")),
-		comp("bogus2", OpEquals, vStr("y")),
+	q.Filter = testutil.And(
+		testutil.Comp("bogus1", OpEquals, testutil.VStr("x")),
+		testutil.Comp("bogus2", OpEquals, testutil.VStr("y")),
 	)
 	err := Validate(q, c)
 	if err == nil {

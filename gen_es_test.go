@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/awsaman-ai/queryforge/internal/gen"
+	"github.com/awsaman-ai/queryforge/internal/testutil"
 )
 
 // esConfigJSON is the base fixture for DSL-generation tests: a direct index,
@@ -38,11 +39,11 @@ const esConfigJSON = `{
   "defaults":{"limit":50,"maxLimit":500}
 }`
 
-func esConfig(t *testing.T) *Config { return mustParse(t, esConfigJSON) }
+func esConfig(t *testing.T) *Config { return testutil.MustParse(t, esConfigJSON) }
 
 func genES(t *testing.T, c *Config, q *Query) *ESQuery {
 	t.Helper()
-	r, err := ESGenerator{}.Generate(q, c, GenOptions{Now: fixedNow})
+	r, err := ESGenerator{}.Generate(q, c, GenOptions{Now: testutil.FixedNow})
 	if err != nil {
 		t.Fatalf("es generate: %v", err)
 	}
@@ -76,7 +77,7 @@ func TestESDirectIndex(t *testing.T) {
 
 // TestESMultipleIndexAndAlias checks the other two static source modes.
 func TestESMultipleIndexAndAlias(t *testing.T) {
-	multi := mustParse(t, `{"entity":"Order","model":{},
+	multi := testutil.MustParse(t, `{"entity":"Order","model":{},
 		"backends":{"elasticsearch":{"indexes":["orders-2025","orders-2026"]}},
 		"fields":[{"name":"status","type":"string"}]}`)
 	eq := genES(t, multi, NewQuery("Order"))
@@ -90,7 +91,7 @@ func TestESMultipleIndexAndAlias(t *testing.T) {
 		t.Errorf("sourceType = %q", eq.SourceType)
 	}
 
-	alias := mustParse(t, `{"entity":"Order","model":{},
+	alias := testutil.MustParse(t, `{"entity":"Order","model":{},
 		"backends":{"elasticsearch":{"alias":"orders-alias"}},
 		"fields":[{"name":"status","type":"string"}]}`)
 	eq = genES(t, alias, NewQuery("Order"))
@@ -109,21 +110,21 @@ func TestESKeywordVsTextPath(t *testing.T) {
 	c := esConfig(t)
 
 	eq := genES(t, c, &Query{Version: ASTVersion, Entity: "Order",
-		Filter: comp("customerName", OpEquals, vStr("John Smith"))})
+		Filter: testutil.Comp("customerName", OpEquals, testutil.VStr("John Smith"))})
 	term, ok := eq.Query["term"].(map[string]any)
 	if !ok || term["customerName.keyword"] != "John Smith" {
 		t.Errorf("equals should hit the keyword path: %#v", eq.Query)
 	}
 
 	eq = genES(t, c, &Query{Version: ASTVersion, Entity: "Order",
-		Filter: comp("customerName", OpContains, vStr("John"))})
+		Filter: testutil.Comp("customerName", OpContains, testutil.VStr("John"))})
 	match, ok := eq.Query["match"].(map[string]any)
 	if !ok || match["customerName"] != "John" {
 		t.Errorf("contains should hit the text path: %#v", eq.Query)
 	}
 
 	eq = genES(t, c, &Query{Version: ASTVersion, Entity: "Order",
-		Filter: comp("customerName", OpStartsWith, vStr("Jo"))})
+		Filter: testutil.Comp("customerName", OpStartsWith, testutil.VStr("Jo"))})
 	prefix, ok := eq.Query["prefix"].(map[string]any)
 	if !ok {
 		t.Fatalf("startsWith should render a prefix query: %#v", eq.Query)
@@ -141,7 +142,7 @@ func TestESCaseInsensitive(t *testing.T) {
 	c := esConfig(t)
 
 	eq := genES(t, c, &Query{Version: ASTVersion, Entity: "Order",
-		Filter: comp("region", OpEquals, vStr("us"))})
+		Filter: testutil.Comp("region", OpEquals, testutil.VStr("us"))})
 	term, ok := eq.Query["term"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected a term query: %#v", eq.Query)
@@ -152,7 +153,7 @@ func TestESCaseInsensitive(t *testing.T) {
 	}
 
 	eq = genES(t, c, &Query{Version: ASTVersion, Entity: "Order",
-		Filter: comp("region", OpIn, vArr("us", "eu"))})
+		Filter: testutil.Comp("region", OpIn, testutil.VArr("us", "eu"))})
 	boolQ, ok := eq.Query["bool"].(map[string]any)
 	if !ok {
 		t.Fatalf("case-insensitive `in` should render bool.should: %#v", eq.Query)
@@ -169,7 +170,7 @@ func TestESRangeAndBetween(t *testing.T) {
 	c := esConfig(t)
 
 	eq := genES(t, c, &Query{Version: ASTVersion, Entity: "Order",
-		Filter: comp("amount", OpBetween, &Value{Kind: KindArray, V: []any{100.0, 500.0}})})
+		Filter: testutil.Comp("amount", OpBetween, &Value{Kind: KindArray, V: []any{100.0, 500.0}})})
 	rng, ok := eq.Query["range"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected a range query: %#v", eq.Query)
@@ -180,10 +181,10 @@ func TestESRangeAndBetween(t *testing.T) {
 	}
 
 	eq = genES(t, c, &Query{Version: ASTVersion, Entity: "Order",
-		Filter: comp("createdAt", OpAfter, vRel("day", -30))})
+		Filter: testutil.Comp("createdAt", OpAfter, testutil.VRel("day", -30))})
 	rng = eq.Query["range"].(map[string]any)
 	created, ok := rng["createdAt"].(map[string]any)
-	want, _ := gen.ResolveRelative(fixedNow, "day", -30)
+	want, _ := gen.ResolveRelative(testutil.FixedNow, "day", -30)
 	if !ok || created["gte"] != want.Format(time.RFC3339) {
 		t.Errorf("after should be inclusive (gte): %#v", created)
 	}
@@ -192,9 +193,9 @@ func TestESRangeAndBetween(t *testing.T) {
 // TestESLogical checks AND/OR/NOT rendering and predicate ordering.
 func TestESLogical(t *testing.T) {
 	c := esConfig(t)
-	q := &Query{Version: ASTVersion, Entity: "Order", Filter: and(
-		comp("status", OpEquals, vEnum("DELIVERED")),
-		comp("amount", OpGt, vNum(100)),
+	q := &Query{Version: ASTVersion, Entity: "Order", Filter: testutil.And(
+		testutil.Comp("status", OpEquals, testutil.VEnum("DELIVERED")),
+		testutil.Comp("amount", OpGt, testutil.VNum(100)),
 	)}
 	eq := genES(t, c, q)
 	boolQ, ok := eq.Query["bool"].(map[string]any)
@@ -206,9 +207,9 @@ func TestESLogical(t *testing.T) {
 		t.Fatalf("expected 2 filter clauses: %#v", boolQ)
 	}
 
-	q = &Query{Version: ASTVersion, Entity: "Order", Filter: or(
-		comp("status", OpEquals, vEnum("DELIVERED")),
-		comp("status", OpEquals, vEnum("PLACED")),
+	q = &Query{Version: ASTVersion, Entity: "Order", Filter: testutil.Or(
+		testutil.Comp("status", OpEquals, testutil.VEnum("DELIVERED")),
+		testutil.Comp("status", OpEquals, testutil.VEnum("PLACED")),
 	)}
 	eq = genES(t, c, q)
 	boolQ = eq.Query["bool"].(map[string]any)
@@ -219,8 +220,8 @@ func TestESLogical(t *testing.T) {
 		t.Errorf("expected 2 should clauses: %#v", boolQ)
 	}
 
-	q = &Query{Version: ASTVersion, Entity: "Order", Filter: not(
-		comp("status", OpEquals, vEnum("CANCELLED")),
+	q = &Query{Version: ASTVersion, Entity: "Order", Filter: testutil.Not(
+		testutil.Comp("status", OpEquals, testutil.VEnum("CANCELLED")),
 	)}
 	eq = genES(t, c, q)
 	boolQ = eq.Query["bool"].(map[string]any)
@@ -234,10 +235,10 @@ func TestESLogical(t *testing.T) {
 // "sku ABC costing over 100" cannot match on two different array elements.
 func TestESNestedFolding(t *testing.T) {
 	c := esConfig(t)
-	q := &Query{Version: ASTVersion, Entity: "Order", Filter: and(
-		comp("sku", OpEquals, vStr("ABC")),
-		comp("qty", OpGt, vNum(10)),
-		comp("status", OpEquals, vEnum("PLACED")), // not nested: must stay outside the fold
+	q := &Query{Version: ASTVersion, Entity: "Order", Filter: testutil.And(
+		testutil.Comp("sku", OpEquals, testutil.VStr("ABC")),
+		testutil.Comp("qty", OpGt, testutil.VNum(10)),
+		testutil.Comp("status", OpEquals, testutil.VEnum("PLACED")), // not nested: must stay outside the fold
 	)}
 	eq := genES(t, c, q)
 	boolQ, ok := eq.Query["bool"].(map[string]any)
@@ -281,7 +282,7 @@ func TestESNestedFolding(t *testing.T) {
 // the same path) is wrapped directly, without an unnecessary bool wrapper.
 func TestESNestedSingleNotFolded(t *testing.T) {
 	c := esConfig(t)
-	q := &Query{Version: ASTVersion, Entity: "Order", Filter: comp("sku", OpEquals, vStr("ABC"))}
+	q := &Query{Version: ASTVersion, Entity: "Order", Filter: testutil.Comp("sku", OpEquals, testutil.VStr("ABC"))}
 	eq := genES(t, c, q)
 	nested, ok := eq.Query["nested"].(map[string]any)
 	if !ok || nested["path"] != "items" {
@@ -324,21 +325,21 @@ func TestESNegationRequiresExistence(t *testing.T) {
 	}
 
 	eq := genES(t, c, &Query{Version: ASTVersion, Entity: "Order",
-		Filter: comp("status", OpNotEquals, vEnum("CANCELLED"))})
+		Filter: testutil.Comp("status", OpNotEquals, testutil.VEnum("CANCELLED"))})
 	assertGuarded(t, eq.Query["bool"].(map[string]any))
 
 	eq = genES(t, c, &Query{Version: ASTVersion, Entity: "Order",
-		Filter: comp("status", OpNotIn, vArr("CANCELLED", "PLACED"))})
+		Filter: testutil.Comp("status", OpNotIn, testutil.VArr("CANCELLED", "PLACED"))})
 	assertGuarded(t, eq.Query["bool"].(map[string]any))
 
 	eq = genES(t, c, &Query{Version: ASTVersion, Entity: "Order",
-		Filter: not(comp("status", OpEquals, vEnum("CANCELLED")))})
+		Filter: testutil.Not(testutil.Comp("status", OpEquals, testutil.VEnum("CANCELLED")))})
 	assertGuarded(t, eq.Query["bool"].(map[string]any))
 
 	// isNull/isNotNull are themselves about absence and must NOT get an
 	// extra guard layered on top.
 	eq = genES(t, c, &Query{Version: ASTVersion, Entity: "Order",
-		Filter: not(comp("status", OpIsNotNull, nil))})
+		Filter: testutil.Not(testutil.Comp("status", OpIsNotNull, nil))})
 	if _, has := eq.Query["bool"].(map[string]any)["filter"]; has {
 		t.Errorf("NOT(isNotNull) must not get an exists guard: %#v", eq.Query)
 	}
@@ -387,10 +388,10 @@ const patternRoutingJSON = `{
 }`
 
 func TestESPatternRouting(t *testing.T) {
-	c := mustParse(t, patternRoutingJSON)
+	c := testutil.MustParse(t, patternRoutingJSON)
 
 	eq := genES(t, c, &Query{Version: ASTVersion, Entity: "Order",
-		Filter: comp("tenantId", OpEquals, vStr("acme"))})
+		Filter: testutil.Comp("tenantId", OpEquals, testutil.VStr("acme"))})
 	if !reflect.DeepEqual(eq.Index, []string{"tenant-acme-orders"}) {
 		t.Errorf("index = %v", eq.Index)
 	}
@@ -400,14 +401,14 @@ func TestESPatternRouting(t *testing.T) {
 
 	// Field absent from the query: falls back to Default.
 	eq = genES(t, c, &Query{Version: ASTVersion, Entity: "Order",
-		Filter: comp("status", OpEquals, vStr("PLACED"))})
+		Filter: testutil.Comp("status", OpEquals, testutil.VStr("PLACED"))})
 	if !reflect.DeepEqual(eq.Index, []string{"tenant-default-orders"}) {
 		t.Errorf("expected default fallback, got %v", eq.Index)
 	}
 
 	// Field only constrained inside an OR: not sound to route on, falls back.
 	eq = genES(t, c, &Query{Version: ASTVersion, Entity: "Order",
-		Filter: or(comp("tenantId", OpEquals, vStr("acme")), comp("status", OpEquals, vStr("PLACED")))})
+		Filter: testutil.Or(testutil.Comp("tenantId", OpEquals, testutil.VStr("acme")), testutil.Comp("status", OpEquals, testutil.VStr("PLACED")))})
 	if !reflect.DeepEqual(eq.Index, []string{"tenant-default-orders"}) {
 		t.Errorf("OR-scoped routing field must not drive resolution, got %v", eq.Index)
 	}
@@ -417,9 +418,9 @@ func TestESPatternRouting(t *testing.T) {
 // field's value that would compose into an invalid/unsafe index name is
 // rejected rather than silently written into the resolved index.
 func TestESPatternRoutingRejectsUnsafeValue(t *testing.T) {
-	c := mustParse(t, patternRoutingJSON)
+	c := testutil.MustParse(t, patternRoutingJSON)
 	_, err := ESGenerator{}.Generate(&Query{Version: ASTVersion, Entity: "Order",
-		Filter: comp("tenantId", OpEquals, vStr("acme/prod"))}, c, GenOptions{Now: fixedNow})
+		Filter: testutil.Comp("tenantId", OpEquals, testutil.VStr("acme/prod"))}, c, GenOptions{Now: testutil.FixedNow})
 	if err == nil {
 		t.Fatalf("expected the unsafe composed index name to be rejected")
 	}
@@ -438,9 +439,9 @@ const dateRoutingJSON = `{
 }`
 
 func TestESDateRoutingEquals(t *testing.T) {
-	c := mustParse(t, dateRoutingJSON)
+	c := testutil.MustParse(t, dateRoutingJSON)
 	eq := genES(t, c, &Query{Version: ASTVersion, Entity: "Order",
-		Filter: comp("createdAt", OpEquals, vDate("2026-08-20"))})
+		Filter: testutil.Comp("createdAt", OpEquals, vDate("2026-08-20"))})
 	if !reflect.DeepEqual(eq.Index, []string{"orders-2026-08"}) {
 		t.Errorf("index = %v", eq.Index)
 	}
@@ -449,9 +450,9 @@ func TestESDateRoutingEquals(t *testing.T) {
 // TestESDateRoutingBetween pins the spec's own worked example: a range
 // spanning four calendar months resolves to all four partitions, inclusive.
 func TestESDateRoutingBetween(t *testing.T) {
-	c := mustParse(t, dateRoutingJSON)
+	c := testutil.MustParse(t, dateRoutingJSON)
 	eq := genES(t, c, &Query{Version: ASTVersion, Entity: "Order",
-		Filter: comp("createdAt", OpBetween, &Value{Kind: KindArray, V: []any{"2025-11-15", "2026-02-10"}})})
+		Filter: testutil.Comp("createdAt", OpBetween, &Value{Kind: KindArray, V: []any{"2025-11-15", "2026-02-10"}})})
 	want := []string{"orders-2025-11", "orders-2025-12", "orders-2026-01", "orders-2026-02"}
 	if !reflect.DeepEqual(eq.Index, want) {
 		t.Errorf("index = %v, want %v", eq.Index, want)
@@ -462,9 +463,9 @@ func TestESDateRoutingBetween(t *testing.T) {
 // on the routing field does NOT expand to an unrestricted partition list — it
 // falls back to Default instead, same as an absent field.
 func TestESDateRoutingUnboundedFallsBack(t *testing.T) {
-	c := mustParse(t, dateRoutingJSON)
+	c := testutil.MustParse(t, dateRoutingJSON)
 	eq := genES(t, c, &Query{Version: ASTVersion, Entity: "Order",
-		Filter: comp("createdAt", OpAfter, vDate("2020-01-01"))})
+		Filter: testutil.Comp("createdAt", OpAfter, vDate("2020-01-01"))})
 	if !reflect.DeepEqual(eq.Index, []string{"orders-legacy"}) {
 		t.Errorf("unbounded date routing should fall back to default, got %v", eq.Index)
 	}
@@ -488,24 +489,24 @@ const rulesRoutingJSON = `{
 }`
 
 func TestESRulesRouting(t *testing.T) {
-	c := mustParse(t, rulesRoutingJSON)
+	c := testutil.MustParse(t, rulesRoutingJSON)
 
 	eq := genES(t, c, &Query{Version: ASTVersion, Entity: "Order",
-		Filter: comp("region", OpEquals, vStr("US"))})
+		Filter: testutil.Comp("region", OpEquals, testutil.VStr("US"))})
 	if !reflect.DeepEqual(eq.Index, []string{"orders-us"}) {
 		t.Errorf("index = %v", eq.Index)
 	}
 
 	// No rule matches: falls back to default.
 	eq = genES(t, c, &Query{Version: ASTVersion, Entity: "Order",
-		Filter: comp("region", OpEquals, vStr("FR"))})
+		Filter: testutil.Comp("region", OpEquals, testutil.VStr("FR"))})
 	if !reflect.DeepEqual(eq.Index, []string{"orders-global"}) {
 		t.Errorf("index = %v", eq.Index)
 	}
 
 	// Two rules match (amount>1000 AND amount>500); priority 1 beats 0.
 	eq = genES(t, c, &Query{Version: ASTVersion, Entity: "Order",
-		Filter: comp("amount", OpGt, vNum(2000))})
+		Filter: testutil.Comp("amount", OpGt, testutil.VNum(2000))})
 	if !reflect.DeepEqual(eq.Index, []string{"orders-big"}) {
 		t.Errorf("higher-priority rule should win, got %v", eq.Index)
 	}
@@ -513,7 +514,7 @@ func TestESRulesRouting(t *testing.T) {
 
 // TestESRulesRoutingNotEquals checks the notEquals routing operator.
 func TestESRulesRoutingNotEquals(t *testing.T) {
-	c := mustParse(t, `{
+	c := testutil.MustParse(t, `{
 	  "entity":"Order","model":{},
 	  "backends":{"elasticsearch":{"routing":{
 	    "strategy":"rules","default":["orders-global"],
@@ -522,12 +523,12 @@ func TestESRulesRoutingNotEquals(t *testing.T) {
 	  "fields":[{"name":"region","type":"string","routingField":true,"operators":["equals"]}]
 	}`)
 	eq := genES(t, c, &Query{Version: ASTVersion, Entity: "Order",
-		Filter: comp("region", OpEquals, vStr("FR"))})
+		Filter: testutil.Comp("region", OpEquals, testutil.VStr("FR"))})
 	if !reflect.DeepEqual(eq.Index, []string{"orders-non-us"}) {
 		t.Errorf("notEquals rule should match a different region: index = %v", eq.Index)
 	}
 	eq = genES(t, c, &Query{Version: ASTVersion, Entity: "Order",
-		Filter: comp("region", OpEquals, vStr("US"))})
+		Filter: testutil.Comp("region", OpEquals, testutil.VStr("US"))})
 	if !reflect.DeepEqual(eq.Index, []string{"orders-global"}) {
 		t.Errorf("notEquals rule should not match the excluded region: index = %v", eq.Index)
 	}
@@ -536,7 +537,7 @@ func TestESRulesRoutingNotEquals(t *testing.T) {
 // TestESRulesRoutingAmbiguous checks that two rules matching at the SAME
 // priority is a resolution error, not a guess.
 func TestESRulesRoutingAmbiguous(t *testing.T) {
-	c := mustParse(t, `{
+	c := testutil.MustParse(t, `{
 	  "entity":"Order","model":{},
 	  "backends":{"elasticsearch":{"routing":{
 	    "strategy":"rules","default":["orders-global"],
@@ -548,7 +549,7 @@ func TestESRulesRoutingAmbiguous(t *testing.T) {
 	  "fields":[{"name":"amount","type":"number","routingField":true,"operators":["gt"]}]
 	}`)
 	_, err := ESGenerator{}.Generate(&Query{Version: ASTVersion, Entity: "Order",
-		Filter: comp("amount", OpGt, vNum(2000))}, c, GenOptions{Now: fixedNow})
+		Filter: testutil.Comp("amount", OpGt, testutil.VNum(2000))}, c, GenOptions{Now: testutil.FixedNow})
 	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
 		t.Errorf("expected an ambiguous-routing error, got: %v", err)
 	}
@@ -567,16 +568,16 @@ const ifElseRoutingJSON = `{
 }`
 
 func TestESIfElseRouting(t *testing.T) {
-	c := mustParse(t, ifElseRoutingJSON)
+	c := testutil.MustParse(t, ifElseRoutingJSON)
 
 	eq := genES(t, c, &Query{Version: ASTVersion, Entity: "Order",
-		Filter: comp("createdAt", OpEquals, vDate("2026-06-01"))})
+		Filter: testutil.Comp("createdAt", OpEquals, vDate("2026-06-01"))})
 	if !reflect.DeepEqual(eq.Index, []string{"orders-2026"}) {
 		t.Errorf("index = %v", eq.Index)
 	}
 
 	eq = genES(t, c, &Query{Version: ASTVersion, Entity: "Order",
-		Filter: comp("createdAt", OpEquals, vDate("2024-06-01"))})
+		Filter: testutil.Comp("createdAt", OpEquals, vDate("2024-06-01"))})
 	if !reflect.DeepEqual(eq.Index, []string{"orders-legacy"}) {
 		t.Errorf("expected the else branch, got %v", eq.Index)
 	}
@@ -593,7 +594,7 @@ func TestESIfElseRouting(t *testing.T) {
 // TestESIfElseRoutingNoElseFallsBackToDefault checks Default is used when no
 // branch matches and there is no else branch.
 func TestESIfElseRoutingNoElseFallsBackToDefault(t *testing.T) {
-	c := mustParse(t, `{
+	c := testutil.MustParse(t, `{
 	  "entity":"Order","model":{},
 	  "backends":{"elasticsearch":{"routing":{
 	    "strategy":"ifElse","default":["orders-fallback"],
@@ -602,7 +603,7 @@ func TestESIfElseRoutingNoElseFallsBackToDefault(t *testing.T) {
 	  "fields":[{"name":"createdAt","type":"date","routingField":true,"operators":["equals"]}]
 	}`)
 	eq := genES(t, c, &Query{Version: ASTVersion, Entity: "Order",
-		Filter: comp("createdAt", OpEquals, vDate("2024-06-01"))})
+		Filter: testutil.Comp("createdAt", OpEquals, vDate("2024-06-01"))})
 	if !reflect.DeepEqual(eq.Index, []string{"orders-fallback"}) {
 		t.Errorf("index = %v", eq.Index)
 	}
@@ -613,15 +614,15 @@ func TestESIfElseRoutingNoElseFallsBackToDefault(t *testing.T) {
 // point of sharing one compiler between the two registry entries.
 func TestOpenSearchSharesTheSameCompiler(t *testing.T) {
 	c := esConfig(t)
-	q := &Query{Version: ASTVersion, Entity: "Order", Filter: and(
-		comp("status", OpEquals, vEnum("DELIVERED")),
-		comp("amount", OpGt, vNum(100)),
+	q := &Query{Version: ASTVersion, Entity: "Order", Filter: testutil.And(
+		testutil.Comp("status", OpEquals, testutil.VEnum("DELIVERED")),
+		testutil.Comp("amount", OpGt, testutil.VNum(100)),
 	)}
-	es, err := ESGenerator{}.Generate(q, c, GenOptions{Now: fixedNow})
+	es, err := ESGenerator{}.Generate(q, c, GenOptions{Now: testutil.FixedNow})
 	if err != nil {
 		t.Fatalf("es generate: %v", err)
 	}
-	os, err := OpenSearchGenerator{}.Generate(q, c, GenOptions{Now: fixedNow})
+	os, err := OpenSearchGenerator{}.Generate(q, c, GenOptions{Now: testutil.FixedNow})
 	if err != nil {
 		t.Fatalf("opensearch generate: %v", err)
 	}

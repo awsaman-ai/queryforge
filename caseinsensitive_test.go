@@ -3,6 +3,8 @@ package queryforge
 import (
 	"strings"
 	"testing"
+
+	"github.com/awsaman-ai/queryforge/internal/testutil"
 )
 
 // ciConfigJSON declares one field of every shape relevant to caseInsensitive:
@@ -24,7 +26,7 @@ const ciConfigJSON = `{
   "defaults":{"limit":50}
 }`
 
-func ciConfig(t *testing.T) *Config { return mustParse(t, ciConfigJSON) }
+func ciConfig(t *testing.T) *Config { return testutil.MustParse(t, ciConfigJSON) }
 
 // --- config validation -------------------------------------------------
 
@@ -70,8 +72,8 @@ func TestCaseInsensitiveAcceptedOnStringField(t *testing.T) {
 func TestCaseInsensitivePostgresEquals(t *testing.T) {
 	c := ciConfig(t)
 	q := NewQuery("Order")
-	q.Filter = comp("color", OpEquals, vStr("Black"))
-	r := genSQL(t, c, q)
+	q.Filter = testutil.Comp("color", OpEquals, testutil.VStr("Black"))
+	r := testutil.GenSQL(t, c, q)
 	// Only the column is folded in the SQL text; the argument is folded at
 	// bind time (checked below) rather than wrapped in the placeholder.
 	if !strings.Contains(r.SQL, "LOWER(color) = $1") {
@@ -85,8 +87,8 @@ func TestCaseInsensitivePostgresEquals(t *testing.T) {
 func TestCaseInsensitivePostgresNotEquals(t *testing.T) {
 	c := ciConfig(t)
 	q := NewQuery("Order")
-	q.Filter = comp("color", OpNotEquals, vStr("Black"))
-	r := genSQL(t, c, q)
+	q.Filter = testutil.Comp("color", OpNotEquals, testutil.VStr("Black"))
+	r := testutil.GenSQL(t, c, q)
 	if !strings.Contains(r.SQL, "LOWER(color) <> $1") {
 		t.Errorf("sql = %q, want LOWER(color) <> $1", r.SQL)
 	}
@@ -95,8 +97,8 @@ func TestCaseInsensitivePostgresNotEquals(t *testing.T) {
 func TestCaseInsensitivePostgresInList(t *testing.T) {
 	c := ciConfig(t)
 	q := NewQuery("Order")
-	q.Filter = comp("color", OpIn, vArr("Black", "White"))
-	r := genSQL(t, c, q)
+	q.Filter = testutil.Comp("color", OpIn, testutil.VArr("Black", "White"))
+	r := testutil.GenSQL(t, c, q)
 	if !strings.Contains(r.SQL, "LOWER(color) IN ($1, $2)") {
 		t.Errorf("sql = %q, want LOWER(color) IN ($1, $2)", r.SQL)
 	}
@@ -108,8 +110,8 @@ func TestCaseInsensitivePostgresInList(t *testing.T) {
 func TestCaseInsensitivePostgresContainsUsesILIKE(t *testing.T) {
 	c := ciConfig(t)
 	q := NewQuery("Order")
-	q.Filter = comp("color", OpContains, vStr("Bla"))
-	r := genSQL(t, c, q)
+	q.Filter = testutil.Comp("color", OpContains, testutil.VStr("Bla"))
+	r := testutil.GenSQL(t, c, q)
 	// ILIKE needs no LOWER() wrapping on the column — Postgres's own
 	// case-insensitive match does the folding.
 	if !strings.Contains(r.SQL, "color ILIKE $1") {
@@ -124,15 +126,15 @@ func TestCaseInsensitivePostgresStartsWithEndsWith(t *testing.T) {
 	c := ciConfig(t)
 
 	q := NewQuery("Order")
-	q.Filter = comp("color", OpStartsWith, vStr("Bla"))
-	r := genSQL(t, c, q)
+	q.Filter = testutil.Comp("color", OpStartsWith, testutil.VStr("Bla"))
+	r := testutil.GenSQL(t, c, q)
 	if !strings.Contains(r.SQL, "color ILIKE $1") || r.Args[0] != "Bla%" {
 		t.Errorf("startsWith: sql = %q args = %v", r.SQL, r.Args)
 	}
 
 	q2 := NewQuery("Order")
-	q2.Filter = comp("color", OpEndsWith, vStr("ack"))
-	r2 := genSQL(t, c, q2)
+	q2.Filter = testutil.Comp("color", OpEndsWith, testutil.VStr("ack"))
+	r2 := testutil.GenSQL(t, c, q2)
 	if !strings.Contains(r2.SQL, "color ILIKE $1") || r2.Args[0] != "%ack" {
 		t.Errorf("endsWith: sql = %q args = %v", r2.SQL, r2.Args)
 	}
@@ -143,8 +145,8 @@ func TestCaseInsensitivePostgresStartsWithEndsWith(t *testing.T) {
 func TestCaseInsensitiveDefaultOffLeavesPostgresUnchanged(t *testing.T) {
 	c := ciConfig(t)
 	q := NewQuery("Order")
-	q.Filter = comp("note", OpEquals, vStr("Fragile"))
-	r := genSQL(t, c, q)
+	q.Filter = testutil.Comp("note", OpEquals, testutil.VStr("Fragile"))
+	r := testutil.GenSQL(t, c, q)
 	if r.SQL != "SELECT * FROM orders WHERE note = $1 LIMIT 50" {
 		t.Errorf("sql = %q, want an untouched equality", r.SQL)
 	}
@@ -160,8 +162,8 @@ func TestCaseInsensitiveDefaultOffLeavesPostgresUnchanged(t *testing.T) {
 func TestCaseInsensitiveMySQLEquals(t *testing.T) {
 	c := ciConfig(t)
 	q := NewQuery("Order")
-	q.Filter = comp("color", OpEquals, vStr("Black"))
-	r := tGen(t, c, q, "mysql")
+	q.Filter = testutil.Comp("color", OpEquals, testutil.VStr("Black"))
+	r := testutil.TGen(t, c, q, "mysql")
 	if !strings.Contains(r.SQL, "LOWER(color) = ?") {
 		t.Errorf("sql = %q, want LOWER(color) = ?", r.SQL)
 	}
@@ -173,8 +175,8 @@ func TestCaseInsensitiveMySQLEquals(t *testing.T) {
 func TestCaseInsensitiveMySQLContains(t *testing.T) {
 	c := ciConfig(t)
 	q := NewQuery("Order")
-	q.Filter = comp("color", OpContains, vStr("Bla"))
-	r := tGen(t, c, q, "mysql")
+	q.Filter = testutil.Comp("color", OpContains, testutil.VStr("Bla"))
+	r := testutil.TGen(t, c, q, "mysql")
 	if !strings.Contains(r.SQL, "LOWER(color) LIKE ?") {
 		t.Errorf("sql = %q, want LOWER(color) LIKE ? (no ILIKE on MySQL)", r.SQL)
 	}
@@ -186,8 +188,8 @@ func TestCaseInsensitiveMySQLContains(t *testing.T) {
 func TestCaseInsensitiveMySQLNotIn(t *testing.T) {
 	c := ciConfig(t)
 	q := NewQuery("Order")
-	q.Filter = comp("color", OpNotIn, vArr("Black", "White"))
-	r := tGen(t, c, q, "mysql")
+	q.Filter = testutil.Comp("color", OpNotIn, testutil.VArr("Black", "White"))
+	r := testutil.TGen(t, c, q, "mysql")
 	if !strings.Contains(r.SQL, "LOWER(color) NOT IN (?, ?)") {
 		t.Errorf("sql = %q, want LOWER(color) NOT IN (?, ?)", r.SQL)
 	}
@@ -201,8 +203,8 @@ func TestCaseInsensitiveMySQLNotIn(t *testing.T) {
 func TestCaseInsensitiveMongoEquals(t *testing.T) {
 	c := ciConfig(t)
 	q := NewQuery("Order")
-	q.Filter = comp("color", OpEquals, vStr("Black"))
-	got := filterJSON(t, genMongo(t, c, q))
+	q.Filter = testutil.Comp("color", OpEquals, testutil.VStr("Black"))
+	got := testutil.FilterJSON(t, testutil.GenMongo(t, c, q))
 	want := `{"color":{"$options":"i","$regex":"^Black$"}}`
 	if got != want {
 		t.Errorf("filter = %s, want %s", got, want)
@@ -212,8 +214,8 @@ func TestCaseInsensitiveMongoEquals(t *testing.T) {
 func TestCaseInsensitiveMongoNotEquals(t *testing.T) {
 	c := ciConfig(t)
 	q := NewQuery("Order")
-	q.Filter = comp("color", OpNotEquals, vStr("Black"))
-	got := filterJSON(t, genMongo(t, c, q))
+	q.Filter = testutil.Comp("color", OpNotEquals, testutil.VStr("Black"))
+	got := testutil.FilterJSON(t, testutil.GenMongo(t, c, q))
 	want := `{"color":{"$exists":true,"$not":{"$options":"i","$regex":"^Black$"}}}`
 	if got != want {
 		t.Errorf("filter = %s, want %s", got, want)
@@ -223,8 +225,8 @@ func TestCaseInsensitiveMongoNotEquals(t *testing.T) {
 func TestCaseInsensitiveMongoIn(t *testing.T) {
 	c := ciConfig(t)
 	q := NewQuery("Order")
-	q.Filter = comp("color", OpIn, vArr("Black", "White"))
-	got := filterJSON(t, genMongo(t, c, q))
+	q.Filter = testutil.Comp("color", OpIn, testutil.VArr("Black", "White"))
+	got := testutil.FilterJSON(t, testutil.GenMongo(t, c, q))
 	want := `{"$or":[{"color":{"$options":"i","$regex":"^Black$"}},{"color":{"$options":"i","$regex":"^White$"}}]}`
 	if got != want {
 		t.Errorf("filter = %s, want %s", got, want)
@@ -234,8 +236,8 @@ func TestCaseInsensitiveMongoIn(t *testing.T) {
 func TestCaseInsensitiveMongoNotIn(t *testing.T) {
 	c := ciConfig(t)
 	q := NewQuery("Order")
-	q.Filter = comp("color", OpNotIn, vArr("Black", "White"))
-	got := filterJSON(t, genMongo(t, c, q))
+	q.Filter = testutil.Comp("color", OpNotIn, testutil.VArr("Black", "White"))
+	got := testutil.FilterJSON(t, testutil.GenMongo(t, c, q))
 	want := `{"$and":[{"color":{"$not":{"$options":"i","$regex":"^Black$"}}},{"color":{"$not":{"$options":"i","$regex":"^White$"}}},{"color":{"$exists":true}}]}`
 	if got != want {
 		t.Errorf("filter = %s, want %s", got, want)
@@ -246,16 +248,16 @@ func TestCaseInsensitiveMongoStartsWithEndsWith(t *testing.T) {
 	c := ciConfig(t)
 
 	q := NewQuery("Order")
-	q.Filter = comp("color", OpStartsWith, vStr("Bla"))
-	got := filterJSON(t, genMongo(t, c, q))
+	q.Filter = testutil.Comp("color", OpStartsWith, testutil.VStr("Bla"))
+	got := testutil.FilterJSON(t, testutil.GenMongo(t, c, q))
 	want := `{"color":{"$options":"i","$regex":"^Bla"}}`
 	if got != want {
 		t.Errorf("startsWith filter = %s, want %s", got, want)
 	}
 
 	q2 := NewQuery("Order")
-	q2.Filter = comp("color", OpEndsWith, vStr("ack"))
-	got2 := filterJSON(t, genMongo(t, c, q2))
+	q2.Filter = testutil.Comp("color", OpEndsWith, testutil.VStr("ack"))
+	got2 := testutil.FilterJSON(t, testutil.GenMongo(t, c, q2))
 	want2 := `{"color":{"$options":"i","$regex":"ack$"}}`
 	if got2 != want2 {
 		t.Errorf("endsWith filter = %s, want %s", got2, want2)
@@ -267,8 +269,8 @@ func TestCaseInsensitiveMongoStartsWithEndsWith(t *testing.T) {
 func TestCaseInsensitiveMongoContainsUnaffected(t *testing.T) {
 	c := ciConfig(t)
 	q := NewQuery("Order")
-	q.Filter = comp("color", OpContains, vStr("Bla"))
-	got := filterJSON(t, genMongo(t, c, q))
+	q.Filter = testutil.Comp("color", OpContains, testutil.VStr("Bla"))
+	got := testutil.FilterJSON(t, testutil.GenMongo(t, c, q))
 	want := `{"color":{"$options":"i","$regex":"Bla"}}`
 	if got != want {
 		t.Errorf("filter = %s, want %s", got, want)
@@ -279,8 +281,8 @@ func TestCaseInsensitiveMongoContainsUnaffected(t *testing.T) {
 func TestCaseInsensitiveDefaultOffLeavesMongoUnchanged(t *testing.T) {
 	c := ciConfig(t)
 	q := NewQuery("Order")
-	q.Filter = comp("note", OpEquals, vStr("Fragile"))
-	got := filterJSON(t, genMongo(t, c, q))
+	q.Filter = testutil.Comp("note", OpEquals, testutil.VStr("Fragile"))
+	got := testutil.FilterJSON(t, testutil.GenMongo(t, c, q))
 	want := `{"note":"Fragile"}`
 	if got != want {
 		t.Errorf("filter = %s, want %s", got, want)
@@ -293,8 +295,8 @@ func TestCaseInsensitiveDefaultOffLeavesMongoUnchanged(t *testing.T) {
 func TestCaseInsensitiveMongoInRejectsNonStringElement(t *testing.T) {
 	c := ciConfig(t)
 	q := NewQuery("Order")
-	q.Filter = comp("color", OpIn, vArr("Black", 5.0))
-	_, err := MongoGenerator{}.Generate(q, c, GenOptions{Now: fixedNow})
+	q.Filter = testutil.Comp("color", OpIn, testutil.VArr("Black", 5.0))
+	_, err := MongoGenerator{}.Generate(q, c, GenOptions{Now: testutil.FixedNow})
 	if err == nil {
 		t.Fatal("a non-string element in a caseInsensitive in-list was accepted")
 	}

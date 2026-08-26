@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/awsaman-ai/queryforge/internal/config"
+	"github.com/awsaman-ai/queryforge/internal/testutil"
 )
 
 // --- Tier 1: LLM-facing field metadata (displayName/description/valueHint)
@@ -23,7 +24,7 @@ import (
 // loads with none of the four new keys present, and none are silently
 // defaulted onto it.
 func TestOrdinaryFieldNeedsNoMetadata(t *testing.T) {
-	c := mustParse(t, `{
+	c := testutil.MustParse(t, `{
 	  "entity": "Order",
 	  "fields": [
 	    {"name": "orderNumber", "type": "string"},
@@ -47,7 +48,7 @@ func TestOrdinaryFieldNeedsNoMetadata(t *testing.T) {
 // a description too — decorative labels are opt-in and do not cascade into
 // requiring the rest, unlike customField.
 func TestOrdinaryFieldMetadataStaysOptionalAndIndependent(t *testing.T) {
-	c := mustParse(t, `{
+	c := testutil.MustParse(t, `{
 	  "entity": "Order",
 	  "fields": [
 	    {"name": "customerName", "type": "string", "displayName": "Customer"}
@@ -119,7 +120,7 @@ func TestCustomFieldSearchableStringRequiresValueHint(t *testing.T) {
 // regex) — there is nothing for a valueHint to give context to, so only
 // description is required.
 func TestCustomFieldNonSearchableStringDoesNotNeedValueHint(t *testing.T) {
-	mustParse(t, `{
+	testutil.MustParse(t, `{
 	  "entity": "Order",
 	  "fields": [
 	    {"name": "code01", "type": "string", "searchable": false, "customField": true,
@@ -148,7 +149,7 @@ func TestCustomFieldEnumStillNeedsValues(t *testing.T) {
 // once both requirements are satisfied (values for the enum domain,
 // description for the customField rule), the config loads.
 func TestCustomFieldEnumWithDescriptionAndValuesLoads(t *testing.T) {
-	mustParse(t, `{
+	testutil.MustParse(t, `{
 	  "entity": "Order",
 	  "fields": [
 	    {"name": "sel02", "type": "enum", "customField": true,
@@ -163,7 +164,7 @@ func TestCustomFieldEnumWithDescriptionAndValuesLoads(t *testing.T) {
 // fields): a number, boolean, or date customField is fully satisfied by a
 // description alone.
 func TestCustomFieldNonStringTypesOnlyNeedDescription(t *testing.T) {
-	mustParse(t, `{
+	testutil.MustParse(t, `{
 	  "entity": "Order",
 	  "fields": [
 	    {"name": "num01", "type": "number", "customField": true, "description": "loyalty points balance"},
@@ -177,7 +178,7 @@ func TestCustomFieldNonStringTypesOnlyNeedDescription(t *testing.T) {
 // multi-select) is not "free text" in the sense valueHint exists for — only a
 // plain FieldString carries the valueHint requirement.
 func TestCustomFieldArrayOnlyNeedsDescription(t *testing.T) {
-	mustParse(t, `{
+	testutil.MustParse(t, `{
 	  "entity": "Order",
 	  "fields": [
 	    {"name": "arr01", "type": "array", "itemType": "string", "customField": true,
@@ -238,7 +239,7 @@ func TestMetadataLengthCeilings(t *testing.T) {
 // above: the limit itself must not be treated as already over it.
 func TestMetadataAtExactLengthCeilingIsAccepted(t *testing.T) {
 	exactDescription := strings.Repeat("a", config.MaxDescriptionLength)
-	mustParse(t, `{
+	testutil.MustParse(t, `{
 	  "entity": "Order",
 	  "fields": [
 	    {"name": "a", "type": "string", "description": "`+exactDescription+`"}
@@ -271,7 +272,7 @@ func TestCustomFieldHiddenFieldStillRequiresDescription(t *testing.T) {
 // proving the generators are completely untouched by this feature and cannot
 // leak this metadata (or a customField flag) into a real query.
 func TestCustomFieldMetadataNeverReachesGeneratedQuery(t *testing.T) {
-	plain := mustParse(t, `{
+	plain := testutil.MustParse(t, `{
 	  "entity": "Order",
 	  "backends": {"sql": {"table": "orders"}, "mongo": {"collection": "orders"}},
 	  "fields": [
@@ -279,7 +280,7 @@ func TestCustomFieldMetadataNeverReachesGeneratedQuery(t *testing.T) {
 	    {"name": "amount", "type": "number", "mapping": {"sql": "amount", "mongo": "amount"}}
 	  ]
 	}`)
-	annotated := mustParse(t, `{
+	annotated := testutil.MustParse(t, `{
 	  "entity": "Order",
 	  "backends": {"sql": {"table": "orders"}, "mongo": {"collection": "orders"}},
 	  "fields": [
@@ -292,9 +293,9 @@ func TestCustomFieldMetadataNeverReachesGeneratedQuery(t *testing.T) {
 	}`)
 
 	q := NewQuery("Order")
-	q.Filter = and(
-		comp("txt01", OpContains, vStr("France")),
-		comp("amount", OpGt, vNum(100)),
+	q.Filter = testutil.And(
+		testutil.Comp("txt01", OpContains, testutil.VStr("France")),
+		testutil.Comp("amount", OpGt, testutil.VNum(100)),
 	)
 
 	for _, tc := range []struct {
@@ -306,11 +307,11 @@ func TestCustomFieldMetadataNeverReachesGeneratedQuery(t *testing.T) {
 		{"mongo", MongoGenerator{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			plainResult, err := tc.gen.Generate(q, plain, GenOptions{Now: fixedNow})
+			plainResult, err := tc.gen.Generate(q, plain, GenOptions{Now: testutil.FixedNow})
 			if err != nil {
 				t.Fatalf("generate against plain config: %v", err)
 			}
-			annotatedResult, err := tc.gen.Generate(q, annotated, GenOptions{Now: fixedNow})
+			annotatedResult, err := tc.gen.Generate(q, annotated, GenOptions{Now: testutil.FixedNow})
 			if err != nil {
 				t.Fatalf("generate against annotated config: %v", err)
 			}

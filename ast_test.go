@@ -5,33 +5,16 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-)
 
-// canonicalAST is the running example from the design doc (§7). It exercises
-// every Value kind: enum, boolean, relative_date and array.
-const canonicalAST = `{
-  "version": "1.0",
-  "entity": "Order",
-  "filter": {
-    "type": "logical", "op": "AND",
-    "children": [
-      {"type":"comparison","field":"status",   "operator":"equals",      "value":{"kind":"enum","v":"DELIVERED"}},
-      {"type":"comparison","field":"refunded", "operator":"equals",      "value":{"kind":"boolean","v":false}},
-      {"type":"comparison","field":"createdAt","operator":"after",       "value":{"kind":"relative_date","unit":"day","amount":-30}},
-      {"type":"comparison","field":"tags",     "operator":"containsAll", "value":{"kind":"array","v":["premium","express"]}}
-    ]
-  },
-  "sort": [{"field":"createdAt","dir":"DESC"}],
-  "limit": 50,
-  "offset": 0
-}`
+	"github.com/awsaman-ai/queryforge/internal/testutil"
+)
 
 // TestQueryRoundTrip is the happy path: parse -> serialize -> parse must yield
 // an identical tree. Comparing parsed-vs-reparsed (not against the raw string)
 // is robust to JSON numeric normalization.
 func TestQueryRoundTrip(t *testing.T) {
 	var q1 Query
-	if err := json.Unmarshal([]byte(canonicalAST), &q1); err != nil {
+	if err := json.Unmarshal([]byte(testutil.CanonicalAST), &q1); err != nil {
 		t.Fatalf("initial unmarshal: %v", err)
 	}
 	raw, err := json.Marshal(q1)

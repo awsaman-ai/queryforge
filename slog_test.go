@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/awsaman-ai/queryforge/internal/observe"
+	"github.com/awsaman-ai/queryforge/internal/testutil"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -179,7 +180,7 @@ func TestSlogUnknownEventKindIsStillReported(t *testing.T) {
 // query, so renaming one is a breaking change and should fail here first.
 func TestSlogCarriesTheCrossLanguageFields(t *testing.T) {
 	c := newCapture(slog.LevelDebug)
-	e := newTestEngine(t, &StubProvider{Response: canonicalAST})
+	e := newTestEngine(t, &StubProvider{Response: testutil.CanonicalAST})
 	e.SetObserver(SlogObserver(c.log))
 
 	if _, err := e.Translate(context.Background(), "delivered orders", "sql", nil); err != nil {
@@ -299,7 +300,7 @@ func TestSlogNeverLogsTheQuestion(t *testing.T) {
 		name     string
 		provider ModelProvider
 	}{
-		{"success", &StubProvider{Response: canonicalAST}},
+		{"success", &StubProvider{Response: testutil.CanonicalAST}},
 		{"parse failure", &StubProvider{Response: unparseableReply}},
 		{"validation failure", &StubProvider{Response: invalidAST}},
 		{"transport failure", &erroringProvider{err: fmt.Errorf("dial: %w", ErrModelTransport)}},
@@ -325,7 +326,7 @@ func TestSlogNeverLogsScopeValues(t *testing.T) {
 	const canary = "CANARY-TENANT-4b7e29"
 
 	c := newCapture(slog.LevelDebug)
-	e := newTestEngine(t, &StubProvider{Response: canonicalAST})
+	e := newTestEngine(t, &StubProvider{Response: testutil.CanonicalAST})
 	e.SetObserver(SlogObserver(c.log))
 
 	if _, err := e.Translate(context.Background(), "delivered orders", "sql",
@@ -384,7 +385,7 @@ func TestSlogNeverLogsTheAPIKey(t *testing.T) {
 	const canary = "CANARY-APIKEY-sk-77c1e2"
 
 	c := newCapture(slog.LevelDebug)
-	cfg := mustParse(t, genConfigJSON)
+	cfg := testutil.MustParse(t, testutil.GenConfigJSON)
 	provider := &OpenAIProvider{
 		BaseURL:    "http://127.0.0.1:1", // refused immediately; no network needed
 		Model:      "test",

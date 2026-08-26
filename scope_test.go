@@ -10,6 +10,7 @@ import (
 
 	"github.com/awsaman-ai/queryforge/internal/ast"
 	"github.com/awsaman-ai/queryforge/internal/planner"
+	"github.com/awsaman-ai/queryforge/internal/testutil"
 )
 
 // scopeConfigJSON adds the two shapes a scope key can take to the standard test
@@ -34,7 +35,7 @@ const scopeConfigJSON = `{
   "defaults":{"limit":50,"maxLimit":500}
 }`
 
-func scopeConfig(t *testing.T) *Config { return mustParse(t, scopeConfigJSON) }
+func scopeConfig(t *testing.T) *Config { return testutil.MustParse(t, scopeConfigJSON) }
 
 func strPtr(s string) *string { return &s }
 
@@ -42,7 +43,7 @@ func strPtr(s string) *string { return &s }
 func scopeEngine(t *testing.T, p ModelProvider) *Engine {
 	t.Helper()
 	e := NewWithProvider(scopeConfig(t), p)
-	e.Now = func() time.Time { return fixedNow }
+	e.Now = func() time.Time { return testutil.FixedNow }
 	return e
 }
 
@@ -50,7 +51,7 @@ func scopeEngine(t *testing.T, p ModelProvider) *Engine {
 // for. Scope is spliced alongside it.
 func userQuery() *Query {
 	q := NewQuery("Order")
-	q.Filter = comp("status", OpEquals, vEnum("DELIVERED"))
+	q.Filter = testutil.Comp("status", OpEquals, testutil.VEnum("DELIVERED"))
 	return q
 }
 
@@ -437,8 +438,8 @@ func TestScopeOnlyExplainReadsNaturally(t *testing.T) {
 func TestScopeCannotBeEscapedByOR(t *testing.T) {
 	q := NewQuery("Order")
 	q.Filter = &Condition{Type: CondLogical, Op: OpOR, Children: []*Condition{
-		comp("status", OpEquals, vEnum("DELIVERED")),
-		comp("status", OpEquals, vEnum("PLACED")),
+		testutil.Comp("status", OpEquals, testutil.VEnum("DELIVERED")),
+		testutil.Comp("status", OpEquals, testutil.VEnum("PLACED")),
 	}}
 	e := scopeEngine(t, nil)
 
@@ -455,7 +456,7 @@ func TestScopeCannotBeEscapedByOR(t *testing.T) {
 func TestScopeSurvivesNegation(t *testing.T) {
 	q := NewQuery("Order")
 	q.Filter = &Condition{Type: CondLogical, Op: OpNOT, Children: []*Condition{
-		comp("status", OpEquals, vEnum("CANCELLED")),
+		testutil.Comp("status", OpEquals, testutil.VEnum("CANCELLED")),
 	}}
 	e := scopeEngine(t, nil)
 
@@ -496,7 +497,7 @@ func TestModelCannotForgeScopedMarker(t *testing.T) {
 // tenant column is exactly what a prompt-injection attempt would go looking for.
 func TestScopeFieldStaysOutOfThePrompt(t *testing.T) {
 	c := scopeConfig(t)
-	prompt := NewPlanner(c, nil).SystemPrompt(fixedNow)
+	prompt := NewPlanner(c, nil).SystemPrompt(testutil.FixedNow)
 
 	for _, name := range []string{"tenantId", "tenant_id", "subscriptionId"} {
 		if strings.Contains(prompt, name) {
@@ -513,7 +514,7 @@ func TestScopeWorksOnFieldHiddenFromQueries(t *testing.T) {
 
 	// The model referencing it is rejected...
 	bad := NewQuery("Order")
-	bad.Filter = comp("tenantId", OpEquals, vStr("T-1"))
+	bad.Filter = testutil.Comp("tenantId", OpEquals, testutil.VStr("T-1"))
 	if _, err := e.GenerateFrom(bad, "sql", nil); err == nil {
 		t.Error("expected a hidden field to be rejected in a model AST")
 	}
@@ -768,7 +769,7 @@ func TestBadScopeFailsBeforeTheModelCall(t *testing.T) {
 // as broken when the model was at fault.
 func TestScopeErrorIsNotConfusedWithValidation(t *testing.T) {
 	bad := NewQuery("Order")
-	bad.Filter = comp("nosuchfield", OpEquals, vStr("x"))
+	bad.Filter = testutil.Comp("nosuchfield", OpEquals, testutil.VStr("x"))
 	e := scopeEngine(t, nil)
 
 	_, err := e.GenerateFrom(bad, "sql", Scope{"subscriptionId": "SUB-42"})
@@ -814,16 +815,16 @@ func TestScopeWithManyKeysStaysBounded(t *testing.T) {
 // it is injected after validation. A user filter already at the configured depth
 // limit must not start failing because the scope pushed it over.
 func TestScopeAppliesUnderPolicyNestingLimit(t *testing.T) {
-	c := mustParse(t, strings.Replace(scopeConfigJSON,
+	c := testutil.MustParse(t, strings.Replace(scopeConfigJSON,
 		`"defaults":{"limit":50,"maxLimit":500}`,
 		`"defaults":{"limit":50,"maxLimit":500},"policy":{"maxNestingDepth":2}`, 1))
 	e := NewWithProvider(c, nil)
-	e.Now = func() time.Time { return fixedNow }
+	e.Now = func() time.Time { return testutil.FixedNow }
 
 	q := NewQuery("Order") // depth 2: AND over two comparisons — exactly at the limit
-	q.Filter = and(
-		comp("status", OpEquals, vEnum("DELIVERED")),
-		comp("amount", OpGt, vNum(100)),
+	q.Filter = testutil.And(
+		testutil.Comp("status", OpEquals, testutil.VEnum("DELIVERED")),
+		testutil.Comp("amount", OpGt, testutil.VNum(100)),
 	)
 
 	if _, err := e.GenerateFrom(q, "sql", Scope{"subscriptionId": "SUB-42"}); err != nil {

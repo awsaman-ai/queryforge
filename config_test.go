@@ -3,6 +3,8 @@ package queryforge
 import (
 	"strings"
 	"testing"
+
+	"github.com/awsaman-ai/queryforge/internal/testutil"
 )
 
 // fullConfigJSON is a representative config that uses every documented key.
@@ -67,18 +69,9 @@ const fullConfigJSON = `{
   }
 }`
 
-func mustParse(t *testing.T, js string) *Config {
-	t.Helper()
-	c, err := ParseConfig([]byte(js))
-	if err != nil {
-		t.Fatalf("ParseConfig: %v", err)
-	}
-	return c
-}
-
 // TestFullConfigParses is the happy path and clears BUG-001.
 func TestFullConfigParses(t *testing.T) {
-	c := mustParse(t, fullConfigJSON)
+	c := testutil.MustParse(t, fullConfigJSON)
 	if c.Entity != "Order" {
 		t.Errorf("entity = %q", c.Entity)
 	}
@@ -98,7 +91,7 @@ func TestFullConfigParses(t *testing.T) {
 
 // TestIndexingAndLookups covers the built lookup maps and physical mapping.
 func TestIndexingAndLookups(t *testing.T) {
-	c := mustParse(t, fullConfigJSON)
+	c := testutil.MustParse(t, fullConfigJSON)
 
 	if _, ok := c.FieldByName("status"); !ok {
 		t.Errorf("status should be found by name")
@@ -119,7 +112,7 @@ func TestIndexingAndLookups(t *testing.T) {
 // TestCapabilityDefaults verifies the type-aware Effective* defaults and that
 // an explicit flag overrides them.
 func TestCapabilityDefaults(t *testing.T) {
-	c := mustParse(t, fullConfigJSON)
+	c := testutil.MustParse(t, fullConfigJSON)
 	get := func(name string) *Field { f, _ := c.FieldByName(name); return f }
 
 	amount := get("amount") // number
@@ -149,7 +142,7 @@ func TestCapabilityDefaults(t *testing.T) {
 // TestEffectiveOperatorsDefaulting checks the derived operator set for a field
 // that lists none.
 func TestEffectiveOperatorsDefaulting(t *testing.T) {
-	c := mustParse(t, `{
+	c := testutil.MustParse(t, `{
       "entity":"X","model":{},
       "fields":[{"name":"n","type":"number"}]
     }`)
@@ -227,7 +220,7 @@ func TestRemovedKnobsAreRejected(t *testing.T) {
 // TestApiKeyEnvNeverHoldsSecret is a guard on the design invariant that the
 // config carries the env var NAME, not the key itself.
 func TestApiKeyEnvNeverHoldsSecret(t *testing.T) {
-	c := mustParse(t, fullConfigJSON)
+	c := testutil.MustParse(t, fullConfigJSON)
 	if strings.ContainsAny(c.Model.APIKeyEnv, "=/:") || len(c.Model.APIKeyEnv) > 64 {
 		t.Errorf("apiKeyEnv %q looks like a secret, not an env var name", c.Model.APIKeyEnv)
 	}

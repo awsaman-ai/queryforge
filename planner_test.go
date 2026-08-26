@@ -8,14 +8,15 @@ import (
 	"time"
 
 	"github.com/awsaman-ai/queryforge/internal/planner"
+	"github.com/awsaman-ai/queryforge/internal/testutil"
 )
 
-func plannerTestConfig(t *testing.T) *Config { return mustParse(t, genConfigJSON) }
+func plannerTestConfig(t *testing.T) *Config { return testutil.MustParse(t, testutil.GenConfigJSON) }
 
 // TestSystemPromptContent checks the config is faithfully injected and that an
 // excluded field never leaks into the prompt.
 func TestSystemPromptContent(t *testing.T) {
-	c := mustParse(t, `{
+	c := testutil.MustParse(t, `{
       "entity":"Order","model":{},
       "fields":[
         {"name":"status","type":"enum","values":["PLACED","DELIVERED"],"operators":["equals","in"],"synonyms":["state"]},
@@ -38,7 +39,7 @@ func TestSystemPromptContent(t *testing.T) {
 // TestPlanHappyPath feeds a canned AST through the stub and checks parsing.
 func TestPlanHappyPath(t *testing.T) {
 	c := plannerTestConfig(t)
-	stub := &StubProvider{Response: canonicalAST}
+	stub := &StubProvider{Response: testutil.CanonicalAST}
 	pl := NewPlanner(c, stub)
 
 	ast, raw, err := pl.Plan(context.Background(), "delivered orders last 30 days", RepairHint{})
@@ -114,7 +115,7 @@ func TestPlanProviderError(t *testing.T) {
 // TestRepairHintInPrompt checks the repair hint reaches the user prompt.
 func TestRepairHintInPrompt(t *testing.T) {
 	c := plannerTestConfig(t)
-	stub := &StubProvider{Response: canonicalAST}
+	stub := &StubProvider{Response: testutil.CanonicalAST}
 	pl := NewPlanner(c, stub)
 	_, _, _ = pl.Plan(context.Background(), "orders", RepairHint{Kind: RepairValidation, Message: `unknown field "stat"`})
 	if !strings.Contains(stub.LastUser, "failed validation") || !strings.Contains(stub.LastUser, `unknown field "stat"`) {
@@ -189,7 +190,7 @@ func TestShapeExampleDemonstratesArrayValue(t *testing.T) {
 	}
 
 	// It must reach the model, not merely exist as a constant.
-	c := mustParse(t, `{
+	c := testutil.MustParse(t, `{
       "entity":"Order","model":{},
       "fields":[{"name":"amount","type":"number","operators":["between","gt"]}]
     }`)
@@ -208,7 +209,7 @@ func TestShapeExampleDemonstratesArrayValue(t *testing.T) {
 // against a config that declares exactly the fields and operators it uses is the
 // cheapest possible guard against that.
 func TestShapeExampleIsItselfValid(t *testing.T) {
-	c := mustParse(t, `{
+	c := testutil.MustParse(t, `{
       "entity":"Order","model":{},
       "defaults":{"limit":50,"maxLimit":500},
       "fields":[
