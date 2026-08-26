@@ -85,8 +85,11 @@ public class QueryForgeException extends RuntimeException {
      *
      * <p>An unrecognised code deliberately falls back to this base class rather than throwing:
      * an SDK talking to a newer engine must degrade, not crash.
+     *
+     * @param policyError the parsed {@code policyError} wire field, or {@code null} when the
+     *     response carried none — only meaningful for {@code POLICY_VIOLATION}, ignored otherwise
      */
-    static QueryForgeException fromCode(String code, String message, List<Detail> details) {
+    static QueryForgeException fromCode(String code, String message, List<Detail> details, PolicyError policyError) {
         String c = code == null ? "" : code;
         switch (c) {
             case "INVALID_REQUEST":
@@ -102,6 +105,8 @@ public class QueryForgeException extends RuntimeException {
                 return new ValidationException(message, c, details);
             case "UNSUPPORTED_REQUEST":
                 return new UnsupportedRequestException(message, c, details);
+            case "POLICY_VIOLATION":
+                return new PolicyViolationException(message, c, details, policyError);
             case "MODEL_OUTPUT":
                 return new ModelOutputException(message, c, details);
             case "MODEL_TRANSPORT":

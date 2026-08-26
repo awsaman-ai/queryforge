@@ -143,6 +143,7 @@ except QueryForgeError as e:
 | `InvalidScopeError` | `INVALID_SCOPE` | Fix the scope map — an application bug |
 | `ValidationError` | `VALIDATION_FAILED` | Register the field, or rephrase |
 | `UnsupportedRequestError` | `UNSUPPORTED_REQUEST` | Show the message; the question needs rephrasing |
+| `PolicyViolationError` | `POLICY_VIOLATION` | Show the message; `e.policy` names the missing companion field |
 | `ModelOutputError` | `MODEL_OUTPUT` | Retry, or switch models |
 | `ModelTransportError` | `MODEL_TRANSPORT` | Check the API key and the endpoint |
 | `GenerateError` | `GENERATE_FAILED` | The AST is legal but not compilable for this backend |

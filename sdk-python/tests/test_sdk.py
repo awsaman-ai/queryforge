@@ -22,6 +22,7 @@ from queryforge import (
     InvalidScopeError,
     ModelOutputError,
     ModelTransportError,
+    PolicyViolationError,
     ProtocolError,
     QueryForge,
     QueryForgeError,
@@ -155,6 +156,7 @@ def test_negative_max_repairs_is_refused(forge):
         ("INVALID_SCOPE", InvalidScopeError),
         ("VALIDATION_FAILED", ValidationError),
         ("UNSUPPORTED_REQUEST", UnsupportedRequestError),
+        ("POLICY_VIOLATION", PolicyViolationError),
         ("MODEL_OUTPUT", ModelOutputError),
         ("MODEL_TRANSPORT", ModelTransportError),
         ("GENERATE_FAILED", GenerateError),
@@ -202,6 +204,35 @@ def test_validation_details_are_preserved(fake_binary, forge, err_response):
     assert detail.code == "unknown_field"
     assert detail.field == "agee"
     assert detail.suggestions == ["age", "amount"]
+
+
+def test_policy_error_is_preserved(fake_binary, forge, err_response):
+    fake_binary(
+        err_response(
+            "POLICY_VIOLATION",
+            'filtering "passportExpiry" also requires filtering one of: country',
+            policyError={
+                "field": "passportExpiry",
+                "requireAlsoOneOf": ["country"],
+                "message": 'filtering "passportExpiry" also requires filtering one of: country',
+            },
+        )
+    )
+    with pytest.raises(PolicyViolationError) as exc:
+        forge.query("orders").to_sql()
+
+    assert exc.value.policy.field == "passportExpiry"
+    assert exc.value.policy.require_also_one_of == ["country"]
+
+
+def test_policy_error_is_none_when_the_engine_omits_it(fake_binary, forge, err_response):
+    """An older engine that predates `policyError` on the wire must still
+    raise cleanly, just without the structured detail."""
+    fake_binary(err_response("POLICY_VIOLATION", "no query"))
+    with pytest.raises(PolicyViolationError) as exc:
+        forge.query("orders").to_sql()
+
+    assert exc.value.policy is None
 
 
 def test_error_without_a_message_still_reads(fake_binary, forge):
