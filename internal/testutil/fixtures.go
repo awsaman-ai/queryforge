@@ -107,7 +107,11 @@ func GenMongo(t *testing.T, c *config.Config, q *ast.Query) *gen.MongoQuery {
 	if err != nil {
 		t.Fatalf("mongo generate: %v", err)
 	}
-	return r.Doc.(*gen.MongoQuery)
+	mq, ok := r.Doc.(*gen.MongoQuery)
+	if !ok {
+		t.Fatalf("mongo generate: Doc is %T, want *gen.MongoQuery", r.Doc)
+	}
+	return mq
 }
 
 // TGen runs the registry-resolved generator for backend over q.

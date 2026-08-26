@@ -1,10 +1,13 @@
-package queryforge
+package explain_test
 
 import (
 	"strings"
 	"testing"
 
 	"github.com/awsaman-ai/queryforge/internal/testutil"
+
+	. "github.com/awsaman-ai/queryforge/internal/ast"
+	. "github.com/awsaman-ai/queryforge/internal/explain"
 )
 
 // --- Tier 1 Explain readback tests.

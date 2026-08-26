@@ -1,4 +1,4 @@
-package queryforge
+package ast_test
 
 import (
 	"encoding/json"
@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/awsaman-ai/queryforge/internal/testutil"
+
+	. "github.com/awsaman-ai/queryforge/internal/ast"
 )
 
 // TestQueryRoundTrip is the happy path: parse -> serialize -> parse must yield

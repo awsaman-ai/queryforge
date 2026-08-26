@@ -1,10 +1,13 @@
-package queryforge
+package explain_test
 
 import (
 	"strings"
 	"testing"
 
 	"github.com/awsaman-ai/queryforge/internal/testutil"
+
+	. "github.com/awsaman-ai/queryforge/internal/ast"
+	. "github.com/awsaman-ai/queryforge/internal/explain"
 )
 
 // TestExplainCanonical renders the design-doc example and checks the prose reads

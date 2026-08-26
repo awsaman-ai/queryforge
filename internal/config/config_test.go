@@ -1,10 +1,13 @@
-package queryforge
+package config_test
 
 import (
 	"strings"
 	"testing"
 
 	"github.com/awsaman-ai/queryforge/internal/testutil"
+
+	. "github.com/awsaman-ai/queryforge/internal/ast"
+	. "github.com/awsaman-ai/queryforge/internal/config"
 )
 
 // fullConfigJSON is a representative config that uses every documented key.

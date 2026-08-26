@@ -1,12 +1,15 @@
-package queryforge
+package validate_test
 
 import (
 	"encoding/json"
 	"strings"
 	"testing"
 
-	"github.com/awsaman-ai/queryforge/internal/ast"
 	"github.com/awsaman-ai/queryforge/internal/testutil"
+
+	. "github.com/awsaman-ai/queryforge/internal/ast"
+	. "github.com/awsaman-ai/queryforge/internal/config"
+	. "github.com/awsaman-ai/queryforge/internal/validate"
 )
 
 // validatorConfigJSON is purpose-built to exercise every validation rule:
@@ -52,7 +55,7 @@ func TestValidAST(t *testing.T) {
 	)
 	q.Sort = []SortSpec{{Field: "createdAt", Dir: "DESC"}}
 	q.Select = []string{"status", "amount"}
-	q.Limit = ast.IntPtr(50)
+	q.Limit = IntPtr(50)
 
 	if err := Validate(q, c); err != nil {
 		t.Fatalf("valid AST rejected: %v", err)
@@ -164,14 +167,14 @@ func TestSortAndSelectRules(t *testing.T) {
 
 	// negative limit
 	q = NewQuery("Order")
-	q.Limit = ast.IntPtr(-1)
+	q.Limit = IntPtr(-1)
 	if err := Validate(q, c); err == nil || !strings.Contains(err.Error(), "must not be negative") {
 		t.Errorf("expected negative-limit error, got %v", err)
 	}
 
 	// limit above ceiling
 	q = NewQuery("Order")
-	q.Limit = ast.IntPtr(9999)
+	q.Limit = IntPtr(9999)
 	if err := Validate(q, c); err == nil || !strings.Contains(err.Error(), "exceeds maxLimit") {
 		t.Errorf("expected maxLimit error, got %v", err)
 	}

@@ -1,4 +1,8 @@
-package queryforge
+package config_test
+
+import (
+	. "github.com/awsaman-ai/queryforge/internal/config"
+)
 
 import "testing"
 

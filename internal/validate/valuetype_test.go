@@ -1,4 +1,4 @@
-package queryforge
+package validate_test
 
 import (
 	"encoding/json"
@@ -6,6 +6,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	. "github.com/awsaman-ai/queryforge/internal/ast"
+	. "github.com/awsaman-ai/queryforge/internal/config"
+	. "github.com/awsaman-ai/queryforge/internal/gen"
+	. "github.com/awsaman-ai/queryforge/internal/validate"
 )
 
 // A config covering every scalar type plus an array field, so the rule "the
