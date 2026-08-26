@@ -28,7 +28,16 @@ import (
 // why the SDKs send neither field unless the host has explicitly turned engine
 // logging on: the default request is byte-identical to the 1.0 one and works
 // against any binary.
-const ProtocolVersion = "1.1"
+//
+// 1.2 added CodePolicyViolation and the optional `policyError` response field
+// (cross-field business rules, policy.requires). This one is response-side
+// only, so it carries none of 1.1's asymmetry: an OLD SDK talking to a NEW
+// binary just never sees `policyError` and reads Code/Message as it always
+// has (it would show a policy violation as an ordinary failure, correct but
+// less specific); a NEW SDK talking to an OLD binary never receives the field
+// either, because that binary cannot produce a policy violation at all — a
+// config predating 1.2 has no `requires` key to trigger one.
+const ProtocolVersion = "1.2"
 
 // Op is the requested operation. Keeping this a closed set — rather than, say,
 // deriving a method name from the request — means an unknown op is a clean
@@ -156,6 +165,24 @@ type Response struct {
 	// It is what lets an SDK say "column 'agee' does not exist" and point at the
 	// field, rather than reprinting one flattened sentence.
 	Details []Detail `json:"details,omitempty"`
+
+	// PolicyError carries the specifics of a POLICY_VIOLATION, on top of the
+	// ordinary Message. It is a SEPARATE field from Details deliberately: a
+	// policy violation is not a per-field validation finding (the AST is legal
+	// on its own), it is "this legal AST does not make business sense without
+	// also filtering one of these fields" — a caller checking `if
+	// response.policyError` gets a direct yes/no answer instead of having to
+	// infer it from Code or parse Message text.
+	PolicyError *PolicyErrorDetail `json:"policyError,omitempty"`
+}
+
+// PolicyErrorDetail explains one POLICY_VIOLATION: which field triggered the
+// rule, and which companion field(s) the question needed to also filter.
+// Mirrors qf.PolicyViolationError, flattened for the wire.
+type PolicyErrorDetail struct {
+	Field            string   `json:"field"`            // the field that was filtered and triggered the rule
+	RequireAlsoOneOf []string `json:"requireAlsoOneOf"` // filtering one of these would have satisfied it
+	Message          string   `json:"message"`          // human-readable explanation (same text as Response.Message)
 }
 
 // Detail is one structured finding inside an error response. It mirrors
@@ -215,6 +242,13 @@ const (
 	// cannot be expressed in the vocabulary this config registers. A well-formed
 	// answer, not a failure of the pipeline — surface the message to the user.
 	CodeUnsupportedRequest Code = "UNSUPPORTED_REQUEST"
+
+	// CodePolicyViolation means the AST was legal but broke a policy.requires
+	// business rule (e.g. passport expiry filtered without a country). Also a
+	// well-formed answer, not a pipeline failure — Response.PolicyError carries
+	// the specifics. Surface the message to the user, same as an unsupported
+	// request.
+	CodePolicyViolation Code = "POLICY_VIOLATION"
 
 	// CodeModelOutput means the model answered but the reply was not usable JSON,
 	// on every attempt. Usually transient; a retry is reasonable.

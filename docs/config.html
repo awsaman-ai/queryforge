@@ -183,6 +183,7 @@
     <a href="#operators">Operator catalogue</a>
     <a href="#values">Value kinds</a>
     <a href="#defaults">defaults &amp; policy</a>
+    <a href="#requires">Field rules (policy.requires)</a>
     <a href="#scope">Scope filters</a>
     <a href="#unsupported">Unsupported requests</a>
     <a href="#examples">Full examples</a>
@@ -376,7 +377,7 @@ ORDER BY created_at DESC LIMIT 20
     <tr><td><code>validators</code></td><td>object</td><td class="default">none</td><td>Numeric bounds: <code>{"min":0,"max":100}</code>. Enforced during validation.</td></tr>
   </table></div>
 
-  <h2 id="customfields">Custom fields — when a name doesn't explain itself</h2>
+  <h2 id="customfields">Custom fields — when a name doesn't explain itself <span class="pill">v1.2.2</span></h2>
   <p>Some databases have field names like <code>txt01</code> or <code>customField3</code> — leftovers from a generic
     or per-tenant schema. The model can't guess what these hold just by reading the name, the way it can guess that
     <code>status</code> is a status. Mark a field like this with <code>customField: true</code>, and QueryForge makes
@@ -583,6 +584,7 @@ ORDER BY created_at DESC LIMIT 20
     <tr><td><code>maxNestingDepth</code></td><td>number</td><td>Maximum filter-tree depth; <code>0</code> = unlimited. Guards against pathological nesting. Checked <em>as</em> the tree is walked, so an over-deep filter is not fully traversed first.</td></tr>
     <tr><td><code>denyRegexOn</code></td><td>string[]</td><td>Field names on which <code>regex</code> is forbidden (ReDoS / PII safety).</td></tr>
     <tr><td><code>allowRegexOn</code></td><td>string[]</td><td>Turns regex into an opt-<em>in</em> capability: when this lists any field, <code>regex</code> is legal on those fields and no others. Preferred over <code>denyRegexOn</code> for new configs — a deny-list leaves regex on for every field it forgets to name, and the cost of a pattern like <code>(a+)+$</code> is paid by the database server.</td></tr>
+    <tr><td><code>requires</code></td><td>object[]</td><td>Cross-field business rules — "using this field also requires using that one". See <a href="#requires">Field rules</a>.</td></tr>
   </table></div>
 
   <p>The remaining keys bound the <em>work</em> one request can cause, which depth alone does not: a filter can be flat, enormous, and entirely legal. Each has a built-in default, so leaving it unset is already bounded; set a negative value to switch a bound off.</p>
@@ -605,6 +607,59 @@ ORDER BY created_at DESC LIMIT 20
   <p>QueryForge follows the SQL reading on both, because it is the one that never over-returns. The Mongo generator adds <code>"$exists": true</code> to <code>notEquals</code>, to <code>notIn</code>, and to a <code>NOT</code> whose single child is a value comparison, so the same AST selects the same logical rows on either backend.</p>
 
   <p>Two deliberate exceptions. <code>isNull</code>/<code>isNotNull</code> are <em>about</em> absence and already agree, so they are left alone. And a <code>NOT</code> over a whole logical subtree keeps plain <code>$nor</code>: there is no single field to require, and requiring all of them would be wrong — SQL's <code>NOT(A AND B)</code> is <code>TRUE</code> when <code>A</code> is <code>NULL</code> and <code>B</code> is <code>FALSE</code>, so the row comes back even though A's column is empty. Negate individual predicates rather than groups if you need the two backends to agree exactly there.</p>
+
+  <h2 id="requires">Field rules — one field needs another <span class="pill">v1.2.2</span></h2>
+
+  <p>Every other rule in this file checks one field at a time: is the value the right type, in range, in the enum. <code>policy.requires</code> is different — it checks a <em>pair</em> of fields. Sometimes a question is perfectly legal field-by-field and still makes no sense on its own. "Passports that are expired" filters <code>passportExpiry</code>, which is a real field with a real operator — nothing about that AST is malformed. But without a country, "expired" is ambiguous: expired by which country's rules, returned to whom? The field is fine; the <em>question</em> is incomplete. <code>requires</code> is how a config says so.</p>
+
+  <pre><code>"policy": {
+  "requires": [
+    {
+      "when": { "field": "passportExpiry", "operators": ["before", "after", "between"] },
+      "requireAlsoOneOf": ["country"],
+      "message": "Passport expiry needs a country to be meaningful"
+    }
+  ]
+}</code></pre>
+
+  <div class="tablewrap"><table>
+    <tr><th>Key</th><th>Required?</th><th>What it's for</th></tr>
+    <tr><td><code>when.field</code></td><td>yes</td><td>The field that triggers the rule. Must be a registered field name.</td></tr>
+    <tr><td><code>when.operators</code></td><td>no</td><td>Which operators on that field trigger it. Omit it and <em>any</em> operator on the field triggers the rule.</td></tr>
+    <tr><td><code>requireAlsoOneOf</code></td><td>yes</td><td>One or more field names. The question must filter <strong>at least one</strong> of them somewhere — anywhere in the filter tree, not necessarily next to the trigger. This is an "any of", not an "all of": list two fields and either one satisfies the rule.</td></tr>
+    <tr><td><code>message</code></td><td>no</td><td>Shown to the caller when the rule fires. Omit it and QueryForge writes one for you naming both sides of the rule.</td></tr>
+  </table></div>
+
+  <p>Read the whole thing as one sentence: <em>"when <code>passportExpiry</code> is filtered with <code>before</code>, <code>after</code>, or <code>between</code>, the question must also filter <code>country</code> somewhere."</em> Ask <em>"passports expiring this month for travelers from India"</em> and both fields are present, so it runs normally. Ask just <em>"passports that are expired"</em> and it is refused, with the message above.</p>
+
+  <h3>It only runs on an AST that is already legal</h3>
+  <p>A rule like this is checked <strong>last</strong>, after every ordinary check (unknown fields, bad operators, out-of-domain values) has already passed. An AST with an unknown field is rejected for that reason and never reaches the business-rule check at all — you get one clear problem to fix, not two overlapping ones.</p>
+
+  <h3>A dedicated error, not a generic one</h3>
+  <p>A rule violation is reported as its own error type, <code>*qf.PolicyViolationError</code> — deliberately not the same type as an ordinary validation failure (<code>qf.ValidationErrors</code>). The two mean different things: a validation failure means the question could not be turned into a legal query at all; a policy violation means it could, and would run, but the config's author decided it shouldn't without more information. Callers that want to show these two cases differently can:</p>
+<pre><code>res, err := engine.Translate(ctx, "passports that are expired", "sql", nil)
+var policyErr *qf.PolicyViolationError
+if errors.As(err, &amp;policyErr) {
+    fmt.Println(policyErr.Message)              // "Passport expiry needs a country to be meaningful"
+    fmt.Println(policyErr.Field)                // "passportExpiry"
+    fmt.Println(policyErr.RequireAlsoOneOf)      // ["country"]
+    return
+}</code></pre>
+  <p><code>qf.Classify(err)</code> reports <code>qf.FailurePolicy</code> for this case, next to the existing <code>qf.FailureValidation</code> and <code>qf.FailureUnsupported</code> codes — see <a href="https://github.com/awsaman-ai/queryforge/blob/main/failure.go">failure.go</a>. Like an unsupported-request refusal, a policy violation is <strong>not retried</strong>: the model already answered correctly given the words it was given, and asking again would not add information the question never contained.</p>
+
+  <p>The <a href="https://github.com/awsaman-ai/queryforge/blob/main/cmd/queryforge/PROTOCOL.md">stdio protocol</a> (used by the Python and Java SDKs) carries the same distinction on the wire: a failed <code>translate</code>/<code>generate</code> call reports <code>"code": "POLICY_VIOLATION"</code> plus a structured <code>policyError</code> object, separate from the <code>details</code> array an ordinary <code>VALIDATION_FAILED</code> uses.</p>
+<pre><code>{
+  "success": false,
+  "code": "POLICY_VIOLATION",
+  "message": "Passport expiry needs a country to be meaningful",
+  "policyError": {
+    "field": "passportExpiry",
+    "requireAlsoOneOf": ["country"],
+    "message": "Passport expiry needs a country to be meaningful"
+  }
+}</code></pre>
+
+  <div class="note"><strong>Optional, and additive.</strong> A config with no <code>policy.requires</code> key behaves exactly as it always has — nothing here changes what an existing config accepts. Add a rule only where a field genuinely doesn't stand on its own.</div>
 
   <h2 id="scope">Scope filters — extra filters you supply per call <span class="pill">v0.0.2</span></h2>
 

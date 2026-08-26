@@ -74,6 +74,13 @@ const (
 	// to the person who asked.
 	FailureUnsupported FailureCode = "UNSUPPORTED_REQUEST"
 
+	// FailurePolicy — the AST was structurally legal but broke a business rule
+	// declared in Policy.Requires (e.g. passport expiry filtered without a
+	// country). Distinct from FailureValidation for the same reason
+	// FailureUnsupported is: the question COULD be expressed and was, but the
+	// result would not make business sense on its own. See PolicyViolationError.
+	FailurePolicy FailureCode = "POLICY_VIOLATION"
+
 	// FailureModelOutput — the model answered, but never with usable JSON.
 	// Usually transient; retrying, or switching models, is reasonable.
 	FailureModelOutput FailureCode = "MODEL_OUTPUT"
@@ -128,6 +135,14 @@ func Classify(err error) FailureCode {
 	var unsupported *UnsupportedRequestError
 	if errors.As(err, &unsupported) {
 		return FailureUnsupported
+	}
+
+	// A policy violation is checked before ordinary validation for the same
+	// reason a refusal is: it is a deliberate, typed answer with its own
+	// meaning, not a generic finding to lump in with FailureValidation.
+	var policy *PolicyViolationError
+	if errors.As(err, &policy) {
+		return FailurePolicy
 	}
 
 	// Validation findings survive the budget-exhausted wrapper, so this catches

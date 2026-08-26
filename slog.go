@@ -253,6 +253,10 @@ func logLevelFor(e Event) (slog.Level, string) {
 			// The model declined to invent a query for something the config
 			// cannot express. That is the system working.
 			return slog.LevelInfo, "model refused the request"
+		case OutcomePolicy:
+			// The AST was legal but broke a declared business rule. Also the
+			// system working, not a fault — same INFO treatment as a refusal.
+			return slog.LevelInfo, "attempt rejected: policy violation"
 		case OutcomeParseError:
 			return slog.LevelWarn, "attempt rejected: model output not parseable"
 		case OutcomeValidation:
@@ -267,6 +271,8 @@ func logLevelFor(e Event) (slog.Level, string) {
 			return slog.LevelInfo, "query generation completed"
 		case OutcomeRefusal:
 			return slog.LevelInfo, "query generation refused"
+		case OutcomePolicy:
+			return slog.LevelInfo, "query generation rejected by policy"
 		default:
 			return slog.LevelError, "query generation failed"
 		}

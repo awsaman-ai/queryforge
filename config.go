@@ -638,6 +638,33 @@ type Policy struct {
 	MaxValueLength  int `json:"maxValueLength,omitempty"`  // characters in a string value
 	MaxRegexLength  int `json:"maxRegexLength,omitempty"`  // characters in a regex pattern
 	MaxSuggestCalls int `json:"maxSuggestCalls,omitempty"` // unknown fields that get "did you mean" suggestions
+
+	// Requires declares cross-field business rules: "when field A is filtered,
+	// field B must be filtered too" (e.g. passport expiry needs a country to be
+	// meaningful). Structurally legal ASTs can still break one of these, which
+	// is why they are checked separately from everything else in this struct —
+	// see PolicyViolationError. Empty (the default) means no such rule exists,
+	// and every AST that passes ordinary validation is accepted, unchanged from
+	// before this field existed.
+	Requires []FieldRequirement `json:"requires,omitempty"`
+}
+
+// FieldRequirement is one business rule: filtering When.Field (optionally only
+// with one of When.Operators) makes the query meaningless unless the question
+// also filters at least one field in RequireAlsoOneOf, anywhere in the filter
+// tree. See PolicyViolationError for how a broken rule is reported.
+type FieldRequirement struct {
+	When             RequirementTrigger `json:"when"`
+	RequireAlsoOneOf []string           `json:"requireAlsoOneOf"`
+	Message          string             `json:"message,omitempty"` // shown instead of the generated default when set
+}
+
+// RequirementTrigger names the field (and, optionally, which operators) that
+// switches a FieldRequirement on. Operators empty means "any operator on this
+// field triggers the rule".
+type RequirementTrigger struct {
+	Field     string   `json:"field"`
+	Operators []string `json:"operators,omitempty"`
 }
 
 // Built-in policy ceilings, applied when the config leaves the key at zero.
@@ -853,6 +880,43 @@ func (c *Config) finalize() error {
 		}
 		if err := c.validateElasticSource(backend, bc); err != nil {
 			return err
+		}
+	}
+
+	// Cross-field business rules reference fields by name too, so they can only
+	// be checked once fieldByName is built.
+	if err := c.validatePolicyRequires(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validatePolicyRequires checks every policy.requires rule: the triggering
+// field and every field it requires alongside it must be registered, and each
+// listed operator must be one this library knows. Catching this at load time,
+// the same way IndexRouting.RoutingField is, means a typo in a rule fails
+// loudly when the config is loaded rather than silently never firing.
+func (c *Config) validatePolicyRequires() error {
+	for i, r := range c.Policy.Requires {
+		where := fmt.Sprintf("policy.requires[%d]", i)
+		if r.When.Field == "" {
+			return fmt.Errorf("config: %s.when.field is required", where)
+		}
+		if _, ok := c.fieldByName[r.When.Field]; !ok {
+			return fmt.Errorf("config: %s.when references field %q, which is not registered", where, r.When.Field)
+		}
+		for _, op := range r.When.Operators {
+			if !isKnownOperator(Operator(op)) {
+				return fmt.Errorf("config: %s.when.operators lists unknown operator %q", where, op)
+			}
+		}
+		if len(r.RequireAlsoOneOf) == 0 {
+			return fmt.Errorf("config: %s.requireAlsoOneOf must list at least one field", where)
+		}
+		for _, name := range r.RequireAlsoOneOf {
+			if _, ok := c.fieldByName[name]; !ok {
+				return fmt.Errorf("config: %s.requireAlsoOneOf references field %q, which is not registered", where, name)
+			}
 		}
 	}
 	return nil

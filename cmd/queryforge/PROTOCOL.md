@@ -3,7 +3,7 @@
 This is the contract between the QueryForge engine and every language SDK. Read it if you are
 writing a new SDK, debugging one, or driving the engine directly from a language that has none.
 
-**Protocol version: 1.1**
+**Protocol version: 1.2**
 
 > **1.1** added the two optional observability fields on `options`: `logLevel` and `requestId`.
 > Note the asymmetry a MINOR bump has here. A *new* engine reading an *old* request is fine — the
@@ -11,6 +11,13 @@ writing a new SDK, debugging one, or driving the engine directly from a language
 > with unknown fields rejected, so an unknown `logLevel` is refused outright. That is the correct
 > behaviour for a field-drop hazard, and it is why both SDKs send neither field unless the host has
 > explicitly turned logging on — the default request stays byte-identical to a 1.0 one.
+>
+> **1.2** added the `POLICY_VIOLATION` error code and the optional `policyError` response field, for
+> configs that declare `policy.requires` (cross-field business rules — see
+> [../../docs/config.html](../../docs/config.html)). This bump has none of 1.1's asymmetry: it is
+> response-only. An old SDK talking to a new engine just never reads `policyError` and sees an
+> ordinary error object instead (correct, only less specific); a new SDK talking to an old engine
+> never receives one either, because a pre-1.2 config has no `requires` key to trigger it.
 
 ---
 
@@ -189,6 +196,7 @@ visually distinct — SCREAMING_SNAKE versus lower_snake — so they cannot be c
 | `INVALID_SCOPE` | A caller-supplied scope filter was rejected — an application bug | No |
 | `VALIDATION_FAILED` | An AST broke a config rule. `details` says which | No |
 | `UNSUPPORTED_REQUEST` | The model declined; the question is not expressible here | No |
+| `POLICY_VIOLATION` | The AST was legal but broke a `policy.requires` business rule. `policyError` says which | No |
 | `MODEL_OUTPUT` | The model answered but never with usable JSON | Yes |
 | `MODEL_TRANSPORT` | The model was never reached — network, key, rate limit | Yes |
 | `GENERATE_FAILED` | A legal AST could not be compiled for this backend | No |
@@ -197,6 +205,33 @@ visually distinct — SCREAMING_SNAKE versus lower_snake — so they cannot be c
 
 An SDK **must** map an unrecognised code to its base error class rather than failing, so an engine
 that adds a code does not crash an older SDK.
+
+### Policy violations
+
+A `policy.requires` rule (e.g. "passport expiry needs a country") fires only after the AST has
+already passed every other check — the fields, operators and values are all legal on their own, but
+the question would not make business sense without also filtering a companion field. It is reported
+as its own error, `POLICY_VIOLATION`, with a `policyError` object carrying the specifics:
+
+```json
+{
+  "success": false,
+  "protocol": "1.2",
+  "op": "translate",
+  "code": "POLICY_VIOLATION",
+  "message": "Passport expiry needs a country to be meaningful",
+  "policyError": {
+    "field": "passportExpiry",
+    "requireAlsoOneOf": ["country"],
+    "message": "Passport expiry needs a country to be meaningful"
+  }
+}
+```
+
+`policyError` is separate from `details` on purpose: `details` is per-field validation findings on
+an AST that could not be expressed at all, while a policy violation is a legal AST that was rejected
+for a business reason. Branch on `code === "POLICY_VIOLATION"` (or check whether `policyError` is
+present) to show this as a distinct "needs more information" message rather than a generic error.
 
 ---
 

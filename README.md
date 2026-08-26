@@ -215,6 +215,7 @@ go run ./examples -config examples/orders.config.json -backend sql \
 |---|---|
 | 🗄 **Five backends, one brain** | Postgres, MySQL, MongoDB, Elasticsearch and OpenSearch ship today. A new database is one generator — not a prompt change, not a rewrite. |
 | 🔒 **Scope filters** | Tenant, user and subscription predicates AND-ed onto every query, after the model has answered. |
+| 🧭 **Field rules** | "Filtering passport expiry also needs a country" — a business-sense check the AST alone can't express. Reported as its own `POLICY_VIOLATION`, not a generic error. [Rules →](https://awsaman-ai.github.io/queryforge/config.html#requires) |
 | 🔁 **Model fallback** | List several models; the first that answers wins. A rate limit on one provider falls through to the next. |
 | 🧩 **Nested Mongo documents** | Dot paths for embedded docs, `elemMatch` for arrays of sub-documents so one element must satisfy every condition. [Rules →](https://awsaman-ai.github.io/queryforge/config.html#nested) |
 | 🔎 **Elasticsearch and OpenSearch** | Search for exact values and free text on the same field, search inside nested objects, and point a query at the right index automatically — by name, by date, or by your own routing rules. |
@@ -255,6 +256,44 @@ WHERE (enterpriseId IN ($1, $2) AND subscriptionId = $3 AND userId = $4
 A scalar becomes `equals`, a slice becomes `in`; on a field declared `type: "array"`, `contains` and `containsAny`. Keys apply in alphabetical order, so the query is identical run to run. A key your config doesn't declare is used verbatim as the column name after an identifier check; declare it `queryable: false` to hide it from the model, map it per backend, and get it type-checked.
 
 📖 [Full scope reference →](https://awsaman-ai.github.io/queryforge/config.html#scope)
+
+</details>
+
+<details>
+<summary><b>🧭 Field rules — one field needs another</b></summary>
+
+Everything else in this file validates one field at a time — type, range, enum membership. Sometimes that isn't enough: "passports that are expired" filters a real field with a real operator, so it passes every ordinary check, and still doesn't mean anything without a country attached. `policy.requires` catches that:
+
+```jsonc
+"policy": {
+  "requires": [
+    {
+      "when": { "field": "passportExpiry" },
+      "requireAlsoOneOf": ["country"],
+      "message": "Passport expiry needs a country to be meaningful"
+    }
+  ]
+}
+```
+
+*"Passports from India expiring this month"* runs normally — both fields are present, anywhere in the filter tree. *"Passports that are expired"* is refused, with that message. *"Orders from India"* is unaffected — `passportExpiry` was never used, so the rule never switches on.
+
+It runs **last**, only once an AST has already passed every ordinary check, and it reports through its own error type — `*qf.PolicyViolationError`, classified as `qf.FailurePolicy` — deliberately distinct from `qf.ValidationErrors` and from an unsupported-request refusal, so a caller can show a "needs more information" message instead of a generic one:
+
+```go
+res, err := engine.Translate(ctx, "passports that are expired", "sql", nil)
+var policyErr *qf.PolicyViolationError
+if errors.As(err, &policyErr) {
+    fmt.Println(policyErr.Message)          // "Passport expiry needs a country to be meaningful"
+    fmt.Println(policyErr.RequireAlsoOneOf) // ["country"]
+}
+```
+
+Like a refusal, it is **not retried** — the model already answered correctly given the words it was given, and asking again would not add information the question never contained. The `cmd/queryforge` stdio protocol carries the same distinction on the wire as `"code": "POLICY_VIOLATION"` plus a structured `policyError` object, separate from `details`.
+
+Build one without writing JSON: the [config builder](https://queryforge-service.amtry.in/config-builder.html)'s Step 6 turns it into two dropdowns — "When ▾ is filtered, also require ▾" — populated only from fields you've already added.
+
+📖 [Full field-rules reference →](https://awsaman-ai.github.io/queryforge/config.html#requires)
 
 </details>
 

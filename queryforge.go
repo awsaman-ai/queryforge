@@ -278,6 +278,25 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 		}
 
 		if verr := Validate(ast, e.config); verr != nil {
+			// A policy violation is a deliberate refusal, not a repairable
+			// mistake: the model produced a legal AST, but it broke a business
+			// rule the question gave it no way to satisfy (e.g. "passport expiry"
+			// with no country anywhere in the sentence). Asking again would not
+			// add information the question does not contain, so fail closed now
+			// instead of spending the repair budget chasing it.
+			var perr *PolicyViolationError
+			if errors.As(verr, &perr) {
+				if e.Observe != nil {
+					ev := base(EventAttempt, attempt)
+					ev.Outcome = OutcomePolicy
+					ev.Err = perr
+					ev.Raw = truncateRaw(raw, e.MaxRawLength)
+					e.Observe.emit(ctx, ev)
+				}
+				done(attempt, OutcomePolicy, perr, nil, filters)
+				return nil, perr
+			}
+
 			lastErr = verr // remember why it failed
 			if e.Observe != nil {
 				ev := base(EventAttempt, attempt)

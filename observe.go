@@ -75,6 +75,7 @@ const (
 	OutcomeParseError  Outcome = "parse_error"      // ErrModelOutput; repairable
 	OutcomeValidation  Outcome = "validation_error" // broke a config rule; repairable
 	OutcomeRefusal     Outcome = "refusal"          // *UnsupportedRequestError; a real answer, not a fault
+	OutcomePolicy      Outcome = "policy_violation" // *PolicyViolationError; a real answer, not a fault; not repairable
 	OutcomeTransport   Outcome = "transport_error"  // ErrModelTransport; not repairable
 	OutcomeBudgetSpent Outcome = "budget_exhausted" // every attempt used, still no valid AST
 	OutcomeCallerError Outcome = "caller_error"     // bad scope or unknown backend; decided before any model call

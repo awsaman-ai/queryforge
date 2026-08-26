@@ -167,6 +167,9 @@ func logOutcome(log *slog.Logger, resp *Response, elapsed time.Duration) {
 	case resp.Code == CodeUnsupportedRequest:
 		log.Info("request refused", logKeyDuration, ms,
 			logKeyOutcome, "refusal", logKeyErrorCode, string(resp.Code))
+	case resp.Code == CodePolicyViolation:
+		log.Info("request rejected by policy", logKeyDuration, ms,
+			logKeyOutcome, "policy_violation", logKeyErrorCode, string(resp.Code))
 	default:
 		// The message is the engine's, and is safe: every errorResponse message
 		// in this binary describes a rule or a transport fact, never the
@@ -315,6 +318,19 @@ func fillQuery(out *Response, res *qf.Result) {
 //     genuine internal fault.
 func classify(op Op, err error) *Response {
 	code := qf.Classify(err)
+
+	if code == qf.FailurePolicy {
+		resp := errorResponse(op, CodePolicyViolation, err.Error())
+		var perr *qf.PolicyViolationError
+		if errors.As(err, &perr) {
+			resp.PolicyError = &PolicyErrorDetail{
+				Field:            perr.Field,
+				RequireAlsoOneOf: perr.RequireAlsoOneOf,
+				Message:          perr.Message,
+			}
+		}
+		return resp
+	}
 
 	if code == qf.FailureValidation {
 		// Findings survive the budget-exhausted wrapper, so this catches both a

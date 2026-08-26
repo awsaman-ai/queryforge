@@ -40,6 +40,35 @@ const validAST = `{"version":"1.0","entity":"Order","filter":{"type":"comparison
 const modelReply = `{"entity":"Order","filter":{"type":"comparison",` +
 	`"field":"status","operator":"equals","value":{"kind":"enum","v":"DELIVERED"}}}`
 
+// policyConfigJSON adds one policy.requires rule to testConfigJSON's fields:
+// filtering createdAt (a date-range question) is meaningless to this protocol
+// test suite unless status is also filtered. It is the roadmap's
+// passport/country shape, reusing fields this file already has so the tests
+// stay close to the rest of the suite.
+const policyConfigJSON = `{
+  "entity": "Order",
+  "model": {"provider": "stub", "baseURL": "http://localhost", "model": "test"},
+  "backends": {"sql": {"table": "orders"}},
+  "fields": [
+    {"name": "status", "type": "enum", "values": ["NEW", "DELIVERED", "CANCELLED"]},
+    {"name": "createdAt", "type": "date"}
+  ],
+  "policy": {
+    "requires": [
+      {
+        "when": {"field": "createdAt", "operators": ["before", "after", "between"]},
+        "requireAlsoOneOf": ["status"],
+        "message": "A date range needs a status to be meaningful"
+      }
+    ]
+  }
+}`
+
+// policyViolatingAST filters createdAt alone — legal on its own, but breaks
+// the rule above.
+const policyViolatingAST = `{"version":"1.0","entity":"Order","filter":{"type":"comparison",` +
+	`"field":"createdAt","operator":"after","value":{"kind":"relative_date","unit":"day","amount":-30}}}`
+
 // withProvider installs a stub model provider for the duration of one test, so
 // the translate path can be exercised with no network and no API key. It
 // restores the seam on cleanup, which matters because Go runs the tests in one
@@ -276,6 +305,37 @@ func TestGenerateRejectsInvalidAST(t *testing.T) {
 	}
 }
 
+// TestGenerateRejectsPolicyViolation: an AST that is structurally legal but
+// breaks a policy.requires rule must come back as POLICY_VIOLATION, not
+// VALIDATION_FAILED, with policyError carrying the specifics an SDK needs to
+// show a "needs more information" message instead of a generic error.
+func TestGenerateRejectsPolicyViolation(t *testing.T) {
+	req := &Request{Op: OpGenerate, Config: json.RawMessage(policyConfigJSON), AST: mustAST(t, policyViolatingAST)}
+	resp := dispatch(t, req)
+	wantError(t, resp, CodePolicyViolation)
+
+	if resp.PolicyError == nil {
+		t.Fatal("POLICY_VIOLATION response carried no policyError")
+	}
+	if resp.PolicyError.Field != "createdAt" {
+		t.Errorf("policyError.field = %q, want createdAt", resp.PolicyError.Field)
+	}
+	if len(resp.PolicyError.RequireAlsoOneOf) != 1 || resp.PolicyError.RequireAlsoOneOf[0] != "status" {
+		t.Errorf("policyError.requireAlsoOneOf = %v, want [status]", resp.PolicyError.RequireAlsoOneOf)
+	}
+	if resp.PolicyError.Message != resp.Message {
+		t.Errorf("policyError.message (%q) should match the top-level message (%q)", resp.PolicyError.Message, resp.Message)
+	}
+	// Details is the per-field validation vocabulary; a policy violation is not
+	// that, so it must stay empty rather than smuggling itself in there too.
+	if len(resp.Details) != 0 {
+		t.Errorf("policy violation should not populate details, got %+v", resp.Details)
+	}
+	if resp.SQL != "" {
+		t.Errorf("failed response carried a query: sql=%q", resp.SQL)
+	}
+}
+
 // TestGenerateUnknownBackend names the registered ids so the caller can fix it.
 func TestGenerateUnknownBackend(t *testing.T) {
 	resp := dispatch(t, request(t, OpGenerate, func(r *Request) {
@@ -432,6 +492,27 @@ func TestTranslateValidationBudgetSpent(t *testing.T) {
 	wantError(t, resp, CodeValidationFailed)
 	if len(resp.Details) == 0 {
 		t.Error("findings were lost through the budget-exhausted wrapper")
+	}
+}
+
+// TestTranslatePolicyViolationFailsClosed: a model reply that violates a
+// policy.requires rule is a deliberate refusal, not a repairable mistake — it
+// must report POLICY_VIOLATION and must NOT spend the repair budget retrying,
+// same as an UNSUPPORTED_REQUEST refusal.
+func TestTranslatePolicyViolationFailsClosed(t *testing.T) {
+	stub := &qf.StubProvider{Response: policyViolatingAST}
+	withProvider(t, stub)
+
+	req := &Request{Op: OpTranslate, Config: json.RawMessage(policyConfigJSON), Query: "orders from the last 30 days"}
+	resp := dispatch(t, req)
+	wantError(t, resp, CodePolicyViolation)
+	if resp.PolicyError == nil || resp.PolicyError.Field != "createdAt" {
+		t.Errorf("expected policyError naming createdAt, got %+v", resp.PolicyError)
+	}
+
+	_, _, calls := stub.Snapshot()
+	if calls != 1 {
+		t.Errorf("model was called %d times; a policy violation should not spend the repair budget", calls)
 	}
 }
 

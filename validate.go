@@ -216,10 +216,19 @@ func Validate(q *Query, c *Config) error {
 			Message: fmt.Sprintf("limit %d exceeds maxLimit %d", *q.Limit, c.Defaults.MaxLimit)})
 	}
 
-	if len(errs) == 0 { // return a true nil error, not a typed nil slice
-		return nil
+	if len(errs) != 0 {
+		return errs
 	}
-	return errs
+
+	// Cross-field business rules run last, and only once the AST is otherwise
+	// clean — checking whether a business rule is satisfied on a malformed AST
+	// (an unknown field, a bad operator) would just be confusing, and the
+	// per-field errors above already explain what to fix first.
+	if perr := checkPolicy(q.Filter, c); perr != nil {
+		return perr
+	}
+
+	return nil // fully valid: no per-field errors, no policy violation
 }
 
 // supportedASTVersion reports whether an AST's version tag is one this library
