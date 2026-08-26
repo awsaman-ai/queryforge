@@ -59,6 +59,39 @@ class Detail:
         return self.message or self.code
 
 
+class PolicyErrorDetail:
+    """The specifics of a ``POLICY_VIOLATION``: which field triggered a
+    ``policy.requires`` rule, and which companion field(s) would have
+    satisfied it. Mirrors the engine's ``PolicyErrorDetail`` on the wire.
+    """
+
+    __slots__ = ("field", "require_also_one_of", "message")
+
+    def __init__(
+        self,
+        field: str = "",
+        require_also_one_of: Sequence[str] = (),
+        message: str = "",
+    ) -> None:
+        self.field = field
+        self.require_also_one_of = list(require_also_one_of)
+        self.message = message
+
+    @classmethod
+    def from_json(cls, obj: dict[str, Any]) -> "PolicyErrorDetail":
+        return cls(
+            field=obj.get("field", ""),
+            require_also_one_of=obj.get("requireAlsoOneOf") or (),
+            message=obj.get("message", ""),
+        )
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return (
+            f"PolicyErrorDetail(field={self.field!r}, "
+            f"require_also_one_of={self.require_also_one_of!r})"
+        )
+
+
 class QueryForgeError(Exception):
     """Base class for every error this SDK raises.
 
@@ -133,6 +166,31 @@ class UnsupportedRequestError(QueryForgeError):
     """
 
 
+class PolicyViolationError(QueryForgeError):
+    """The AST was legal — every field, operator and value passed ordinary
+    validation — but broke a cross-field business rule declared in the
+    config's ``policy.requires`` (e.g. passport expiry filtered without a
+    country).
+
+    Like :class:`UnsupportedRequestError`, this is a well-formed answer
+    rather than a pipeline failure, and the message is written to be shown to
+    the person who asked. ``policy`` carries the structured specifics —
+    which field triggered the rule, and which companion field(s) would have
+    satisfied it — on top of the plain message; it is ``None`` if the engine
+    predates ``policyError`` on the wire.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        code: str = "",
+        details: Sequence[Detail] = (),
+        policy: PolicyErrorDetail | None = None,
+    ) -> None:
+        super().__init__(message, code=code, details=details)
+        self.policy = policy
+
+
 class ModelOutputError(QueryForgeError):
     """The model answered, but never with usable JSON.
 
@@ -186,6 +244,7 @@ _CODE_TO_ERROR: dict[str, type[QueryForgeError]] = {
     "INVALID_SCOPE": InvalidScopeError,
     "VALIDATION_FAILED": ValidationError,
     "UNSUPPORTED_REQUEST": UnsupportedRequestError,
+    "POLICY_VIOLATION": PolicyViolationError,
     "MODEL_OUTPUT": ModelOutputError,
     "MODEL_TRANSPORT": ModelTransportError,
     "GENERATE_FAILED": GenerateError,
@@ -199,4 +258,9 @@ def error_from_response(payload: dict[str, Any]) -> QueryForgeError:
     code = payload.get("code", "")
     message = payload.get("message") or "the request failed with no message"
     details = [Detail.from_json(d) for d in payload.get("details") or ()]
-    return _CODE_TO_ERROR.get(code, QueryForgeError)(message, code=code, details=details)
+    error_cls = _CODE_TO_ERROR.get(code, QueryForgeError)
+    if error_cls is PolicyViolationError:
+        policy_obj = payload.get("policyError")
+        policy = PolicyErrorDetail.from_json(policy_obj) if policy_obj else None
+        return PolicyViolationError(message, code=code, details=details, policy=policy)
+    return error_cls(message, code=code, details=details)

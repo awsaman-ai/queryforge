@@ -34,7 +34,7 @@ final class Transport {
      * recognise, but a MAJOR bump means an existing field changed meaning, and continuing would
      * produce quietly wrong output instead of an error.
      */
-    static final String PROTOCOL_VERSION = "1.1";
+    static final String PROTOCOL_VERSION = "1.2";
 
     /**
      * Grace period added to the request's own timeout before the subprocess is destroyed. The
@@ -404,7 +404,9 @@ final class Transport {
                 details.add(Detail.fromJson(Values.map(entry)));
             }
         }
-        return QueryForgeException.fromCode(code, message, details);
+        Map<String, Object> policyErrorObj = Values.nullableMap(response.get("policyError"));
+        PolicyError policyError = policyErrorObj == null ? null : PolicyError.fromJson(policyErrorObj);
+        return QueryForgeException.fromCode(code, message, details, policyError);
     }
 
     /** Drains one stream on its own thread; see the deadlock note at the call site. */

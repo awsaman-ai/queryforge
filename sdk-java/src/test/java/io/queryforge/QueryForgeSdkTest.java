@@ -3,6 +3,7 @@ package io.queryforge;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -179,6 +180,7 @@ class QueryForgeSdkTest {
         "INVALID_SCOPE,       io.queryforge.InvalidScopeException",
         "VALIDATION_FAILED,   io.queryforge.ValidationException",
         "UNSUPPORTED_REQUEST, io.queryforge.UnsupportedRequestException",
+        "POLICY_VIOLATION,    io.queryforge.PolicyViolationException",
         "MODEL_OUTPUT,        io.queryforge.ModelOutputException",
         "MODEL_TRANSPORT,     io.queryforge.ModelTransportException",
         "GENERATE_FAILED,     io.queryforge.GenerateException",
@@ -227,6 +229,39 @@ class QueryForgeSdkTest {
         assertEquals("unknown_field", first.getCode());
         assertEquals("agee", first.getField());
         assertEquals(Arrays.asList("age", "amount"), first.getSuggestions());
+    }
+
+    @Test
+    @DisplayName("policy error details survive the trip")
+    void policyErrorIsPreserved() {
+        Map<String, Object> policyError = new LinkedHashMap<>();
+        policyError.put("field", "passportExpiry");
+        policyError.put("requireAlsoOneOf", Arrays.asList("country"));
+        policyError.put(
+                "message", "filtering \"passportExpiry\" also requires filtering one of: country");
+
+        install(TestSupport.errResponse(
+                "POLICY_VIOLATION",
+                "filtering \"passportExpiry\" also requires filtering one of: country",
+                "policyError",
+                policyError));
+
+        PolicyViolationException e =
+                assertThrows(PolicyViolationException.class, () -> forge().query("orders").toSql());
+        assertEquals("passportExpiry", e.getPolicyError().getField());
+        assertEquals(Arrays.asList("country"), e.getPolicyError().getRequireAlsoOneOf());
+    }
+
+    @Test
+    @DisplayName("policy error is null when the engine omits it")
+    void policyErrorIsNullWhenTheEngineOmitsIt() {
+        // An older engine that predates `policyError` on the wire must still raise cleanly, just
+        // without the structured detail.
+        install(TestSupport.errResponse("POLICY_VIOLATION", "no query"));
+
+        PolicyViolationException e =
+                assertThrows(PolicyViolationException.class, () -> forge().query("orders").toSql());
+        assertNull(e.getPolicyError());
     }
 
     @Test

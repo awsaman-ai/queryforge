@@ -133,7 +133,9 @@ Two of these are deliberate and worth stating:
 
 **A refusal is `INFO`, not `ERROR`.** When the model declines because the question cannot be
 expressed in the vocabulary the config registers, that is the guard rail working — no query was
-invented. Reporting it at `ERROR` is how an error stream becomes something people filter out.
+invented. Reporting it at `ERROR` is how an error stream becomes something people filter out. A
+`POLICY_VIOLATION` gets the same treatment, for the same reason: `policy.requires` blocking a
+legal-but-incomplete AST is the guard rail working, not a pipeline defect.
 
 **A failed operation produces exactly one `ERROR`.** A translation that burns three repair attempts
 and then fails emits three `WARN` lines and one `ERROR`, not four stack traces of the same
@@ -198,6 +200,7 @@ on the wire it is the `code` field; in Python it is `QueryForgeError.code`; in J
 | `INVALID_SCOPE` | A caller-imposed filter was rejected. Scope comes from the session, never the question — this is always an application bug. | Application | No |
 | `VALIDATION_FAILED` | An AST broke a rule the config declares. On a translation: the model could not produce a conforming AST within the repair budget, usually a config gap. | Config author | No |
 | `UNSUPPORTED_REQUEST` | The model refused: the question cannot be expressed in this vocabulary. A well-formed answer — the message is written to be shown to the person who asked. | End user | No |
+| `POLICY_VIOLATION` | The AST was legal but broke a `policy.requires` cross-field business rule. A well-formed answer, same treatment as a refusal — the message is written to be shown to the person who asked. | End user | No |
 | `MODEL_OUTPUT` | The model answered, but never with usable JSON. | Transient | **Yes** |
 | `MODEL_TRANSPORT` | The model was never reached: network, missing or rejected key, rate limit. | Transient / config | **Yes** |
 | `GENERATE_FAILED` | A valid AST could not be compiled to the target backend. | QueryForge | No |

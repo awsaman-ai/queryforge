@@ -47,7 +47,7 @@ from .logging import (
 #: bump) because this SDK ignores what it does not recognise, but a MAJOR bump
 #: means an existing field changed meaning, and continuing would produce quietly
 #: wrong output rather than an error.
-PROTOCOL_VERSION = "1.1"
+PROTOCOL_VERSION = "1.2"
 
 #: Grace period, in seconds, added to the request's own timeout before the
 #: subprocess is killed. The engine enforces the real deadline internally and

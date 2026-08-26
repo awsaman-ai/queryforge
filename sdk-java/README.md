@@ -167,6 +167,7 @@ try {
 | `InvalidScopeException` | `INVALID_SCOPE` | Fix the scope map — an application bug |
 | `ValidationException` | `VALIDATION_FAILED` | Register the field, or rephrase |
 | `UnsupportedRequestException` | `UNSUPPORTED_REQUEST` | Show the message; the question needs rephrasing |
+| `PolicyViolationException` | `POLICY_VIOLATION` | Show the message; `getPolicyError()` names the missing companion field |
 | `ModelOutputException` | `MODEL_OUTPUT` | Retry, or switch models |
 | `ModelTransportException` | `MODEL_TRANSPORT` | Check the API key and the endpoint |
 | `GenerateException` | `GENERATE_FAILED` | The AST is legal but not compilable for this backend |
