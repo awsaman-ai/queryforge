@@ -44,6 +44,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/awsaman-ai/queryforge/internal/planner"
+	"github.com/awsaman-ai/queryforge/internal/validate"
 )
 
 // FuzzParseAST throws arbitrary bytes at the model-reply parser.
@@ -78,16 +81,16 @@ func FuzzParseAST(f *testing.F) {
 	c := mustParseFuzzConfig(f)
 
 	f.Fuzz(func(t *testing.T, raw string) {
-		q, err := parseAST(raw, c)
+		q, err := planner.ParseAST(raw, c)
 
 		// A parser that returns neither a query nor an error leaves the caller
 		// with nothing to branch on.
 		if err == nil && q == nil {
-			t.Fatalf("parseAST(%q) returned nil, nil", raw)
+			t.Fatalf("planner.ParseAST(%q) returned nil, nil", raw)
 		}
 		if err != nil {
 			if q != nil {
-				t.Fatalf("parseAST(%q) returned both a query and an error %v", raw, err)
+				t.Fatalf("planner.ParseAST(%q) returned both a query and an error %v", raw, err)
 			}
 			return
 		}
@@ -95,13 +98,13 @@ func FuzzParseAST(f *testing.F) {
 		// S-2 as an invariant rather than a list of cases: no input may produce
 		// a query that says nothing. That combination is exactly what compiled
 		// to an unfiltered read and was reported as a success.
-		if isStructurallyEmpty(q) {
-			t.Fatalf("parseAST(%q) accepted a structurally empty query", raw)
+		if planner.IsStructurallyEmpty(q) {
+			t.Fatalf("planner.ParseAST(%q) accepted a structurally empty query", raw)
 		}
 		// The two fields parseAST is responsible for defaulting must be set, or
 		// the entity check in Validate has nothing to compare against.
 		if q.Version == "" || q.Entity == "" {
-			t.Fatalf("parseAST(%q) left version=%q entity=%q unset", raw, q.Version, q.Entity)
+			t.Fatalf("planner.ParseAST(%q) left version=%q entity=%q unset", raw, q.Version, q.Entity)
 		}
 	})
 }
@@ -283,7 +286,7 @@ func FuzzUnsafeRegexShape(f *testing.F) {
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			frag, unsafe := unsafeRegexShape(pat)
+			frag, unsafe := validate.UnsafeRegexShape(pat)
 			// The fragment is quoted back to the model in a repair hint, so it
 			// has to be a real slice of the pattern rather than an index slip.
 			if unsafe && !strings.Contains(pat, frag) {

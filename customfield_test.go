@@ -3,6 +3,8 @@ package queryforge
 import (
 	"strings"
 	"testing"
+
+	"github.com/awsaman-ai/queryforge/internal/config"
 )
 
 // --- Tier 1: LLM-facing field metadata (displayName/description/valueHint)
@@ -213,9 +215,9 @@ func TestValueHintRejectedOnNonFreeTextField(t *testing.T) {
 // or valueHint bloats every future prompt this config ever sends. Rejected at
 // load rather than silently accepted and paid for on every translate call.
 func TestMetadataLengthCeilings(t *testing.T) {
-	tooLongDisplayName := strings.Repeat("a", maxDisplayNameLength+1)
-	tooLongDescription := strings.Repeat("a", maxDescriptionLength+1)
-	tooLongHint := strings.Repeat("a", maxValueHintLength+1)
+	tooLongDisplayName := strings.Repeat("a", config.MaxDisplayNameLength+1)
+	tooLongDescription := strings.Repeat("a", config.MaxDescriptionLength+1)
+	tooLongHint := strings.Repeat("a", config.MaxValueHintLength+1)
 
 	cases := map[string]string{
 		"displayName over limit": `{"name":"a","type":"string","displayName":"` + tooLongDisplayName + `"}`,
@@ -235,7 +237,7 @@ func TestMetadataLengthCeilings(t *testing.T) {
 // TestMetadataAtExactLengthCeilingIsAccepted is the boundary case for the
 // above: the limit itself must not be treated as already over it.
 func TestMetadataAtExactLengthCeilingIsAccepted(t *testing.T) {
-	exactDescription := strings.Repeat("a", maxDescriptionLength)
+	exactDescription := strings.Repeat("a", config.MaxDescriptionLength)
 	mustParse(t, `{
 	  "entity": "Order",
 	  "fields": [

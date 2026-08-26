@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/awsaman-ai/queryforge/internal/planner"
 )
 
 // scriptedProvider returns a different canned response on each call, so the
@@ -183,7 +185,7 @@ func TestTranslateRepairsUnparseableOutput(t *testing.T) {
 // TestRepairHintForParseFailureMentionsFormat checks the retry tells the model
 // about output format rather than about validation, which would be misleading.
 func TestRepairHintForParseFailureMentionsFormat(t *testing.T) {
-	got := buildUserPrompt("orders", RepairHint{Kind: RepairParse, Message: "invalid character '}'"})
+	got := planner.BuildUserPrompt("orders", RepairHint{Kind: RepairParse, Message: "invalid character '}'"})
 	if !strings.Contains(got, "could not be parsed as JSON") {
 		t.Errorf("parse hint missing from prompt: %q", got)
 	}
@@ -232,7 +234,7 @@ func TestTranslateGivesUpOnPersistentGarbage(t *testing.T) {
 // rather than decoding into an empty (unfiltered) Query.
 func TestParseASTDetectsRefusal(t *testing.T) {
 	c := mustParse(t, genConfigJSON)
-	_, err := parseAST(`{"unsupported":"no field for shipping warehouse"}`, c)
+	_, err := planner.ParseAST(`{"unsupported":"no field for shipping warehouse"}`, c)
 
 	var unsupported *UnsupportedRequestError
 	if !errors.As(err, &unsupported) {

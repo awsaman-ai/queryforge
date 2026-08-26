@@ -19,6 +19,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/awsaman-ai/queryforge/internal/config"
+	"github.com/awsaman-ai/queryforge/internal/observe"
+	"github.com/awsaman-ai/queryforge/internal/validate"
 )
 
 // secConfigJSON is the entity these tests attack. It carries one field of each
@@ -240,7 +244,7 @@ func TestS3RegexShapeGuard(t *testing.T) {
 	}
 	for _, pat := range unsafe {
 		t.Run("unsafe/"+pat, func(t *testing.T) {
-			if _, bad := unsafeRegexShape(pat); !bad {
+			if _, bad := validate.UnsafeRegexShape(pat); !bad {
 				t.Errorf("pattern %q was not flagged as catastrophic", pat)
 			}
 		})
@@ -269,7 +273,7 @@ func TestS3RegexShapeGuard(t *testing.T) {
 	}
 	for _, pat := range safe {
 		t.Run("safe/"+pat, func(t *testing.T) {
-			if frag, bad := unsafeRegexShape(pat); bad {
+			if frag, bad := validate.UnsafeRegexShape(pat); bad {
 				t.Errorf("legitimate pattern %q was rejected (fragment %q)", pat, frag)
 			}
 		})
@@ -304,7 +308,7 @@ func TestS3ValidatorRejectsCatastrophicRegex(t *testing.T) {
 // the length is the actionable one.
 func TestS3LengthCapWinsOverShape(t *testing.T) {
 	c := secConfig(t)
-	long := "(a+)+" + strings.Repeat("b", defaultMaxRegexLength)
+	long := "(a+)+" + strings.Repeat("b", config.DefaultMaxRegexLength)
 	q := NewQuery("Order")
 	q.Filter = comp("customerName", OpRegex, vStr(long))
 
@@ -383,9 +387,9 @@ func TestS4SuggestionBudgetIsBounded(t *testing.T) {
 			withSuggestions++
 		}
 	}
-	if withSuggestions > defaultMaxSuggestCalls {
+	if withSuggestions > config.DefaultMaxSuggestCalls {
 		t.Errorf("%d errors carry suggestions, above the budget of %d",
-			withSuggestions, defaultMaxSuggestCalls)
+			withSuggestions, config.DefaultMaxSuggestCalls)
 	}
 }
 
@@ -442,9 +446,9 @@ func TestS6RawIsTruncatedBeforeEmission(t *testing.T) {
 		t.Fatal("no event carried Raw, so this test is not exercising the path it claims to")
 	}
 	for i, raw := range rawSeen {
-		if len(raw) > defaultMaxRawLength+64 { // +64 for the truncation marker
+		if len(raw) > observe.DefaultMaxRawLength+64 { // +64 for the truncation marker
 			t.Errorf("event %d emitted %d bytes of Raw, above the %d-byte cap",
-				i, len(raw), defaultMaxRawLength)
+				i, len(raw), observe.DefaultMaxRawLength)
 		}
 		// A silent cut would make a 4 KB prefix look like the whole reply and
 		// send someone hunting for a parse bug in text that was never complete.
@@ -505,14 +509,14 @@ func TestS6TruncateRawUnit(t *testing.T) {
 		{"under the cap", "abc", 10, "abc"},
 		{"exactly at the cap", "abcde", 5, "abcde"},
 		{"one over", "abcdef", 5, "abcde… (1 bytes truncated)"},
-		{"zero selects the default", strings.Repeat("x", defaultMaxRawLength), 0, strings.Repeat("x", defaultMaxRawLength)},
+		{"zero selects the default", strings.Repeat("x", observe.DefaultMaxRawLength), 0, strings.Repeat("x", observe.DefaultMaxRawLength)},
 		{"negative disables", "abcdef", -1, "abcdef"},
 		{"empty", "", 10, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := truncateRaw(tc.in, tc.max); got != tc.want {
-				t.Errorf("truncateRaw(%d) = %q, want %q", tc.max, got, tc.want)
+			if got := observe.TruncateRaw(tc.in, tc.max); got != tc.want {
+				t.Errorf("observe.TruncateRaw(%d) = %q, want %q", tc.max, got, tc.want)
 			}
 		})
 	}
@@ -524,7 +528,7 @@ func TestS6TruncateRawUnit(t *testing.T) {
 func TestS6TruncationDoesNotReachTranslateResult(t *testing.T) {
 	// A valid but padded reply: the success path must hand back what the model
 	// actually said.
-	pad := strings.Repeat(" ", defaultMaxRawLength*2)
+	pad := strings.Repeat(" ", observe.DefaultMaxRawLength*2)
 	reply := pad + `{"entity":"Order","filter":{"type":"comparison","field":"status",` +
 		`"operator":"equals","value":{"kind":"enum","v":"DELIVERED"}}}`
 	e := secEngine(t, &StubProvider{Response: reply})

@@ -13,6 +13,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	qscope "github.com/awsaman-ai/queryforge/internal/scope"
 )
 
 // caseConfigJSON registers the same logical fields twice — once plain, once
@@ -267,12 +269,12 @@ func TestValueCaseAppliesToInjectedScope(t *testing.T) {
 
 	q := NewQuery("Order")
 	q.Filter = comp("total", OpGt, vNum(10))
-	filters, err := normalizeScope(Scope{"code": "ab-12"}, c)
+	filters, err := qscope.Normalize(Scope{"code": "ab-12"}, c)
 	if err != nil {
 		t.Fatalf("normalize scope: %v", err)
 	}
 
-	got := mongoFilterOf2(t, c, applyScope(q, filters))
+	got := mongoFilterOf2(t, c, qscope.Apply(q, filters))
 	if !strings.Contains(got, `"code":"AB-12"`) {
 		t.Errorf("scope filter = %s, want the code forced to upper case", got)
 	}

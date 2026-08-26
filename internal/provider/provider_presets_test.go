@@ -1,8 +1,10 @@
-package queryforge
+package provider
 
 import (
 	"strings"
 	"testing"
+
+	"github.com/awsaman-ai/queryforge/internal/config"
 )
 
 // The rules these tests encode:
@@ -20,19 +22,19 @@ func TestAPresetSavesLookingUpTheURL(t *testing.T) {
 	cases := []struct {
 		provider string
 		wantURL  string
-		wantProt Protocol
+		wantProt config.Protocol
 	}{
-		{"groq", "https://api.groq.com/openai/v1", ProtocolOpenAI},
-		{"openai", "https://api.openai.com/v1", ProtocolOpenAI},
-		{"anthropic", "https://api.anthropic.com", ProtocolAnthropic},
-		{"gemini", "https://generativelanguage.googleapis.com/v1beta/openai", ProtocolOpenAI},
-		{"openrouter", "https://openrouter.ai/api/v1", ProtocolOpenAI},
-		{"ollama", "http://localhost:11434/v1", ProtocolOpenAI},
+		{"groq", "https://api.groq.com/openai/v1", config.ProtocolOpenAI},
+		{"openai", "https://api.openai.com/v1", config.ProtocolOpenAI},
+		{"anthropic", "https://api.anthropic.com", config.ProtocolAnthropic},
+		{"gemini", "https://generativelanguage.googleapis.com/v1beta/openai", config.ProtocolOpenAI},
+		{"openrouter", "https://openrouter.ai/api/v1", config.ProtocolOpenAI},
+		{"ollama", "http://localhost:11434/v1", config.ProtocolOpenAI},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.provider, func(t *testing.T) {
-			url, proto := resolveEndpoint(ModelConfig{Provider: tc.provider, Model: "some-model"})
+			url, proto := resolveEndpoint(config.ModelConfig{Provider: tc.provider, Model: "some-model"})
 			if url != tc.wantURL {
 				t.Errorf("baseURL = %q, want %q", url, tc.wantURL)
 			}
@@ -47,7 +49,7 @@ func TestAPresetSavesLookingUpTheURL(t *testing.T) {
 // provider. Case is not a configuration decision.
 func TestPresetLookupIgnoresCase(t *testing.T) {
 	for _, name := range []string{"GROQ", "Groq", "  groq  "} {
-		url, _ := resolveEndpoint(ModelConfig{Provider: name})
+		url, _ := resolveEndpoint(config.ModelConfig{Provider: name})
 		if url != "https://api.groq.com/openai/v1" {
 			t.Errorf("provider %q resolved to %q", name, url)
 		}
@@ -59,7 +61,7 @@ func TestPresetLookupIgnoresCase(t *testing.T) {
 func TestAnExplicitBaseURLAlwaysWins(t *testing.T) {
 	const mine = "https://llm.mycorp.internal/v1"
 
-	url, _ := resolveEndpoint(ModelConfig{Provider: "groq", BaseURL: mine})
+	url, _ := resolveEndpoint(config.ModelConfig{Provider: "groq", BaseURL: mine})
 	if url != mine {
 		t.Errorf("baseURL = %q, want the explicitly configured %q", url, mine)
 	}
@@ -68,7 +70,7 @@ func TestAnExplicitBaseURLAlwaysWins(t *testing.T) {
 // TestAnUnlistedProviderIsStillFullySupported is the future-proofing rule: a
 // provider that launched after this build shipped must need no code change.
 func TestAnUnlistedProviderIsStillFullySupported(t *testing.T) {
-	m := ModelConfig{
+	m := config.ModelConfig{
 		Provider: "acme-ai-launched-yesterday",
 		BaseURL:  "https://api.acme.ai/v1",
 		Model:    "acme-ultra",
@@ -78,9 +80,9 @@ func TestAnUnlistedProviderIsStillFullySupported(t *testing.T) {
 	if url != "https://api.acme.ai/v1" {
 		t.Errorf("baseURL = %q, want the configured URL", url)
 	}
-	if proto != ProtocolOpenAI {
+	if proto != config.ProtocolOpenAI {
 		t.Errorf("protocol = %q, want %q — an unknown provider must default to the "+
-			"dialect nearly everyone speaks", proto, ProtocolOpenAI)
+			"dialect nearly everyone speaks", proto, config.ProtocolOpenAI)
 	}
 	if _, ok := ProviderFor(m).(*OpenAIProvider); !ok {
 		t.Error("an unlisted provider must still get a working provider implementation")
@@ -90,7 +92,7 @@ func TestAnUnlistedProviderIsStillFullySupported(t *testing.T) {
 // TestTrailingSlashesAreNormalised: "…/v1/" and "…/v1" must not produce
 // different request URLs.
 func TestTrailingSlashesAreNormalised(t *testing.T) {
-	url, _ := resolveEndpoint(ModelConfig{BaseURL: "https://api.example.com/v1///"})
+	url, _ := resolveEndpoint(config.ModelConfig{BaseURL: "https://api.example.com/v1///"})
 	if url != "https://api.example.com/v1" {
 		t.Errorf("baseURL = %q, want the trailing slashes trimmed", url)
 	}
@@ -104,13 +106,13 @@ func TestAnExplicitProtocolOverridesEverything(t *testing.T) {
 	t.Run("an Anthropic-compatible gateway on a corporate hostname", func(t *testing.T) {
 		// The old sniff sees no "api.anthropic.com" here and would route this to
 		// the OpenAI dialect, which the endpoint does not speak.
-		m := ModelConfig{
+		m := config.ModelConfig{
 			Protocol: "anthropic",
 			BaseURL:  "https://ai-gateway.mycorp.com",
 			Model:    "claude-internal",
 		}
-		if _, proto := resolveEndpoint(m); proto != ProtocolAnthropic {
-			t.Errorf("protocol = %q, want %q", proto, ProtocolAnthropic)
+		if _, proto := resolveEndpoint(m); proto != config.ProtocolAnthropic {
+			t.Errorf("protocol = %q, want %q", proto, config.ProtocolAnthropic)
 		}
 		if _, ok := ProviderFor(m).(*AnthropicProvider); !ok {
 			t.Error("an explicit anthropic protocol must select the native provider")
@@ -120,13 +122,13 @@ func TestAnExplicitProtocolOverridesEverything(t *testing.T) {
 	t.Run("an OpenAI-compatible proxy hosted under an anthropic domain", func(t *testing.T) {
 		// The mirror image: the sniff would see the hostname and route to the
 		// native dialect against an endpoint speaking OpenAI.
-		m := ModelConfig{
+		m := config.ModelConfig{
 			Protocol: "openai",
 			BaseURL:  "https://api.anthropic.com.proxy.mycorp.com/v1",
 			Model:    "whatever",
 		}
-		if _, proto := resolveEndpoint(m); proto != ProtocolOpenAI {
-			t.Errorf("protocol = %q, want %q", proto, ProtocolOpenAI)
+		if _, proto := resolveEndpoint(m); proto != config.ProtocolOpenAI {
+			t.Errorf("protocol = %q, want %q", proto, config.ProtocolOpenAI)
 		}
 		if _, ok := ProviderFor(m).(*OpenAIProvider); !ok {
 			t.Error("an explicit openai protocol must select the OpenAI-compatible provider")
@@ -134,17 +136,17 @@ func TestAnExplicitProtocolOverridesEverything(t *testing.T) {
 	})
 
 	t.Run("an explicit protocol beats the provider name's preset", func(t *testing.T) {
-		m := ModelConfig{Provider: "anthropic", Protocol: "openai", BaseURL: "https://x/v1"}
-		if _, proto := resolveEndpoint(m); proto != ProtocolOpenAI {
-			t.Errorf("protocol = %q, want the stated %q", proto, ProtocolOpenAI)
+		m := config.ModelConfig{Provider: "anthropic", Protocol: "openai", BaseURL: "https://x/v1"}
+		if _, proto := resolveEndpoint(m); proto != config.ProtocolOpenAI {
+			t.Errorf("protocol = %q, want the stated %q", proto, config.ProtocolOpenAI)
 		}
 	})
 }
 
 // TestProtocolIsCaseInsensitive: "OpenAI" and "openai" mean the same thing.
 func TestProtocolIsCaseInsensitive(t *testing.T) {
-	if _, proto := resolveEndpoint(ModelConfig{Protocol: "ANTHROPIC"}); proto != ProtocolAnthropic {
-		t.Errorf("protocol = %q, want %q", proto, ProtocolAnthropic)
+	if _, proto := resolveEndpoint(config.ModelConfig{Protocol: "ANTHROPIC"}); proto != config.ProtocolAnthropic {
+		t.Errorf("protocol = %q, want %q", proto, config.ProtocolAnthropic)
 	}
 }
 
@@ -155,20 +157,20 @@ func TestLegacySniffingStillWorks(t *testing.T) {
 	cases := []struct {
 		name    string
 		baseURL string
-		want    Protocol
+		want    config.Protocol
 	}{
 		{"the native Anthropic host still selects the native dialect",
-			"https://api.anthropic.com", ProtocolAnthropic},
+			"https://api.anthropic.com", config.ProtocolAnthropic},
 		{"Anthropic's OpenAI-compat path still selects the OpenAI dialect",
-			"https://api.anthropic.com/v1/openai", ProtocolOpenAI},
+			"https://api.anthropic.com/v1/openai", config.ProtocolOpenAI},
 		{"any other host still defaults to the OpenAI dialect",
-			"https://api.groq.com/openai/v1", ProtocolOpenAI},
+			"https://api.groq.com/openai/v1", config.ProtocolOpenAI},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			// No provider, no protocol — the pre-existing shape of these configs.
-			if _, proto := resolveEndpoint(ModelConfig{BaseURL: tc.baseURL}); proto != tc.want {
+			if _, proto := resolveEndpoint(config.ModelConfig{BaseURL: tc.baseURL}); proto != tc.want {
 				t.Errorf("protocol = %q, want %q", proto, tc.want)
 			}
 		})
@@ -180,16 +182,16 @@ func TestLegacySniffingStillWorks(t *testing.T) {
 func TestProviderForRoutesByDialectNotByName(t *testing.T) {
 	cases := []struct {
 		name       string
-		m          ModelConfig
+		m          config.ModelConfig
 		wantNative bool
 	}{
-		{"provider anthropic", ModelConfig{Provider: "anthropic"}, true},
-		{"provider ANTHROPIC in caps", ModelConfig{Provider: "ANTHROPIC"}, true},
-		{"legacy anthropic URL", ModelConfig{BaseURL: "https://api.anthropic.com"}, true},
-		{"explicit anthropic protocol on any host", ModelConfig{Protocol: "anthropic", BaseURL: "https://x"}, true},
-		{"provider groq", ModelConfig{Provider: "groq"}, false},
-		{"bare OpenAI-compatible URL", ModelConfig{BaseURL: "https://api.example.com/v1"}, false},
-		{"nothing configured at all", ModelConfig{}, false},
+		{"provider anthropic", config.ModelConfig{Provider: "anthropic"}, true},
+		{"provider ANTHROPIC in caps", config.ModelConfig{Provider: "ANTHROPIC"}, true},
+		{"legacy anthropic URL", config.ModelConfig{BaseURL: "https://api.anthropic.com"}, true},
+		{"explicit anthropic protocol on any host", config.ModelConfig{Protocol: "anthropic", BaseURL: "https://x"}, true},
+		{"provider groq", config.ModelConfig{Provider: "groq"}, false},
+		{"bare OpenAI-compatible URL", config.ModelConfig{BaseURL: "https://api.example.com/v1"}, false},
+		{"nothing configured at all", config.ModelConfig{}, false},
 	}
 
 	for _, tc := range cases {
@@ -209,7 +211,7 @@ func TestProviderForRoutesByDialectNotByName(t *testing.T) {
 // would have been enough.
 func TestTheNoEndpointErrorTellsYouWhatToDo(t *testing.T) {
 	t.Run("with an unrecognised provider name", func(t *testing.T) {
-		err := noEndpointError(ModelConfig{Provider: "mystery-co"})
+		err := noEndpointError(config.ModelConfig{Provider: "mystery-co"})
 		msg := err.Error()
 
 		if !strings.Contains(msg, "mystery-co") {
@@ -224,7 +226,7 @@ func TestTheNoEndpointErrorTellsYouWhatToDo(t *testing.T) {
 	})
 
 	t.Run("with nothing configured", func(t *testing.T) {
-		msg := noEndpointError(ModelConfig{}).Error()
+		msg := noEndpointError(config.ModelConfig{}).Error()
 		if !strings.Contains(msg, "baseURL") || !strings.Contains(msg, "provider") {
 			t.Errorf("the message should name both ways out: %s", msg)
 		}
@@ -259,7 +261,7 @@ func TestPresetsCarryNoModelIds(t *testing.T) {
 		if p.BaseURL == "" {
 			t.Errorf("preset %q has no base URL, which is the only thing it is for", name)
 		}
-		if !knownProtocols[p.Protocol] {
+		if !config.KnownProtocols[p.Protocol] {
 			t.Errorf("preset %q names protocol %q, which is not implemented", name, p.Protocol)
 		}
 		if !strings.HasPrefix(p.BaseURL, "http://") && !strings.HasPrefix(p.BaseURL, "https://") {

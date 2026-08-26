@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/awsaman-ai/queryforge/internal/config"
 )
 
 // minimalConfig wraps a model block in the smallest legal config, so these
@@ -39,14 +41,14 @@ func TestNewModelKeysAreOptional(t *testing.T) {
 	}
 
 	m := c.Model
-	if got := m.EffectiveTimeout(); got != defaultTimeout {
-		t.Errorf("timeout = %v, want the previous hardcoded %v", got, defaultTimeout)
+	if got := m.EffectiveTimeout(); got != config.DefaultTimeout {
+		t.Errorf("timeout = %v, want the previous hardcoded %v", got, config.DefaultTimeout)
 	}
-	if got := m.EffectiveMaxRetries(); got != defaultMaxRetries {
-		t.Errorf("maxRetries = %d, want %d", got, defaultMaxRetries)
+	if got := m.EffectiveMaxRetries(); got != config.DefaultMaxRetries {
+		t.Errorf("maxRetries = %d, want %d", got, config.DefaultMaxRetries)
 	}
-	if got := m.EffectiveRetryBackoff(); got != defaultRetryBackoff {
-		t.Errorf("retryBackoff = %v, want %v", got, defaultRetryBackoff)
+	if got := m.EffectiveRetryBackoff(); got != config.DefaultRetryBackoff {
+		t.Errorf("retryBackoff = %v, want %v", got, config.DefaultRetryBackoff)
 	}
 	if m.Protocol != "" {
 		t.Errorf("protocol = %q, want it absent", m.Protocol)
@@ -80,8 +82,8 @@ func TestNonsensicalTuningIsTreatedAsUnset(t *testing.T) {
 			name: "negative timeout falls back to the default",
 			json: `{"model":"m","timeoutSeconds":-5}`,
 			check: func(t *testing.T, m ModelConfig) {
-				if got := m.EffectiveTimeout(); got != defaultTimeout {
-					t.Errorf("timeout = %v, want %v", got, defaultTimeout)
+				if got := m.EffectiveTimeout(); got != config.DefaultTimeout {
+					t.Errorf("timeout = %v, want %v", got, config.DefaultTimeout)
 				}
 			},
 		},
@@ -98,8 +100,8 @@ func TestNonsensicalTuningIsTreatedAsUnset(t *testing.T) {
 			name: "negative backoff falls back to the default",
 			json: `{"model":"m","retryBackoffMs":-100}`,
 			check: func(t *testing.T, m ModelConfig) {
-				if got := m.EffectiveRetryBackoff(); got != defaultRetryBackoff {
-					t.Errorf("backoff = %v, want %v", got, defaultRetryBackoff)
+				if got := m.EffectiveRetryBackoff(); got != config.DefaultRetryBackoff {
+					t.Errorf("backoff = %v, want %v", got, config.DefaultRetryBackoff)
 				}
 			},
 		},

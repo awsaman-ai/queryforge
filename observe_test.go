@@ -12,6 +12,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/awsaman-ai/queryforge/internal/config"
+	"github.com/awsaman-ai/queryforge/internal/observe"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -400,7 +403,7 @@ func TestNilObserverIsTheDefaultAndIsSafe(t *testing.T) {
 
 	// Calling the zero Observer directly must also be safe.
 	var o Observer
-	o.emit(context.Background(), Event{Kind: EventAttempt})
+	observe.Emit(o, context.Background(), Event{Kind: EventAttempt})
 }
 
 // TestObserverPanicPropagates pins the documented contract: a panicking Observer
@@ -524,8 +527,8 @@ func TestHiddenTokensClampsAtZero(t *testing.T) {
 		{10, 50, 50, 0},       // nonsense from the provider: clamp, never negative
 	}
 	for _, c := range cases {
-		if got := hiddenTokens(c.total, c.prompt, c.completion); got != c.want {
-			t.Errorf("hiddenTokens(%d,%d,%d) = %d, want %d",
+		if got := observe.HiddenTokens(c.total, c.prompt, c.completion); got != c.want {
+			t.Errorf("observe.HiddenTokens(%d,%d,%d) = %d, want %d",
 				c.total, c.prompt, c.completion, got, c.want)
 		}
 	}
@@ -673,8 +676,8 @@ func TestModelCallEventEmittedOnEveryFailurePath(t *testing.T) {
 			t.Fatal("expected an error")
 		}
 		calls := rec.kind(EventModelCall)
-		if len(calls) != defaultMaxRetries+1 {
-			t.Fatalf("got %d model_call events, want %d (one per round trip)", len(calls), defaultMaxRetries+1)
+		if len(calls) != config.DefaultMaxRetries+1 {
+			t.Fatalf("got %d model_call events, want %d (one per round trip)", len(calls), config.DefaultMaxRetries+1)
 		}
 		for i, ev := range calls {
 			if ev.Retry != i {

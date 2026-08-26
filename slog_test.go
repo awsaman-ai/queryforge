@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/awsaman-ai/queryforge/internal/observe"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -76,7 +78,7 @@ func only(t *testing.T, recs []map[string]any, operation string) map[string]any 
 	t.Helper()
 	var found []map[string]any
 	for _, r := range recs {
-		if r[logKeyOperation] == operation {
+		if r[observe.LogKeyOperation] == operation {
 			found = append(found, r)
 		}
 	}
@@ -99,7 +101,7 @@ func TestSlogObserverNilLoggerIsSilent(t *testing.T) {
 		t.Fatal("SlogObserver(nil) should return a nil Observer")
 	}
 	// A nil Observer must be safe to emit through — that is the default path.
-	SlogObserver(nil).emit(context.Background(), Event{Kind: EventTranslate})
+	observe.Emit(SlogObserver(nil), context.Background(), Event{Kind: EventTranslate})
 }
 
 // TestSlogLevelsMatchTheDocumentedContract enumerates every kind/outcome pair
@@ -142,7 +144,7 @@ func TestSlogLevelsMatchTheDocumentedContract(t *testing.T) {
 	for _, tc := range cases {
 		name := fmt.Sprintf("%s/%s", tc.event.Kind, tc.event.Outcome)
 		t.Run(name, func(t *testing.T) {
-			got, msg := logLevelFor(tc.event)
+			got, msg := observe.LogLevelFor(tc.event)
 			if got != tc.want {
 				t.Errorf("level = %v, want %v — %s", got, tc.want, tc.why)
 			}
@@ -167,8 +169,8 @@ func TestSlogUnknownEventKindIsStillReported(t *testing.T) {
 	if len(recs) != 1 {
 		t.Fatalf("expected 1 record, got %d", len(recs))
 	}
-	if recs[0][logKeyOperation] != "something_new" {
-		t.Errorf("operation = %v, want the unrecognised kind carried through", recs[0][logKeyOperation])
+	if recs[0][observe.LogKeyOperation] != "something_new" {
+		t.Errorf("operation = %v, want the unrecognised kind carried through", recs[0][observe.LogKeyOperation])
 	}
 }
 
@@ -186,22 +188,22 @@ func TestSlogCarriesTheCrossLanguageFields(t *testing.T) {
 
 	rec := only(t, c.records(t), string(EventTranslate))
 	for _, key := range []string{
-		logKeyLibrary, logKeyLanguage, logKeyComponent, logKeyOperation,
-		logKeyOutcome, logKeyEntity, logKeyBackend, logKeyAttempt, logKeyDuration,
-		logKeyRepairAttempts,
+		observe.LogKeyLibrary, observe.LogKeyLanguage, observe.LogKeyComponent, observe.LogKeyOperation,
+		observe.LogKeyOutcome, observe.LogKeyEntity, observe.LogKeyBackend, observe.LogKeyAttempt, observe.LogKeyDuration,
+		observe.LogKeyRepairAttempts,
 	} {
 		if _, ok := rec[key]; !ok {
 			t.Errorf("translate record is missing %q; fields: %v", key, keysOf(rec))
 		}
 	}
-	if rec[logKeyLibrary] != logLibraryName {
-		t.Errorf("library = %v, want %q", rec[logKeyLibrary], logLibraryName)
+	if rec[observe.LogKeyLibrary] != observe.LogLibraryName {
+		t.Errorf("library = %v, want %q", rec[observe.LogKeyLibrary], observe.LogLibraryName)
 	}
-	if rec[logKeyLanguage] != "go" {
-		t.Errorf("language = %v, want \"go\"", rec[logKeyLanguage])
+	if rec[observe.LogKeyLanguage] != "go" {
+		t.Errorf("language = %v, want \"go\"", rec[observe.LogKeyLanguage])
 	}
-	if rec[logKeyComponent] != logComponentEngine {
-		t.Errorf("component = %v, want %q", rec[logKeyComponent], logComponentEngine)
+	if rec[observe.LogKeyComponent] != observe.LogComponentEngine {
+		t.Errorf("component = %v, want %q", rec[observe.LogKeyComponent], observe.LogComponentEngine)
 	}
 }
 
@@ -233,13 +235,13 @@ func TestSlogErrorCodeAgreesWithClassify(t *testing.T) {
 			want := string(Classify(err))
 
 			rec := only(t, c.records(t), string(EventTranslate))
-			if got := rec[logKeyErrorCode]; got != want {
+			if got := rec[observe.LogKeyErrorCode]; got != want {
 				t.Errorf("log error_code = %v, caller's Classify = %q", got, want)
 			}
-			if rec[logKeyErrorType] == nil || rec[logKeyErrorType] == "" {
+			if rec[observe.LogKeyErrorType] == nil || rec[observe.LogKeyErrorType] == "" {
 				t.Error("error_type must be set whenever an error is logged")
 			}
-			if rec[logKeyError] == nil || rec[logKeyError] == "" {
+			if rec[observe.LogKeyError] == nil || rec[observe.LogKeyError] == "" {
 				t.Error("error message must be set whenever an error is logged")
 			}
 		})
@@ -337,9 +339,9 @@ func TestSlogNeverLogsScopeValues(t *testing.T) {
 	// The key must be there — an audit trail that cannot say which filters were
 	// forced onto a query is not an audit trail.
 	rec := only(t, c.records(t), string(EventTranslate))
-	keys, _ := rec[logKeyScopeKeys].([]any)
+	keys, _ := rec[observe.LogKeyScopeKeys].([]any)
 	if len(keys) != 1 || keys[0] != "customerName" {
-		t.Errorf("scope_keys = %v, want [customerName]", rec[logKeyScopeKeys])
+		t.Errorf("scope_keys = %v, want [customerName]", rec[observe.LogKeyScopeKeys])
 	}
 }
 

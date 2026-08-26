@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/awsaman-ai/queryforge/internal/gen"
 )
 
 // esConfigJSON is the base fixture for DSL-generation tests: a direct index,
@@ -181,7 +183,7 @@ func TestESRangeAndBetween(t *testing.T) {
 		Filter: comp("createdAt", OpAfter, vRel("day", -30))})
 	rng = eq.Query["range"].(map[string]any)
 	created, ok := rng["createdAt"].(map[string]any)
-	want, _ := resolveRelative(fixedNow, "day", -30)
+	want, _ := gen.ResolveRelative(fixedNow, "day", -30)
 	if !ok || created["gte"] != want.Format(time.RFC3339) {
 		t.Errorf("after should be inclusive (gte): %#v", created)
 	}

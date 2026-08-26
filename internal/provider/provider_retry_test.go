@@ -1,4 +1,4 @@
-package queryforge
+package provider
 
 import (
 	"context"
@@ -10,6 +10,10 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/awsaman-ai/queryforge/internal/failure"
+
+	"github.com/awsaman-ai/queryforge/internal/config"
 )
 
 // noJitter makes backoff arithmetic assertable. Real jitter is exercised
@@ -34,39 +38,39 @@ func TestRetryHappensOnlyForFailuresTimeCanFix(t *testing.T) {
 		wantReason string
 	}{
 		{
-			name: "rate limit is retried", err: &ProviderError{Kind: KindRateLimit},
+			name: "rate limit is retried", err: &ProviderError{Kind: failure.KindRateLimit},
 			wantCalls: 3, wantReason: "waiting out a throttle is the case retrying exists for",
 		},
 		{
-			name: "provider outage is retried", err: &ProviderError{Kind: KindUnavailable},
+			name: "provider outage is retried", err: &ProviderError{Kind: failure.KindUnavailable},
 			wantCalls: 3, wantReason: "a 5xx is transient by definition",
 		},
 		{
-			name: "dropped connection is retried", err: &ProviderError{Kind: KindTransport},
+			name: "dropped connection is retried", err: &ProviderError{Kind: failure.KindTransport},
 			wantCalls: 3,
 		},
 		{
-			name: "per-attempt timeout is retried", err: &ProviderError{Kind: KindTimeout},
+			name: "per-attempt timeout is retried", err: &ProviderError{Kind: failure.KindTimeout},
 			wantCalls: 3,
 		},
 		{
-			name: "bad key fails immediately", err: &ProviderError{Kind: KindAuth},
+			name: "bad key fails immediately", err: &ProviderError{Kind: failure.KindAuth},
 			wantCalls: 1, wantReason: "the same key would be resent; retrying spends rate limit to learn nothing",
 		},
 		{
-			name: "empty wallet fails immediately", err: &ProviderError{Kind: KindQuota},
+			name: "empty wallet fails immediately", err: &ProviderError{Kind: failure.KindQuota},
 			wantCalls: 1, wantReason: "no amount of waiting adds credit",
 		},
 		{
-			name: "unknown model fails immediately", err: &ProviderError{Kind: KindModelNotFound},
+			name: "unknown model fails immediately", err: &ProviderError{Kind: failure.KindModelNotFound},
 			wantCalls: 1,
 		},
 		{
-			name: "malformed request fails immediately", err: &ProviderError{Kind: KindInvalidRequest},
+			name: "malformed request fails immediately", err: &ProviderError{Kind: failure.KindInvalidRequest},
 			wantCalls: 1, wantReason: "the request body is deterministic",
 		},
 		{
-			name: "truncated reply fails immediately", err: &ProviderError{Kind: KindBadResponse},
+			name: "truncated reply fails immediately", err: &ProviderError{Kind: failure.KindBadResponse},
 			wantCalls: 1, wantReason: "an identical request truncates identically",
 		},
 		{
@@ -101,7 +105,7 @@ func TestRetryStopsAtTheFirstSuccess(t *testing.T) {
 	out, err := fastRetry(5).do(context.Background(), func(context.Context, int) (string, error) {
 		calls++
 		if calls < 2 {
-			return "", &ProviderError{Kind: KindRateLimit}
+			return "", &ProviderError{Kind: failure.KindRateLimit}
 		}
 		return "the answer", nil
 	})
@@ -123,7 +127,7 @@ func TestRetriesAreBounded(t *testing.T) {
 		calls := 0
 		_, err := fastRetry(max).do(context.Background(), func(context.Context, int) (string, error) {
 			calls++
-			return "", &ProviderError{Kind: KindUnavailable}
+			return "", &ProviderError{Kind: failure.KindUnavailable}
 		})
 		if err == nil {
 			t.Fatal("expected an error")
@@ -140,7 +144,7 @@ func TestZeroRetriesMeansExactlyOneAttempt(t *testing.T) {
 	calls := 0
 	_, _ = retryPolicy{MaxRetries: 0}.do(context.Background(), func(context.Context, int) (string, error) {
 		calls++
-		return "", &ProviderError{Kind: KindRateLimit}
+		return "", &ProviderError{Kind: failure.KindRateLimit}
 	})
 	if calls != 1 {
 		t.Errorf("made %d round trips, want 1", calls)
@@ -150,12 +154,12 @@ func TestZeroRetriesMeansExactlyOneAttempt(t *testing.T) {
 // TestTheLastErrorIsWhatTheCallerSees: the final state of the provider is the
 // useful diagnosis, not the first blip on the way there.
 func TestTheLastErrorIsWhatTheCallerSees(t *testing.T) {
-	final := &ProviderError{Kind: KindAuth, Detail: "key revoked mid-flight"}
+	final := &ProviderError{Kind: failure.KindAuth, Detail: "key revoked mid-flight"}
 	calls := 0
 	_, err := fastRetry(3).do(context.Background(), func(context.Context, int) (string, error) {
 		calls++
 		if calls < 2 {
-			return "", &ProviderError{Kind: KindUnavailable, Detail: "first blip"}
+			return "", &ProviderError{Kind: failure.KindUnavailable, Detail: "first blip"}
 		}
 		return "", final
 	})
@@ -170,7 +174,7 @@ func TestTheRoundTripIndexIsPassedThrough(t *testing.T) {
 	var seen []int
 	_, _ = fastRetry(2).do(context.Background(), func(_ context.Context, n int) (string, error) {
 		seen = append(seen, n)
-		return "", &ProviderError{Kind: KindUnavailable}
+		return "", &ProviderError{Kind: failure.KindUnavailable}
 	})
 	for i, n := range seen {
 		if n != i {
@@ -208,7 +212,7 @@ func TestBackoffGrowsAndIsCapped(t *testing.T) {
 // earns another 429; returning later wastes the caller's time.
 func TestProviderRetryAfterBeatsComputedBackoff(t *testing.T) {
 	rp := retryPolicy{MaxRetries: 3, BaseBackoff: time.Second, jitter: noJitter}
-	pe := &ProviderError{Kind: KindRateLimit, RetryAfter: 2 * time.Second}
+	pe := &ProviderError{Kind: failure.KindRateLimit, RetryAfter: 2 * time.Second}
 
 	if got := rp.delayFor(0, pe); got != 2*time.Second {
 		t.Errorf("delayFor with Retry-After = %v, want the provider's 2s", got)
@@ -253,7 +257,7 @@ func TestBackoffDoesNotOutlastTheCallersDeadline(t *testing.T) {
 	rp := retryPolicy{MaxRetries: 5, BaseBackoff: 10 * time.Second, jitter: noJitter}
 	_, err := rp.do(ctx, func(context.Context, int) (string, error) {
 		calls++
-		return "", &ProviderError{Kind: KindRateLimit, Detail: "throttled"}
+		return "", &ProviderError{Kind: failure.KindRateLimit, Detail: "throttled"}
 	})
 
 	if elapsed := time.Since(started); elapsed > time.Second {
@@ -282,7 +286,7 @@ func TestCancellationStopsTheLoopPromptly(t *testing.T) {
 	}()
 	_, err := rp.do(ctx, func(context.Context, int) (string, error) {
 		atomic.AddInt32(&calls, 1)
-		return "", &ProviderError{Kind: KindUnavailable}
+		return "", &ProviderError{Kind: failure.KindUnavailable}
 	})
 
 	if err == nil {
@@ -335,7 +339,7 @@ func TestProviderRecoversFromAThrottleEndToEnd(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewOpenAIProvider(ModelConfig{BaseURL: srv.URL, Model: "m", RetryBackoffMs: 1})
+	p := NewOpenAIProvider(config.ModelConfig{BaseURL: srv.URL, Model: "m", RetryBackoffMs: 1})
 	out, err := p.Complete(context.Background(), "sys", "user")
 	if err != nil {
 		t.Fatalf("a single throttle should have been ridden out, got: %v", err)
@@ -359,7 +363,7 @@ func TestProviderDoesNotRetryABadKeyEndToEnd(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewOpenAIProvider(ModelConfig{BaseURL: srv.URL, Model: "m", RetryBackoffMs: 1})
+	p := NewOpenAIProvider(config.ModelConfig{BaseURL: srv.URL, Model: "m", RetryBackoffMs: 1})
 	_, err := p.Complete(context.Background(), "sys", "user")
 	if err == nil {
 		t.Fatal("expected an error")
@@ -369,7 +373,7 @@ func TestProviderDoesNotRetryABadKeyEndToEnd(t *testing.T) {
 	}
 
 	pe, ok := asProviderError(err)
-	if !ok || pe.Kind != KindAuth {
+	if !ok || pe.Kind != failure.KindAuth {
 		t.Errorf("error was not classified as AUTH: %v", err)
 	}
 }
@@ -388,15 +392,15 @@ func TestRetryIsSeparateFromTheRepairBudget(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewOpenAIProvider(ModelConfig{BaseURL: srv.URL, Model: "m", RetryBackoffMs: 1})
+	p := NewOpenAIProvider(config.ModelConfig{BaseURL: srv.URL, Model: "m", RetryBackoffMs: 1})
 	if _, err := p.Complete(context.Background(), "s", "u"); err == nil {
 		t.Fatal("expected an error")
 	}
 
 	// One Complete = at most 1 + MaxRetries round trips. Anything more means a
 	// second loop is multiplying the first.
-	if n := atomic.LoadInt32(&hits); n != int32(defaultMaxRetries+1) {
-		t.Errorf("one Complete produced %d requests, want %d", n, defaultMaxRetries+1)
+	if n := atomic.LoadInt32(&hits); n != int32(config.DefaultMaxRetries+1) {
+		t.Errorf("one Complete produced %d requests, want %d", n, config.DefaultMaxRetries+1)
 	}
 }
 
@@ -437,9 +441,9 @@ func TestFallbackChainMovesOnWithoutRetryingWhenItCannotHelp(t *testing.T) {
 	}))
 	defer secondary.Close()
 
-	cfg := &Config{
-		Model:  ModelConfig{Provider: "primary", BaseURL: primary.URL, Model: "a", RetryBackoffMs: 1},
-		Models: []ModelConfig{{Provider: "secondary", BaseURL: secondary.URL, Model: "b", RetryBackoffMs: 1}},
+	cfg := &config.Config{
+		Model:  config.ModelConfig{Provider: "primary", BaseURL: primary.URL, Model: "a", RetryBackoffMs: 1},
+		Models: []config.ModelConfig{{Provider: "secondary", BaseURL: secondary.URL, Model: "b", RetryBackoffMs: 1}},
 	}
 	out, err := ProvidersFrom(cfg).Complete(context.Background(), "s", "u")
 	if err != nil {

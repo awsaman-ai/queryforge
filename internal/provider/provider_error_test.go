@@ -1,4 +1,4 @@
-package queryforge
+package provider
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/awsaman-ai/queryforge/internal/failure"
 )
 
 // The rules these tests encode, stated once:
@@ -26,79 +28,79 @@ func TestStatusClassification(t *testing.T) {
 		name      string
 		status    int
 		body      string
-		want      ProviderErrorKind
+		want      failure.ProviderErrorKind
 		retryable bool
 		why       string
 	}{
 		{
 			name:   "401 is an auth failure and must not be retried",
 			status: http.StatusUnauthorized, body: "invalid api key",
-			want: KindAuth, retryable: false,
+			want: failure.KindAuth, retryable: false,
 			why: "the same rejected key would be sent again",
 		},
 		{
 			name:   "403 without a money hint is an auth failure",
 			status: http.StatusForbidden, body: "permission denied for this resource",
-			want: KindAuth, retryable: false,
+			want: failure.KindAuth, retryable: false,
 		},
 		{
 			name:   "403 with a money hint is a quota failure",
 			status: http.StatusForbidden, body: "You exceeded your current quota",
-			want: KindQuota, retryable: false,
+			want: failure.KindQuota, retryable: false,
 			why: "providers overload 403 for an exhausted free tier; waiting adds no funds",
 		},
 		{
 			name:   "402 is a quota failure",
 			status: http.StatusPaymentRequired, body: "payment required",
-			want: KindQuota, retryable: false,
+			want: failure.KindQuota, retryable: false,
 		},
 		{
 			name:   "429 is a rate limit and must be retried",
 			status: http.StatusTooManyRequests, body: "too many requests, slow down",
-			want: KindRateLimit, retryable: true,
+			want: failure.KindRateLimit, retryable: true,
 			why: "this is the one failure where waiting genuinely fixes it",
 		},
 		{
 			name:   "429 carrying a billing message is quota, not a rate limit",
 			status: http.StatusTooManyRequests, body: "insufficient credit on this account",
-			want: KindQuota, retryable: false,
+			want: failure.KindQuota, retryable: false,
 			why: "retrying an empty wallet burns the caller's latency budget for a certain failure",
 		},
 		{
 			name:   "404 means the model id is wrong and must not be retried",
 			status: http.StatusNotFound, body: "model not found",
-			want: KindModelNotFound, retryable: false,
+			want: failure.KindModelNotFound, retryable: false,
 		},
 		{
 			name:   "400 is a bad request and must not be retried",
 			status: http.StatusBadRequest, body: "unsupported parameter",
-			want: KindInvalidRequest, retryable: false,
+			want: failure.KindInvalidRequest, retryable: false,
 			why: "the body is deterministic, so a retry sends identical bytes",
 		},
 		{
 			name:   "422 is a bad request and must not be retried",
 			status: http.StatusUnprocessableEntity, body: "invalid schema",
-			want: KindInvalidRequest, retryable: false,
+			want: failure.KindInvalidRequest, retryable: false,
 		},
 		{
 			name:   "408 is a timeout and may be retried",
 			status: http.StatusRequestTimeout, body: "",
-			want: KindTimeout, retryable: true,
+			want: failure.KindTimeout, retryable: true,
 		},
 		{
 			name:   "500 is a provider fault and must be retried",
 			status: http.StatusInternalServerError, body: "internal error",
-			want: KindUnavailable, retryable: true,
+			want: failure.KindUnavailable, retryable: true,
 		},
 		{
 			name:   "503 is a provider outage and must be retried",
 			status: http.StatusServiceUnavailable, body: "overloaded",
-			want: KindUnavailable, retryable: true,
+			want: failure.KindUnavailable, retryable: true,
 		},
 		{
 			name:   "529 — a non-standard overload code — is still retried",
 			status: 529, body: "overloaded_error",
-			want: KindUnavailable, retryable: true,
+			want: failure.KindUnavailable, retryable: true,
 			why: "any 5xx is the provider's fault, so the rule must not be a list of known codes",
 		},
 	}
@@ -125,7 +127,7 @@ func TestQuotaDetectionIsCaseInsensitive(t *testing.T) {
 		"billing hard limit reached",
 		"Your Free Tier allowance is used up",
 	} {
-		if classifyStatus(http.StatusTooManyRequests, body) != KindQuota {
+		if classifyStatus(http.StatusTooManyRequests, body) != failure.KindQuota {
 			t.Errorf("body %q on a 429 should classify as quota", body)
 		}
 	}
@@ -141,8 +143,8 @@ func TestPlainRateLimitIsNotMistakenForQuota(t *testing.T) {
 		"429: slow down",
 		"",
 	} {
-		if got := classifyStatus(http.StatusTooManyRequests, body); got != KindRateLimit {
-			t.Errorf("body %q on a 429 classified as %q, want %q", body, got, KindRateLimit)
+		if got := classifyStatus(http.StatusTooManyRequests, body); got != failure.KindRateLimit {
+			t.Errorf("body %q on a 429 classified as %q, want %q", body, got, failure.KindRateLimit)
 		}
 	}
 }
@@ -151,7 +153,7 @@ func TestPlainRateLimitIsNotMistakenForQuota(t *testing.T) {
 // BAD_RESPONSE. The request is deterministic, so retrying truncates at exactly
 // the same place — and bills for it again. Only raising maxTokens fixes it.
 func TestTruncatedReplyIsNotRetryable(t *testing.T) {
-	if KindBadResponse.Retryable() {
+	if failure.KindBadResponse.Retryable() {
 		t.Error("BAD_RESPONSE must not be retryable: an identical request truncates identically")
 	}
 }
@@ -174,7 +176,7 @@ func TestErrorNeverLeaksTheAPIKey(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			pe := newProviderError(KindAuth, 401, "acme", "acme-ultra", tc.body, key, nil)
+			pe := newProviderError(failure.KindAuth, 401, "acme", "acme-ultra", tc.body, key, nil)
 
 			if strings.Contains(pe.Error(), key) {
 				t.Fatalf("the API key survived into the error text: %s", pe.Error())
@@ -209,12 +211,12 @@ func TestRedactionLeavesOrdinaryTextAlone(t *testing.T) {
 // is usually an env var that was never exported into this process.
 func TestErrorMessageNamesTheFix(t *testing.T) {
 	cases := []struct {
-		kind ProviderErrorKind
+		kind failure.ProviderErrorKind
 		want string
 	}{
-		{KindAuth, "apiKeyEnv"},
-		{KindQuota, "models"},
-		{KindModelNotFound, "model.model"},
+		{failure.KindAuth, "apiKeyEnv"},
+		{failure.KindQuota, "models"},
+		{failure.KindModelNotFound, "model.model"},
 	}
 
 	for _, tc := range cases {
@@ -231,18 +233,18 @@ func TestErrorMessageNamesTheFix(t *testing.T) {
 // errors in sentinels, so classification has to survive errors.As at any depth
 // or the retry loop silently stops working.
 func TestProviderErrorIsInspectableThroughWrapping(t *testing.T) {
-	pe := &ProviderError{Kind: KindRateLimit, Status: 429}
-	wrapped := fmt.Errorf("planner: model call failed: %w: %w", ErrModelTransport, pe)
+	pe := &ProviderError{Kind: failure.KindRateLimit, Status: 429}
+	wrapped := fmt.Errorf("planner: model call failed: %w: %w", failure.ErrModelTransport, pe)
 
 	got, ok := asProviderError(wrapped)
 	if !ok {
 		t.Fatal("a wrapped ProviderError must still be recoverable with errors.As")
 	}
-	if got.Kind != KindRateLimit {
-		t.Errorf("kind = %q, want %q", got.Kind, KindRateLimit)
+	if got.Kind != failure.KindRateLimit {
+		t.Errorf("kind = %q, want %q", got.Kind, failure.KindRateLimit)
 	}
 	// The existing failure taxonomy must be untouched by any of this.
-	if !errors.Is(wrapped, ErrModelTransport) {
+	if !errors.Is(wrapped, failure.ErrModelTransport) {
 		t.Error("wrapping must not break the ErrModelTransport sentinel the SDKs depend on")
 	}
 }
@@ -250,7 +252,7 @@ func TestProviderErrorIsInspectableThroughWrapping(t *testing.T) {
 // TestUnwrapReachesTheUnderlyingCause: callers checking for
 // context.DeadlineExceeded must still find it under a ProviderError.
 func TestUnwrapReachesTheUnderlyingCause(t *testing.T) {
-	pe := newProviderError(KindTimeout, 0, "p", "m", "deadline", "", context.DeadlineExceeded)
+	pe := newProviderError(failure.KindTimeout, 0, "p", "m", "deadline", "", context.DeadlineExceeded)
 	if !errors.Is(pe, context.DeadlineExceeded) {
 		t.Error("errors.Is must see through ProviderError to the wrapped cause")
 	}
@@ -318,8 +320,8 @@ func TestContextExpiryIsNotRetryable(t *testing.T) {
 		cancel()
 		// The kind may be retryable in isolation; the loop's own ctx check is
 		// what stops it. What matters here is that cancellation is recognised.
-		if got := classifyTransport(ctx, context.Canceled); got != KindTransport {
-			t.Errorf("got %q, want %q", got, KindTransport)
+		if got := classifyTransport(ctx, context.Canceled); got != failure.KindTransport {
+			t.Errorf("got %q, want %q", got, failure.KindTransport)
 		}
 	})
 
@@ -327,14 +329,14 @@ func TestContextExpiryIsNotRetryable(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
 		defer cancel()
 		time.Sleep(time.Millisecond)
-		if got := classifyTransport(ctx, context.DeadlineExceeded); got != KindTimeout {
-			t.Errorf("got %q, want %q", got, KindTimeout)
+		if got := classifyTransport(ctx, context.DeadlineExceeded); got != failure.KindTimeout {
+			t.Errorf("got %q, want %q", got, failure.KindTimeout)
 		}
 	})
 
 	t.Run("a live context means the fault was the network's", func(t *testing.T) {
-		if got := classifyTransport(context.Background(), errors.New("connection refused")); got != KindTransport {
-			t.Errorf("got %q, want %q", got, KindTransport)
+		if got := classifyTransport(context.Background(), errors.New("connection refused")); got != failure.KindTransport {
+			t.Errorf("got %q, want %q", got, failure.KindTransport)
 		}
 	})
 }

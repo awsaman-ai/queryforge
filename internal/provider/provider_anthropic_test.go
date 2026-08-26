@@ -1,4 +1,4 @@
-package queryforge
+package provider
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/awsaman-ai/queryforge/internal/config"
 )
 
 // TestAnthropicProviderHappyPath verifies the native Messages API request shape
@@ -26,7 +28,7 @@ func TestAnthropicProviderHappyPath(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewAnthropicProvider(ModelConfig{Provider: "anthropic", BaseURL: srv.URL, Model: "claude-opus-4-8"})
+	p := NewAnthropicProvider(config.ModelConfig{Provider: "anthropic", BaseURL: srv.URL, Model: "claude-opus-4-8"})
 	p.APIKey = "sk-ant-test"
 
 	out, err := p.Complete(context.Background(), "system prompt", "user request")
@@ -60,7 +62,7 @@ func TestAnthropicProviderRefusal(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewAnthropicProvider(ModelConfig{BaseURL: srv.URL})
+	p := NewAnthropicProvider(config.ModelConfig{BaseURL: srv.URL})
 	p.APIKey = "k"
 	if _, err := p.Complete(context.Background(), "s", "u"); err == nil || !strings.Contains(err.Error(), "refus") {
 		t.Errorf("expected refusal error, got %v", err)
@@ -75,7 +77,7 @@ func TestAnthropicProviderHTTPError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewAnthropicProvider(ModelConfig{BaseURL: srv.URL})
+	p := NewAnthropicProvider(config.ModelConfig{BaseURL: srv.URL})
 	p.APIKey = "bad"
 	if _, err := p.Complete(context.Background(), "s", "u"); err == nil || !strings.Contains(err.Error(), "401") {
 		t.Errorf("expected 401 error, got %v", err)
@@ -84,17 +86,17 @@ func TestAnthropicProviderHTTPError(t *testing.T) {
 
 // TestProviderForSelection checks config-driven provider selection.
 func TestProviderForSelection(t *testing.T) {
-	if _, ok := ProviderFor(ModelConfig{Provider: "anthropic"}).(*AnthropicProvider); !ok {
+	if _, ok := ProviderFor(config.ModelConfig{Provider: "anthropic"}).(*AnthropicProvider); !ok {
 		t.Errorf("provider=anthropic should select AnthropicProvider")
 	}
-	if _, ok := ProviderFor(ModelConfig{BaseURL: "https://api.anthropic.com"}).(*AnthropicProvider); !ok {
+	if _, ok := ProviderFor(config.ModelConfig{BaseURL: "https://api.anthropic.com"}).(*AnthropicProvider); !ok {
 		t.Errorf("api.anthropic.com should select AnthropicProvider")
 	}
-	if _, ok := ProviderFor(ModelConfig{BaseURL: "https://generativelanguage.googleapis.com/v1beta/openai"}).(*OpenAIProvider); !ok {
+	if _, ok := ProviderFor(config.ModelConfig{BaseURL: "https://generativelanguage.googleapis.com/v1beta/openai"}).(*OpenAIProvider); !ok {
 		t.Errorf("gemini openai endpoint should select OpenAIProvider")
 	}
 	// Anthropic's own OpenAI-compat path (if ever used) stays on the OpenAI provider.
-	if _, ok := ProviderFor(ModelConfig{BaseURL: "https://api.anthropic.com/v1/openai"}).(*OpenAIProvider); !ok {
+	if _, ok := ProviderFor(config.ModelConfig{BaseURL: "https://api.anthropic.com/v1/openai"}).(*OpenAIProvider); !ok {
 		t.Errorf("anthropic /openai path should select OpenAIProvider")
 	}
 }

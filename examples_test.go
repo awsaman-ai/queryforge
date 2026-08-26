@@ -3,6 +3,8 @@ package queryforge
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/awsaman-ai/queryforge/internal/config"
 )
 
 // TestExampleConfigsParse loads every shipped example config and confirms it
@@ -32,7 +34,7 @@ func TestExampleConfigsParse(t *testing.T) {
 		}
 		// Every field must be individually valid (type known, enum has values).
 		for _, fld := range c.Fields {
-			if !validFieldType(fld.Type) {
+			if !config.ValidFieldType(fld.Type) {
 				t.Errorf("%s: field %q has bad type %q", f, fld.Name, fld.Type)
 			}
 		}

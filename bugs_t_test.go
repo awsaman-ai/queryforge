@@ -13,6 +13,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/awsaman-ai/queryforge/internal/ast"
+	"github.com/awsaman-ai/queryforge/internal/config"
+	"github.com/awsaman-ai/queryforge/internal/explain"
 )
 
 // tConfig is a small config covering the shapes these tests need: an enum, a
@@ -282,7 +286,7 @@ func TestQFT005MySQLDialect(t *testing.T) {
 		{Type: CondComparison, Field: "tags", Operator: OpContainsAll, Value: &Value{Kind: KindArray, V: []any{"premium"}}},
 	}}
 	q.Sort = []SortSpec{{Field: "createdAt", Dir: "DESC"}}
-	q.Limit = intPtr(10)
+	q.Limit = ast.IntPtr(10)
 	if err := Validate(q, c); err != nil {
 		t.Fatalf("test AST is invalid: %v", err)
 	}
@@ -326,7 +330,7 @@ func TestQFT005MySQLOffsetWithoutLimit(t *testing.T) {
 	c := tConfig(t)
 	c.Defaults.Limit = 0
 	q := NewQuery("Order")
-	q.Offset = intPtr(20)
+	q.Offset = ast.IntPtr(20)
 
 	sql := tGen(t, c, q, "mysql").SQL
 	if !strings.Contains(sql, "LIMIT 18446744073709551615 OFFSET 20") {
@@ -467,7 +471,7 @@ func TestQFT008RegexPolicy(t *testing.T) {
 	if err := Validate(pattern("^A"), c); err != nil {
 		t.Fatalf("an ordinary pattern was rejected: %v", err)
 	}
-	if err := Validate(pattern(strings.Repeat("a", defaultMaxRegexLength+1)), c); err == nil {
+	if err := Validate(pattern(strings.Repeat("a", config.DefaultMaxRegexLength+1)), c); err == nil {
 		t.Error("an over-long pattern passed the default cap")
 	}
 
@@ -522,11 +526,11 @@ func TestQFT009ReservedWordsAreQuoted(t *testing.T) {
 // Mongo-shaped field name — must become an error at the SQL boundary.
 func TestQFT009SQLRejectsNonIdentifiers(t *testing.T) {
 	c := &Config{Entity: "Order", Fields: []Field{{Name: "x", Type: FieldString}}}
-	if err := c.finalize(); err != nil {
+	if err := config.Finalize(c); err != nil {
 		t.Fatalf("finalize: %v", err)
 	}
 	c.Fields[0].Mapping = map[string]string{"sql": "x); DROP TABLE t;--"}
-	c.fieldByName["x"].Mapping = c.Fields[0].Mapping
+	config.FieldIndex(c)["x"].Mapping = c.Fields[0].Mapping
 
 	q := NewQuery("Order")
 	q.Filter = &Condition{Type: CondComparison, Field: "x", Operator: OpEquals,
@@ -567,11 +571,11 @@ func TestQFT011EngineClockReachesThePrompt(t *testing.T) {
 
 func TestQFT012PluralisationIsExplicit(t *testing.T) {
 	cases := map[string]string{
-		describeRelative("day", -30):  "30 days ago",
-		describeRelative("day", -1):   "1 day ago",
-		describeRelative("month", 3):  "3 months from now",
-		describeRelative("days", -30): `30 <invalid unit "days"> ago`,
-		describeRelative("", -30):     `30 <invalid unit ""> ago`,
+		explain.DescribeRelative("day", -30):  "30 days ago",
+		explain.DescribeRelative("day", -1):   "1 day ago",
+		explain.DescribeRelative("month", 3):  "3 months from now",
+		explain.DescribeRelative("days", -30): `30 <invalid unit "days"> ago`,
+		explain.DescribeRelative("", -30):     `30 <invalid unit ""> ago`,
 	}
 	for got, want := range cases {
 		if got != want {
@@ -586,7 +590,7 @@ func TestQFT014UnknownVersionIsRejected(t *testing.T) {
 	c := tConfig(t)
 	q := NewQuery("Order")
 	q.Version = "7"
-	q.Limit = intPtr(1)
+	q.Limit = ast.IntPtr(1)
 
 	err := Validate(q, c)
 	if err == nil {

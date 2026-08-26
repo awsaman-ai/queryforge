@@ -1,4 +1,4 @@
-package queryforge
+package provider
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/awsaman-ai/queryforge/internal/config"
 )
 
 // TestOpenAIProviderHappyPath spins up a fake OpenAI-compatible endpoint and
@@ -28,7 +30,7 @@ func TestOpenAIProviderHappyPath(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewOpenAIProvider(ModelConfig{BaseURL: srv.URL, Model: "test-model", Temperature: 0})
+	p := NewOpenAIProvider(config.ModelConfig{BaseURL: srv.URL, Model: "test-model", Temperature: 0})
 	p.APIKey = "secret-key"
 
 	out, err := p.Complete(context.Background(), "sys", "user text")
@@ -58,7 +60,7 @@ func TestOpenAIProviderHTTPError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewOpenAIProvider(ModelConfig{BaseURL: srv.URL, Model: "m"})
+	p := NewOpenAIProvider(config.ModelConfig{BaseURL: srv.URL, Model: "m"})
 	_, err := p.Complete(context.Background(), "s", "u")
 	if err == nil || !strings.Contains(err.Error(), "429") {
 		t.Errorf("expected 429 error, got %v", err)
@@ -72,7 +74,7 @@ func TestOpenAIProviderModelError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewOpenAIProvider(ModelConfig{BaseURL: srv.URL, Model: "m"})
+	p := NewOpenAIProvider(config.ModelConfig{BaseURL: srv.URL, Model: "m"})
 	_, err := p.Complete(context.Background(), "s", "u")
 	if err == nil || !strings.Contains(err.Error(), "context length") {
 		t.Errorf("expected model error, got %v", err)
@@ -86,7 +88,7 @@ func TestOpenAIProviderNoChoices(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewOpenAIProvider(ModelConfig{BaseURL: srv.URL, Model: "m"})
+	p := NewOpenAIProvider(config.ModelConfig{BaseURL: srv.URL, Model: "m"})
 	if _, err := p.Complete(context.Background(), "s", "u"); err == nil {
 		t.Error("expected error on empty choices")
 	}

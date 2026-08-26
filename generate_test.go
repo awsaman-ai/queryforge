@@ -5,6 +5,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/awsaman-ai/queryforge/internal/ast"
+	"github.com/awsaman-ai/queryforge/internal/gen"
 )
 
 // genConfigJSON carries physical mappings and index/priority hints so the
@@ -62,7 +65,7 @@ func canonicalQuery() *Query {
 		comp("tags", OpContainsAll, vArr("premium", "express")),
 	)
 	q.Sort = []SortSpec{{Field: "createdAt", Dir: "DESC"}}
-	q.Limit = intPtr(50)
+	q.Limit = ast.IntPtr(50)
 	return q
 }
 
@@ -82,7 +85,7 @@ func TestSQLGolden(t *testing.T) {
 	if r.Args[0] != "DELIVERED" || r.Args[2] != false || r.Args[3] != "premium" || r.Args[4] != "express" {
 		t.Errorf("unexpected args: %v", r.Args)
 	}
-	wantTime, err := resolveRelative(fixedNow, "day", -30)
+	wantTime, err := gen.ResolveRelative(fixedNow, "day", -30)
 	if err != nil {
 		t.Fatalf("resolveRelative: %v", err)
 	}
@@ -110,7 +113,7 @@ func TestMongoGolden(t *testing.T) {
 	if !ok {
 		t.Fatalf("createdAt missing: %#v", mq.Filter)
 	}
-	want, err := resolveRelative(fixedNow, "day", -30)
+	want, err := gen.ResolveRelative(fixedNow, "day", -30)
 	if err != nil {
 		t.Fatalf("resolveRelative: %v", err)
 	}

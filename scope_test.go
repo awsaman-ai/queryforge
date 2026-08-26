@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/awsaman-ai/queryforge/internal/ast"
+	"github.com/awsaman-ai/queryforge/internal/planner"
 )
 
 // scopeConfigJSON adds the two shapes a scope key can take to the standard test
@@ -165,7 +168,7 @@ func TestScopeAcceptsGoScalarTypes(t *testing.T) {
 	}{
 		{"string", "SUB-42", "SUB-42"},
 		{"*string", strPtr("SUB-42"), "SUB-42"}, // session structs hold optional ids as pointers
-		{"*int", intPtr(9), float64(9)},
+		{"*int", ast.IntPtr(9), float64(9)},
 		{"int", 9, float64(9)},
 		{"int64", int64(9), float64(9)},
 		{"uint32", uint32(9), float64(9)},
@@ -479,7 +482,7 @@ func TestModelCannotForgeScopedMarker(t *testing.T) {
 	}
 
 	// And via the real parser the planner uses.
-	parsed, err := parseAST(raw, nil)
+	parsed, err := planner.ParseAST(raw, nil)
 	if err != nil {
 		t.Fatalf("parseAST: %v", err)
 	}

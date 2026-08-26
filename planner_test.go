@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/awsaman-ai/queryforge/internal/planner"
 )
 
 func plannerTestConfig(t *testing.T) *Config { return mustParse(t, genConfigJSON) }
@@ -63,13 +65,13 @@ func TestParseASTTolerant(t *testing.T) {
 		"{\"entity\":\"Order\",\"limit\":10}",
 	}
 	for _, raw := range cases {
-		q, err := parseAST(raw, c)
+		q, err := planner.ParseAST(raw, c)
 		if err != nil {
-			t.Errorf("parseAST(%q) errored: %v", raw, err)
+			t.Errorf("planner.ParseAST(%q) errored: %v", raw, err)
 			continue
 		}
 		if q.Entity != "Order" || q.Limit == nil || *q.Limit != 10 {
-			t.Errorf("parseAST(%q) wrong: %+v", raw, q)
+			t.Errorf("planner.ParseAST(%q) wrong: %+v", raw, q)
 		}
 	}
 }
@@ -77,7 +79,7 @@ func TestParseASTTolerant(t *testing.T) {
 // TestParseASTDefaults checks version/entity defaulting for terse output.
 func TestParseASTDefaults(t *testing.T) {
 	c := plannerTestConfig(t)
-	q, err := parseAST(`{"filter":{"type":"comparison","field":"status","operator":"equals","value":{"kind":"enum","v":"PLACED"}}}`, c)
+	q, err := planner.ParseAST(`{"filter":{"type":"comparison","field":"status","operator":"equals","value":{"kind":"enum","v":"PLACED"}}}`, c)
 	if err != nil {
 		t.Fatalf("parseAST: %v", err)
 	}
@@ -92,10 +94,10 @@ func TestParseASTDefaults(t *testing.T) {
 // TestParseASTGarbage is the worst case: no JSON at all.
 func TestParseASTGarbage(t *testing.T) {
 	c := plannerTestConfig(t)
-	if _, err := parseAST("I cannot help with that.", c); err == nil {
+	if _, err := planner.ParseAST("I cannot help with that.", c); err == nil {
 		t.Error("expected error on non-JSON output")
 	}
-	if _, err := parseAST("{not valid json}", c); err == nil {
+	if _, err := planner.ParseAST("{not valid json}", c); err == nil {
 		t.Error("expected error on malformed JSON")
 	}
 }
@@ -146,8 +148,8 @@ func TestExtractJSONObjectMalformedBraces(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := extractJSONObject(tc.in); got != tc.want {
-				t.Errorf("extractJSONObject(%q) = %q, want %q", tc.in, got, tc.want)
+			if got := planner.ExtractJSONObject(tc.in); got != tc.want {
+				t.Errorf("planner.ExtractJSONObject(%q) = %q, want %q", tc.in, got, tc.want)
 			}
 		})
 	}
@@ -166,7 +168,7 @@ func TestJSONModeDefaultsOff(t *testing.T) {
 }
 
 // arrayValuedOperators are the operators whose value must be an array. They are
-// the reason the shape example carries an array predicate; see astShapeExample.
+// the reason the shape example carries an array predicate; see planner.ASTShapeExample.
 var arrayValuedOperators = []Operator{"between", "in", "notIn", "containsAny", "containsAll"}
 
 // TestShapeExampleDemonstratesArrayValue is the regression test for BUG-013.
@@ -180,10 +182,10 @@ var arrayValuedOperators = []Operator{"between", "in", "notIn", "containsAny", "
 // This test fails against the pre-fix constant, which is the point: it pins the
 // example's *teaching* content, not merely its syntax.
 func TestShapeExampleDemonstratesArrayValue(t *testing.T) {
-	if !strings.Contains(astShapeExample, `"kind":"array"`) {
+	if !strings.Contains(planner.ASTShapeExample, `"kind":"array"`) {
 		t.Fatalf("the shape example shows no array value, so operators %v have no example to copy.\n"+
 			"That is BUG-013: the model then emits a scalar and the validator rejects it.\n---\n%s",
-			arrayValuedOperators, astShapeExample)
+			arrayValuedOperators, planner.ASTShapeExample)
 	}
 
 	// It must reach the model, not merely exist as a constant.
@@ -216,7 +218,7 @@ func TestShapeExampleIsItselfValid(t *testing.T) {
       ]
     }`)
 
-	ast, err := parseAST(astShapeExample, c)
+	ast, err := planner.ParseAST(planner.ASTShapeExample, c)
 	if err != nil {
 		t.Fatalf("the shape example does not parse as an AST: %v", err)
 	}
