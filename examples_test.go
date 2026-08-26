@@ -3,6 +3,9 @@ package queryforge
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/awsaman-ai/queryforge/internal/config"
+	"github.com/awsaman-ai/queryforge/internal/testutil"
 )
 
 // TestExampleConfigsParse loads every shipped example config and confirms it
@@ -32,7 +35,7 @@ func TestExampleConfigsParse(t *testing.T) {
 		}
 		// Every field must be individually valid (type known, enum has values).
 		for _, fld := range c.Fields {
-			if !validFieldType(fld.Type) {
+			if !config.ValidFieldType(fld.Type) {
 				t.Errorf("%s: field %q has bad type %q", f, fld.Name, fld.Type)
 			}
 		}
@@ -64,7 +67,7 @@ func TestExampleConfigsGenerate(t *testing.T) {
 			t.Fatalf("%s: expected enum field %q", file, tc.field)
 		}
 		ast := NewQuery(c.Entity)
-		ast.Filter = comp(tc.field, OpEquals, vEnum(fld.Values[0]))
+		ast.Filter = testutil.Comp(tc.field, OpEquals, testutil.VEnum(fld.Values[0]))
 
 		for _, backend := range tc.backends {
 			if _, err := e.GenerateFrom(ast, backend, nil); err != nil {

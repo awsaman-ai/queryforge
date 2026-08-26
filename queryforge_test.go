@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/awsaman-ai/queryforge/internal/planner"
+	"github.com/awsaman-ai/queryforge/internal/testutil"
 )
 
 // scriptedProvider returns a different canned response on each call, so the
@@ -24,19 +27,19 @@ func (s *scriptedProvider) Complete(_ context.Context, _, _ string) (string, err
 	return s.responses[i], nil
 }
 
-func engineTestConfig(t *testing.T) *Config { return mustParse(t, genConfigJSON) }
+func engineTestConfig(t *testing.T) *Config { return testutil.MustParse(t, testutil.GenConfigJSON) }
 
 // newTestEngine wires an engine to a scripted/stub provider with a fixed clock.
 func newTestEngine(t *testing.T, p ModelProvider) *Engine {
 	e := NewWithProvider(engineTestConfig(t), p)
-	e.Now = func() time.Time { return fixedNow }
+	e.Now = func() time.Time { return testutil.FixedNow }
 	return e
 }
 
 // TestTranslateHappyPath: a valid AST from the model compiles to SQL with no
 // repairs.
 func TestTranslateHappyPath(t *testing.T) {
-	e := newTestEngine(t, &StubProvider{Response: canonicalAST})
+	e := newTestEngine(t, &StubProvider{Response: testutil.CanonicalAST})
 
 	res, err := e.Translate(context.Background(), "delivered orders in the last 30 days", "sql", nil)
 	if err != nil {
@@ -83,7 +86,7 @@ func TestTranslateFailsClosed(t *testing.T) {
 
 // TestTranslateUnknownBackend rejects an unregistered backend.
 func TestTranslateUnknownBackend(t *testing.T) {
-	e := newTestEngine(t, &StubProvider{Response: canonicalAST})
+	e := newTestEngine(t, &StubProvider{Response: testutil.CanonicalAST})
 	if _, err := e.Translate(context.Background(), "x", "cassandra", nil); err == nil {
 		t.Error("expected unknown-backend error")
 	}
@@ -92,10 +95,10 @@ func TestTranslateUnknownBackend(t *testing.T) {
 // TestGenerateFromNoModelCall: the deterministic path must not touch the
 // provider at all.
 func TestGenerateFromNoModelCall(t *testing.T) {
-	stub := &StubProvider{Response: canonicalAST}
+	stub := &StubProvider{Response: testutil.CanonicalAST}
 	e := newTestEngine(t, stub)
 
-	ast := canonicalQuery()
+	ast := testutil.CanonicalQuery()
 	res, err := e.GenerateFrom(ast, "mongo", nil)
 	if err != nil {
 		t.Fatalf("GenerateFrom: %v", err)
@@ -111,7 +114,7 @@ func TestGenerateFromNoModelCall(t *testing.T) {
 // TestGenerateFromRejectsInvalid: an invalid AST is never compiled.
 func TestGenerateFromRejectsInvalid(t *testing.T) {
 	e := newTestEngine(t, &StubProvider{})
-	bad := single(comp("nope", OpEquals, vStr("x")))
+	bad := testutil.Single(testutil.Comp("nope", OpEquals, testutil.VStr("x")))
 	if _, err := e.GenerateFrom(bad, "sql", nil); err == nil {
 		t.Error("expected validation error")
 	}
@@ -120,7 +123,7 @@ func TestGenerateFromRejectsInvalid(t *testing.T) {
 // TestGenerateFromFanOut: one AST compiles to multiple backends.
 func TestGenerateFromFanOut(t *testing.T) {
 	e := newTestEngine(t, &StubProvider{})
-	ast := canonicalQuery()
+	ast := testutil.CanonicalQuery()
 
 	sql, err := e.GenerateFrom(ast, "sql", nil)
 	if err != nil {
@@ -138,7 +141,7 @@ func TestGenerateFromFanOut(t *testing.T) {
 // TestEngineValidateAndBackends covers the small helpers.
 func TestEngineValidateAndBackends(t *testing.T) {
 	e := newTestEngine(t, &StubProvider{})
-	if err := e.Validate(canonicalQuery()); err != nil {
+	if err := e.Validate(testutil.CanonicalQuery()); err != nil {
 		t.Errorf("valid AST rejected: %v", err)
 	}
 	if got := strings.Join(e.Backends(), ","); got != "elasticsearch,mongo,mysql,opensearch,sql" {
@@ -148,7 +151,7 @@ func TestEngineValidateAndBackends(t *testing.T) {
 
 // TestNewFromConfig checks the standard constructor wires a real provider.
 func TestNewFromConfig(t *testing.T) {
-	c := mustParse(t, genConfigJSON)
+	c := testutil.MustParse(t, testutil.GenConfigJSON)
 	e := New(c)
 	if e.provider == nil || e.planner == nil {
 		t.Error("New did not wire provider/planner")
@@ -165,7 +168,7 @@ func TestNewFromConfig(t *testing.T) {
 // live) must consume one repair attempt and then succeed, not abort the whole
 // request.
 func TestTranslateRepairsUnparseableOutput(t *testing.T) {
-	p := &scriptedProvider{responses: []string{`{"entity":"Order","filter":{`, canonicalAST}}
+	p := &scriptedProvider{responses: []string{`{"entity":"Order","filter":{`, testutil.CanonicalAST}}
 	e := newTestEngine(t, p)
 
 	res, err := e.Translate(context.Background(), "delivered orders", "sql", nil)
@@ -183,7 +186,7 @@ func TestTranslateRepairsUnparseableOutput(t *testing.T) {
 // TestRepairHintForParseFailureMentionsFormat checks the retry tells the model
 // about output format rather than about validation, which would be misleading.
 func TestRepairHintForParseFailureMentionsFormat(t *testing.T) {
-	got := buildUserPrompt("orders", RepairHint{Kind: RepairParse, Message: "invalid character '}'"})
+	got := planner.BuildUserPrompt("orders", RepairHint{Kind: RepairParse, Message: "invalid character '}'"})
 	if !strings.Contains(got, "could not be parsed as JSON") {
 		t.Errorf("parse hint missing from prompt: %q", got)
 	}
@@ -231,8 +234,8 @@ func TestTranslateGivesUpOnPersistentGarbage(t *testing.T) {
 // TestParseASTDetectsRefusal checks the refusal marker becomes a typed error
 // rather than decoding into an empty (unfiltered) Query.
 func TestParseASTDetectsRefusal(t *testing.T) {
-	c := mustParse(t, genConfigJSON)
-	_, err := parseAST(`{"unsupported":"no field for shipping warehouse"}`, c)
+	c := testutil.MustParse(t, testutil.GenConfigJSON)
+	_, err := planner.ParseAST(`{"unsupported":"no field for shipping warehouse"}`, c)
 
 	var unsupported *UnsupportedRequestError
 	if !errors.As(err, &unsupported) {
@@ -268,7 +271,7 @@ func TestTranslateSurfacesRefusal(t *testing.T) {
 // refusal were tagged ErrModelOutput the engine would retry it, re-asking a
 // question the model has already answered.
 func TestRefusalIsNotTaggedAsParseFailure(t *testing.T) {
-	c := mustParse(t, genConfigJSON)
+	c := testutil.MustParse(t, testutil.GenConfigJSON)
 	pl := NewPlanner(c, &StubProvider{Response: `{"unsupported":"no such field"}`})
 
 	_, _, err := pl.Plan(context.Background(), "x", RepairHint{})
@@ -283,8 +286,8 @@ func TestRefusalIsNotTaggedAsParseFailure(t *testing.T) {
 // TestSystemPromptStatesRefusalContract checks the model is actually told how to
 // decline; without this rule it substitutes a wrong field instead.
 func TestSystemPromptStatesRefusalContract(t *testing.T) {
-	c := mustParse(t, genConfigJSON)
-	got := NewPlanner(c, &StubProvider{}).SystemPrompt(fixedNow)
+	c := testutil.MustParse(t, testutil.GenConfigJSON)
+	got := NewPlanner(c, &StubProvider{}).SystemPrompt(testutil.FixedNow)
 	for _, want := range []string{"unsupported", "do not substitute a different field"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("system prompt missing %q", want)

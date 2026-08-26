@@ -42,5 +42,5 @@ __pycache__/
 .vscode/
 
 # Personal working notes (kept locally, not published)
-new_requirements.md
+design/new_requirements.md
 bugs.csv

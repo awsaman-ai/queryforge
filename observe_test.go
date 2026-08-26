@@ -12,6 +12,10 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/awsaman-ai/queryforge/internal/config"
+	"github.com/awsaman-ai/queryforge/internal/observe"
+	"github.com/awsaman-ai/queryforge/internal/testutil"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -89,7 +93,7 @@ const (
 // and one translate event, both OK, in that order.
 func TestObserverHappyPathSequence(t *testing.T) {
 	var rec recorder
-	e := newTestEngine(t, &StubProvider{Response: canonicalAST})
+	e := newTestEngine(t, &StubProvider{Response: testutil.CanonicalAST})
 	e.SetObserver(rec.observe())
 
 	if _, err := e.Translate(context.Background(), "delivered orders", "sql", nil); err != nil {
@@ -172,13 +176,13 @@ func TestObserverOutcomeClassification(t *testing.T) {
 	}{
 		{
 			name:      "unknown backend is a caller error, decided before any model call",
-			provider:  &StubProvider{Response: canonicalAST},
+			provider:  &StubProvider{Response: testutil.CanonicalAST},
 			backend:   "graphql",
 			wantFinal: OutcomeCallerError,
 		},
 		{
 			name:      "bad scope is a caller error",
-			provider:  &StubProvider{Response: canonicalAST},
+			provider:  &StubProvider{Response: testutil.CanonicalAST},
 			backend:   "sql",
 			scope:     Scope{"tenantId": nil}, // nil value is never a valid filter
 			wantFinal: OutcomeCallerError,
@@ -261,10 +265,10 @@ func TestObserverExactlyOneTranslateEventPerCall(t *testing.T) {
 		backend  string
 		scope    Scope
 	}{
-		{"success", &StubProvider{Response: canonicalAST}, "sql", nil},
-		{"success with scope", &StubProvider{Response: canonicalAST}, "sql", Scope{"tenantId": "T-1"}},
-		{"unknown backend", &StubProvider{Response: canonicalAST}, "graphql", nil},
-		{"bad scope", &StubProvider{Response: canonicalAST}, "sql", Scope{"tenantId": nil}},
+		{"success", &StubProvider{Response: testutil.CanonicalAST}, "sql", nil},
+		{"success with scope", &StubProvider{Response: testutil.CanonicalAST}, "sql", Scope{"tenantId": "T-1"}},
+		{"unknown backend", &StubProvider{Response: testutil.CanonicalAST}, "graphql", nil},
+		{"bad scope", &StubProvider{Response: testutil.CanonicalAST}, "sql", Scope{"tenantId": nil}},
 		{"transport failure", &erroringProvider{err: errors.New("boom")}, "sql", nil},
 		{"refusal", &StubProvider{Response: refusalReply}, "sql", nil},
 		{"budget exhausted on parse", &StubProvider{Response: unparseableReply}, "sql", nil},
@@ -303,7 +307,7 @@ func TestObserverNeverLeaksQuestionOrScopeValues(t *testing.T) {
 		name     string
 		provider ModelProvider
 	}{
-		{"success", &StubProvider{Response: canonicalAST}},
+		{"success", &StubProvider{Response: testutil.CanonicalAST}},
 		{"validation failure", &StubProvider{Response: invalidAST}},
 		{"transport failure", &erroringProvider{err: errors.New("boom")}},
 	} {
@@ -341,7 +345,7 @@ func TestObserverNeverLeaksQuestionOrScopeValues(t *testing.T) {
 // audit trail and are emitted; the values are not.
 func TestObserverReportsScopeKeysWithoutValues(t *testing.T) {
 	var rec recorder
-	e := newTestEngine(t, &StubProvider{Response: canonicalAST})
+	e := newTestEngine(t, &StubProvider{Response: testutil.CanonicalAST})
 	e.SetObserver(rec.observe())
 
 	if _, err := e.Translate(context.Background(), "delivered orders", "sql",
@@ -384,7 +388,7 @@ func TestObserverRawCarriesTheModelReplyOnFailure(t *testing.T) {
 // TestNilObserverIsTheDefaultAndIsSafe: no Observer is the configuration that
 // runs everywhere, so it must work on every path without a nil dereference.
 func TestNilObserverIsTheDefaultAndIsSafe(t *testing.T) {
-	e := newTestEngine(t, &StubProvider{Response: canonicalAST})
+	e := newTestEngine(t, &StubProvider{Response: testutil.CanonicalAST})
 	if e.Observe != nil {
 		t.Fatal("Observe must default to nil")
 	}
@@ -400,7 +404,7 @@ func TestNilObserverIsTheDefaultAndIsSafe(t *testing.T) {
 
 	// Calling the zero Observer directly must also be safe.
 	var o Observer
-	o.emit(context.Background(), Event{Kind: EventAttempt})
+	observe.Emit(o, context.Background(), Event{Kind: EventAttempt})
 }
 
 // TestObserverPanicPropagates pins the documented contract: a panicking Observer
@@ -413,7 +417,7 @@ func TestObserverPanicPropagates(t *testing.T) {
 		}
 	}()
 
-	e := newTestEngine(t, &StubProvider{Response: canonicalAST})
+	e := newTestEngine(t, &StubProvider{Response: testutil.CanonicalAST})
 	e.SetObserver(func(context.Context, Event) { panic("observer blew up") })
 
 	_, _ = e.Translate(context.Background(), "delivered orders", "sql", nil)
@@ -425,7 +429,7 @@ func TestObserverPanicPropagates(t *testing.T) {
 // delivery ever became async this test would see an empty recorder.
 func TestObserverIsCalledSynchronously(t *testing.T) {
 	var rec recorder
-	e := newTestEngine(t, &StubProvider{Response: canonicalAST})
+	e := newTestEngine(t, &StubProvider{Response: testutil.CanonicalAST})
 	e.SetObserver(rec.observe())
 
 	if _, err := e.Translate(context.Background(), "delivered orders", "sql", nil); err != nil {
@@ -446,7 +450,7 @@ func TestObserverReceivesTheCallerContext(t *testing.T) {
 	var mu sync.Mutex
 	seen := map[string]int{} // request id -> events observed under it
 
-	e := newTestEngine(t, &StubProvider{Response: canonicalAST})
+	e := newTestEngine(t, &StubProvider{Response: testutil.CanonicalAST})
 	e.SetObserver(func(ctx context.Context, _ Event) {
 		rid, _ := ctx.Value(ridKey{}).(string)
 		mu.Lock()
@@ -486,7 +490,7 @@ func TestObserverReceivesTheCallerContext(t *testing.T) {
 // already does) this is the guard against the seam introducing shared state.
 func TestObserverUnderConcurrentTranslate(t *testing.T) {
 	var rec recorder
-	e := newTestEngine(t, &StubProvider{Response: canonicalAST})
+	e := newTestEngine(t, &StubProvider{Response: testutil.CanonicalAST})
 	e.SetObserver(rec.observe())
 
 	const goroutines = 8
@@ -524,8 +528,8 @@ func TestHiddenTokensClampsAtZero(t *testing.T) {
 		{10, 50, 50, 0},       // nonsense from the provider: clamp, never negative
 	}
 	for _, c := range cases {
-		if got := hiddenTokens(c.total, c.prompt, c.completion); got != c.want {
-			t.Errorf("hiddenTokens(%d,%d,%d) = %d, want %d",
+		if got := observe.HiddenTokens(c.total, c.prompt, c.completion); got != c.want {
+			t.Errorf("observe.HiddenTokens(%d,%d,%d) = %d, want %d",
 				c.total, c.prompt, c.completion, got, c.want)
 		}
 	}
@@ -673,8 +677,8 @@ func TestModelCallEventEmittedOnEveryFailurePath(t *testing.T) {
 			t.Fatal("expected an error")
 		}
 		calls := rec.kind(EventModelCall)
-		if len(calls) != defaultMaxRetries+1 {
-			t.Fatalf("got %d model_call events, want %d (one per round trip)", len(calls), defaultMaxRetries+1)
+		if len(calls) != config.DefaultMaxRetries+1 {
+			t.Fatalf("got %d model_call events, want %d (one per round trip)", len(calls), config.DefaultMaxRetries+1)
 		}
 		for i, ev := range calls {
 			if ev.Retry != i {
@@ -734,7 +738,7 @@ func TestSetObserverWiresTheProvider(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		resp := map[string]any{
 			"choices": []any{map[string]any{
-				"message":       map[string]any{"content": canonicalAST},
+				"message":       map[string]any{"content": testutil.CanonicalAST},
 				"finish_reason": "stop",
 			}},
 			"usage": map[string]any{"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
@@ -745,7 +749,7 @@ func TestSetObserverWiresTheProvider(t *testing.T) {
 
 	var rec recorder
 	e := NewWithProvider(engineTestConfig(t), NewOpenAIProvider(ModelConfig{BaseURL: srv.URL, Model: "m", Provider: "test"}))
-	e.Now = func() time.Time { return fixedNow }
+	e.Now = func() time.Time { return testutil.FixedNow }
 	e.SetObserver(rec.observe())
 
 	if _, err := e.Translate(context.Background(), "delivered orders", "sql", nil); err != nil {
@@ -774,7 +778,7 @@ func TestSetObserverWiresTheProvider(t *testing.T) {
 // you lose tokens and latency, never correctness.
 func TestSetObserverOnAnUnreportingProviderStillEmits(t *testing.T) {
 	var rec recorder
-	e := newTestEngine(t, &StubProvider{Response: canonicalAST}) // no SetObserver method
+	e := newTestEngine(t, &StubProvider{Response: testutil.CanonicalAST}) // no SetObserver method
 	e.SetObserver(rec.observe())
 
 	if _, err := e.Translate(context.Background(), "delivered orders", "sql", nil); err != nil {

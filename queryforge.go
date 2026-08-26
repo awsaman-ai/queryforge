@@ -1,3 +1,8 @@
+// Package queryforge compiles natural language into database queries across
+// many backends by way of a validated intermediate representation (the Query
+// AST). The model never writes a query; it emits an AST constrained to a
+// config-registered vocabulary, and deterministic code compiles that AST to
+// each backend. See the package README for the design rationale.
 package queryforge
 
 import (
@@ -6,6 +11,16 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/awsaman-ai/queryforge/internal/explain"
+	"github.com/awsaman-ai/queryforge/internal/failure"
+	"github.com/awsaman-ai/queryforge/internal/gen"
+	"github.com/awsaman-ai/queryforge/internal/observe"
+	"github.com/awsaman-ai/queryforge/internal/planner"
+	"github.com/awsaman-ai/queryforge/internal/policy"
+	"github.com/awsaman-ai/queryforge/internal/provider"
+	qscope "github.com/awsaman-ai/queryforge/internal/scope"
+	"github.com/awsaman-ai/queryforge/internal/validate"
 )
 
 // Engine is the public entry point of the library. It composes the four pieces
@@ -16,8 +31,8 @@ import (
 type Engine struct {
 	config     *Config          // the single source of truth
 	provider   ModelProvider    // how the model is reached
-	planner    *Planner         // NL -> candidate AST
-	registry   *Registry        // backend id -> generator
+	planner    *planner.Planner // NL -> candidate AST
+	registry   *gen.Registry    // backend id -> generator
 	MaxRepairs int              // bounded validation-repair retries (default 2)
 	Now        func() time.Time // injectable clock for relative dates (tests)
 
@@ -136,8 +151,8 @@ func NewWithProvider(c *Config, p ModelProvider) *Engine {
 	e := &Engine{
 		config:     c,
 		provider:   p,
-		planner:    NewPlanner(c, p),
-		registry:   DefaultRegistry(),
+		planner:    planner.New(c, p),
+		registry:   gen.DefaultRegistry(),
 		MaxRepairs: 2, // §5.2: bounded to N retries, then fail closed
 		Now:        func() time.Time { return time.Now().UTC() },
 	}
@@ -164,7 +179,7 @@ func NewWithProvider(c *Config, p ModelProvider) *Engine {
 // a test stub) are skipped silently; the engine's own events still flow.
 func (e *Engine) SetObserver(o Observer) {
 	e.Observe = o
-	if s, ok := e.provider.(observerSetter); ok {
+	if s, ok := e.provider.(observe.ObserverSetter); ok {
 		s.SetObserver(o)
 	}
 }
@@ -211,14 +226,14 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 		ev.Err = err
 		ev.Duration = time.Since(start)
 		ev.RepairAttempts = attempt
-		ev.ScopeKeys = scopeKeys(filters)
+		ev.ScopeKeys = qscope.Keys(filters)
 		if res != nil {
 			ev.Warnings = res.Warnings
 		}
-		e.Observe.emit(ctx, ev)
+		observe.Emit(e.Observe, ctx, ev)
 	}
 
-	gen, ok := e.registry.Get(backend)
+	g, ok := e.registry.Get(backend)
 	if !ok {
 		err := fmt.Errorf("unknown backend %q (registered: %s)", backend, strings.Join(e.registry.Backends(), ", "))
 		done(0, OutcomeCallerError, err, nil, nil)
@@ -232,7 +247,7 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 	// Named scopeErr rather than err deliberately: the repair loop below declares
 	// its own err per iteration, and a function-scoped err here would be shadowed
 	// by it — which reads as though the loop were assigning the outer variable.
-	filters, scopeErr := normalizeScope(scope, e.config)
+	filters, scopeErr := qscope.Normalize(scope, e.config)
 	if scopeErr != nil {
 		done(0, OutcomeCallerError, scopeErr, nil, nil)
 		return nil, scopeErr
@@ -255,15 +270,15 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 				ev := base(EventAttempt, attempt)
 				ev.Outcome = outcome
 				ev.Err = err
-				ev.Raw = truncateRaw(raw, e.MaxRawLength) // bounded before it leaves the library
-				e.Observe.emit(ctx, ev)
+				ev.Raw = observe.TruncateRaw(raw, e.MaxRawLength) // bounded before it leaves the library
+				observe.Emit(e.Observe, ctx, ev)
 			}
 
 			// An unreadable reply is worth another ask — models occasionally
 			// emit truncated or double-brace JSON, and one nudge usually fixes
 			// it. Everything else (transport failure, or a deliberate refusal)
 			// will not change on a retry, so surface it now.
-			if errors.Is(err, ErrModelOutput) {
+			if errors.Is(err, failure.ErrModelOutput) {
 				lastErr = err
 				hint = RepairHint{Kind: RepairParse, Message: err.Error()}
 				// No Errors slice: nothing parsed, so there is no AST to have
@@ -277,21 +292,21 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 			return nil, err
 		}
 
-		if verr := Validate(ast, e.config); verr != nil {
+		if verr := validate.Validate(ast, e.config); verr != nil {
 			// A policy violation is a deliberate refusal, not a repairable
 			// mistake: the model produced a legal AST, but it broke a business
 			// rule the question gave it no way to satisfy (e.g. "passport expiry"
 			// with no country anywhere in the sentence). Asking again would not
 			// add information the question does not contain, so fail closed now
 			// instead of spending the repair budget chasing it.
-			var perr *PolicyViolationError
+			var perr *policy.PolicyViolationError
 			if errors.As(verr, &perr) {
 				if e.Observe != nil {
 					ev := base(EventAttempt, attempt)
 					ev.Outcome = OutcomePolicy
 					ev.Err = perr
-					ev.Raw = truncateRaw(raw, e.MaxRawLength)
-					e.Observe.emit(ctx, ev)
+					ev.Raw = observe.TruncateRaw(raw, e.MaxRawLength)
+					observe.Emit(e.Observe, ctx, ev)
 				}
 				done(attempt, OutcomePolicy, perr, nil, filters)
 				return nil, perr
@@ -302,8 +317,8 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 				ev := base(EventAttempt, attempt)
 				ev.Outcome = OutcomeValidation
 				ev.Err = verr
-				ev.Raw = truncateRaw(raw, e.MaxRawLength) // bounded before it leaves the library
-				e.Observe.emit(ctx, ev)
+				ev.Raw = observe.TruncateRaw(raw, e.MaxRawLength) // bounded before it leaves the library
+				observe.Emit(e.Observe, ctx, ev)
 			}
 			// Feed the rule it broke back to the model.
 			hint = RepairHint{Kind: RepairValidation, Message: verr.Error()}
@@ -314,7 +329,7 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 			// degrade to just the message, never panic. errors.As rather than a
 			// type assertion so the findings survive a validator that wraps.
 			rec := RepairRecord{Attempt: attempt, Kind: RepairValidation, Message: verr.Error()}
-			var ves ValidationErrors
+			var ves validate.ValidationErrors
 			if errors.As(verr, &ves) {
 				rec.Errors = ves
 			}
@@ -330,14 +345,14 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 		if e.Observe != nil {
 			ev := base(EventAttempt, attempt)
 			ev.Outcome = OutcomeOK
-			e.Observe.emit(ctx, ev)
+			observe.Emit(e.Observe, ctx, ev)
 		}
 
 		// Valid AST: splice in the caller's scope, then compile deterministically
 		// and explain. Both the query and the explanation describe the effective
 		// AST, so what the caller is shown is always what will run.
-		effective := applyScope(ast, filters)
-		res, gerr := gen.Generate(effective, e.config, GenOptions{Now: e.now()})
+		effective := qscope.Apply(ast, filters)
+		res, gerr := g.Generate(effective, e.config, GenOptions{Now: e.now()})
 		if gerr != nil {
 			done(attempt, OutcomeGenerate, gerr, nil, filters)
 			return nil, gerr
@@ -345,7 +360,7 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 		out := &TranslateResult{
 			AST:            ast,
 			Query:          res,
-			Explain:        Explain(effective, e.config),
+			Explain:        explain.Explain(effective, e.config),
 			Raw:            raw,
 			Warnings:       res.Warnings,
 			RepairAttempts: attempt,
@@ -356,7 +371,7 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 			out.AST = effective // report the compiled AST instead of the model's
 		}
 		// When a fallback chain is configured, record which model answered.
-		if namer, ok := e.provider.(providerNamer); ok {
+		if namer, ok := e.provider.(provider.Namer); ok {
 			out.ProviderUsed = namer.LastUsed()
 		}
 		done(attempt, OutcomeOK, nil, out, filters)
@@ -366,7 +381,7 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 	// Budget exhausted. Name the failure kind so the caller can tell a schema
 	// mismatch (fix the config or the phrasing) from a model that kept emitting
 	// unusable output (retry, or switch models).
-	if errors.Is(lastErr, ErrModelOutput) {
+	if errors.Is(lastErr, failure.ErrModelOutput) {
 		spent := fmt.Errorf("model returned unparseable output on all %d attempt(s); last error: %w", e.MaxRepairs+1, lastErr)
 		done(e.MaxRepairs, OutcomeBudgetSpent, spent, nil, filters)
 		return nil, spent
@@ -381,13 +396,13 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 // is a deliberate answer, a transport failure never reaches the model, and an
 // unreadable reply is the repairable case.
 func classifyPlanError(err error) Outcome {
-	var unsupported *UnsupportedRequestError
+	var unsupported *failure.UnsupportedRequestError
 	switch {
 	case errors.As(err, &unsupported):
 		return OutcomeRefusal
-	case errors.Is(err, ErrModelOutput):
+	case errors.Is(err, failure.ErrModelOutput):
 		return OutcomeParseError
-	case errors.Is(err, ErrModelTransport):
+	case errors.Is(err, failure.ErrModelTransport):
 		return OutcomeTransport
 	default:
 		// Plan tags everything it returns, so this is unreachable today. Report
@@ -409,18 +424,18 @@ func classifyPlanError(err error) Outcome {
 // same scope compiles the same predicates each time rather than accumulating
 // them.
 func (e *Engine) GenerateFrom(ast *Query, backend string, scope Scope) (*Result, error) {
-	gen, ok := e.registry.Get(backend)
+	g, ok := e.registry.Get(backend)
 	if !ok {
 		return nil, fmt.Errorf("unknown backend %q (registered: %s)", backend, strings.Join(e.registry.Backends(), ", "))
 	}
-	if err := Validate(ast, e.config); err != nil {
+	if err := validate.Validate(ast, e.config); err != nil {
 		return nil, err // never compile an invalid AST
 	}
-	filters, err := normalizeScope(scope, e.config)
+	filters, err := qscope.Normalize(scope, e.config)
 	if err != nil {
 		return nil, err
 	}
-	return gen.Generate(applyScope(ast, filters), e.config, GenOptions{Now: e.now()})
+	return g.Generate(qscope.Apply(ast, filters), e.config, GenOptions{Now: e.now()})
 }
 
 // ApplyScope performs, on its own, the scope-injection step that Translate and
@@ -432,16 +447,16 @@ func (e *Engine) GenerateFrom(ast *Query, backend string, scope Scope) (*Result,
 // that was applied. It is deterministic — no model call, no network — and never
 // modifies ast.
 func (e *Engine) ApplyScope(ast *Query, scope Scope) (*Query, []ScopeFilter, error) {
-	filters, err := normalizeScope(scope, e.config)
+	filters, err := qscope.Normalize(scope, e.config)
 	if err != nil {
 		return nil, nil, err
 	}
-	return applyScope(ast, filters), filters, nil
+	return qscope.Apply(ast, filters), filters, nil
 }
 
 // Validate exposes standalone validation with the engine's config.
 func (e *Engine) Validate(ast *Query) error {
-	return Validate(ast, e.config)
+	return validate.Validate(ast, e.config)
 }
 
 // Register adds (or replaces) a backend generator — the plugin point.

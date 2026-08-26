@@ -1,0 +1,250 @@
+package planner_test
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/awsaman-ai/queryforge/internal/testutil"
+
+	. "github.com/awsaman-ai/queryforge/internal/ast"
+	. "github.com/awsaman-ai/queryforge/internal/config"
+	. "github.com/awsaman-ai/queryforge/internal/planner"
+	. "github.com/awsaman-ai/queryforge/internal/provider"
+	. "github.com/awsaman-ai/queryforge/internal/validate"
+)
+
+func plannerTestConfig(t *testing.T) *Config { return testutil.MustParse(t, testutil.GenConfigJSON) }
+
+// TestSystemPromptContent checks the config is faithfully injected and that an
+// excluded field never leaks into the prompt.
+func TestSystemPromptContent(t *testing.T) {
+	c := testutil.MustParse(t, `{
+      "entity":"Order","model":{},
+      "fields":[
+        {"name":"status","type":"enum","values":["PLACED","DELIVERED"],"operators":["equals","in"],"synonyms":["state"]},
+        {"name":"secret","type":"string","queryable":false}
+      ]
+    }`)
+	pl := New(c, &StubProvider{})
+	prompt := pl.SystemPrompt(time.Date(2026, 7, 28, 0, 0, 0, 0, time.UTC))
+
+	for _, want := range []string{"Entity: Order", "2026-07-28", "status (enum)", "PLACED,DELIVERED", "operators=[equals, in]", "synonyms=[state]"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt missing %q\n---\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "secret") {
+		t.Errorf("excluded field leaked into prompt:\n%s", prompt)
+	}
+}
+
+// TestPlanHappyPath feeds a canned AST through the stub and checks parsing.
+func TestPlanHappyPath(t *testing.T) {
+	c := plannerTestConfig(t)
+	stub := &StubProvider{Response: testutil.CanonicalAST}
+	pl := New(c, stub)
+
+	ast, raw, err := pl.Plan(context.Background(), "delivered orders last 30 days", RepairHint{})
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	if raw == "" {
+		t.Errorf("raw output should be returned for logging")
+	}
+	if ast.Entity != "Order" || ast.Filter == nil || ast.Filter.Type != CondLogical {
+		t.Errorf("parsed AST wrong: %+v", ast)
+	}
+	if stub.LastUser != "Request: delivered orders last 30 days" {
+		t.Errorf("user prompt wrong: %q", stub.LastUser)
+	}
+}
+
+// TestParseASTTolerant checks that fences and surrounding prose are tolerated.
+func TestParseASTTolerant(t *testing.T) {
+	c := plannerTestConfig(t)
+	cases := []string{
+		"```json\n{\"entity\":\"Order\",\"limit\":10}\n```",
+		"Sure! Here is the AST:\n{\"entity\":\"Order\",\"limit\":10}\nHope that helps.",
+		"{\"entity\":\"Order\",\"limit\":10}",
+	}
+	for _, raw := range cases {
+		q, err := ParseAST(raw, c)
+		if err != nil {
+			t.Errorf("planner.ParseAST(%q) errored: %v", raw, err)
+			continue
+		}
+		if q.Entity != "Order" || q.Limit == nil || *q.Limit != 10 {
+			t.Errorf("planner.ParseAST(%q) wrong: %+v", raw, q)
+		}
+	}
+}
+
+// TestParseASTDefaults checks version/entity defaulting for terse output.
+func TestParseASTDefaults(t *testing.T) {
+	c := plannerTestConfig(t)
+	q, err := ParseAST(`{"filter":{"type":"comparison","field":"status","operator":"equals","value":{"kind":"enum","v":"PLACED"}}}`, c)
+	if err != nil {
+		t.Fatalf("parseAST: %v", err)
+	}
+	if q.Version != ASTVersion {
+		t.Errorf("version not defaulted: %q", q.Version)
+	}
+	if q.Entity != "Order" {
+		t.Errorf("entity not defaulted: %q", q.Entity)
+	}
+}
+
+// TestParseASTGarbage is the worst case: no JSON at all.
+func TestParseASTGarbage(t *testing.T) {
+	c := plannerTestConfig(t)
+	if _, err := ParseAST("I cannot help with that.", c); err == nil {
+		t.Error("expected error on non-JSON output")
+	}
+	if _, err := ParseAST("{not valid json}", c); err == nil {
+		t.Error("expected error on malformed JSON")
+	}
+}
+
+// TestPlanProviderError checks provider failures propagate.
+func TestPlanProviderError(t *testing.T) {
+	c := plannerTestConfig(t)
+	pl := New(c, &StubProvider{Err: errors.New("boom")})
+	if _, _, err := pl.Plan(context.Background(), "x", RepairHint{}); err == nil {
+		t.Error("expected provider error to propagate")
+	}
+}
+
+// TestRepairHintInPrompt checks the repair hint reaches the user prompt.
+func TestRepairHintInPrompt(t *testing.T) {
+	c := plannerTestConfig(t)
+	stub := &StubProvider{Response: testutil.CanonicalAST}
+	pl := New(c, stub)
+	_, _, _ = pl.Plan(context.Background(), "orders", RepairHint{Kind: RepairValidation, Message: `unknown field "stat"`})
+	if !strings.Contains(stub.LastUser, "failed validation") || !strings.Contains(stub.LastUser, `unknown field "stat"`) {
+		t.Errorf("repair hint not in prompt: %q", stub.LastUser)
+	}
+}
+
+// TestExtractJSONObjectMalformedBraces covers BUG-008: Gemini's
+// OpenAI-compatibility endpoint returns brace-unbalanced JSON, so the extractor
+// must ignore trailing junk without inventing structure for an unclosed object.
+func TestExtractJSONObjectMalformedBraces(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		// The exact live failure: a spurious extra '}' after a complete object.
+		// "first brace to last brace" would swallow it and fail to parse.
+		{"trailing extra brace", "{\n  \"unsupported\": \"nope\"\n}\n}", "{\n  \"unsupported\": \"nope\"\n}"},
+		{"prose after object", `{"a":1} hope that helps!`, `{"a":1}`},
+		{"nested object intact", `{"a":{"b":2}}`, `{"a":{"b":2}}`},
+		// Braces inside strings are data and must not close the object early.
+		{"brace inside string", `{"a":"}"}`, `{"a":"}"}`},
+		{"escaped quote then brace", `{"a":"say \"}\" ok"}`, `{"a":"say \"}\" ok"}`},
+		{"code fence", "```json\n{\"a\":1}\n```", `{"a":1}`},
+		// The other live variant: the object never closes. Guessing where it
+		// should end could silently produce a query the user never asked for.
+		{"unclosed object", `{"a":1`, ""},
+		{"unclosed nested", `{"a":{"b":1`, ""},
+		{"no object at all", `I cannot help with that`, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ExtractJSONObject(tc.in); got != tc.want {
+				t.Errorf("planner.ExtractJSONObject(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestJSONModeDefaultsOff pins BUG-008's other half: response_format is not sent
+// unless the config opts in, because it makes Gemini emit unbalanced JSON.
+func TestJSONModeDefaultsOff(t *testing.T) {
+	if NewOpenAIProvider(ModelConfig{BaseURL: "http://x", Model: "m"}).JSONMode {
+		t.Error("JSONMode must default to off")
+	}
+	on := true
+	if !NewOpenAIProvider(ModelConfig{BaseURL: "http://x", Model: "m", JSONMode: &on}).JSONMode {
+		t.Error("jsonMode:true in config must enable JSONMode")
+	}
+}
+
+// arrayValuedOperators are the operators whose value must be an array. They are
+// the reason the shape example carries an array predicate; see planner.ASTShapeExample.
+var arrayValuedOperators = []Operator{"between", "in", "notIn", "containsAny", "containsAll"}
+
+// TestShapeExampleDemonstratesArrayValue is the regression test for BUG-013.
+//
+// The prompt teaches the AST by example, so a value shape absent from the
+// example is a shape the model has to invent — and it invented the wrong one
+// every single time. Measured on gemini-3.1-flash-lite, "orders between 100 and
+// 500" failed 10/10 with a scalar-only example and 0/10 once an array predicate
+// was present.
+//
+// This test fails against the pre-fix constant, which is the point: it pins the
+// example's *teaching* content, not merely its syntax.
+func TestShapeExampleDemonstratesArrayValue(t *testing.T) {
+	if !strings.Contains(ASTShapeExample, `"kind":"array"`) {
+		t.Fatalf("the shape example shows no array value, so operators %v have no example to copy.\n"+
+			"That is BUG-013: the model then emits a scalar and the validator rejects it.\n---\n%s",
+			arrayValuedOperators, ASTShapeExample)
+	}
+
+	// It must reach the model, not merely exist as a constant.
+	c := testutil.MustParse(t, `{
+      "entity":"Order","model":{},
+      "fields":[{"name":"amount","type":"number","operators":["between","gt"]}]
+    }`)
+	prompt := New(c, &StubProvider{}).SystemPrompt(time.Now().UTC())
+	if !strings.Contains(prompt, `"kind":"array"`) {
+		t.Error("the array example never reaches the rendered system prompt")
+	}
+}
+
+// TestShapeExampleIsItselfValid checks that the AST the prompt holds up as the
+// model's template actually passes validation.
+//
+// An example teaching an illegal shape is worse than no example: the model
+// copies it faithfully, the validator rejects it, and the repair loop burns the
+// full budget re-emitting the same rejected structure. Parsing and validating it
+// against a config that declares exactly the fields and operators it uses is the
+// cheapest possible guard against that.
+func TestShapeExampleIsItselfValid(t *testing.T) {
+	c := testutil.MustParse(t, `{
+      "entity":"Order","model":{},
+      "defaults":{"limit":50,"maxLimit":500},
+      "fields":[
+        {"name":"status","type":"enum","values":["PLACED","DELIVERED"],"operators":["equals","in"]},
+        {"name":"createdAt","type":"date","operators":["before","after","between"]},
+        {"name":"amount","type":"number","operators":["gt","lt","between"]}
+      ]
+    }`)
+
+	ast, err := ParseAST(ASTShapeExample, c)
+	if err != nil {
+		t.Fatalf("the shape example does not parse as an AST: %v", err)
+	}
+	if err := Validate(ast, c); err != nil {
+		t.Fatalf("the shape example is not a valid AST — the model is being taught a shape "+
+			"the validator rejects: %v", err)
+	}
+
+	// Every array-valued operator the example demonstrates must really be one.
+	for _, cond := range ast.Filter.Children {
+		if cond.Value != nil && cond.Value.Kind == KindArray {
+			found := false
+			for _, op := range arrayValuedOperators {
+				if cond.Operator == op {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("example pairs array value with operator %q, which does not take one", cond.Operator)
+			}
+		}
+	}
+}

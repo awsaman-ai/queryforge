@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/awsaman-ai/queryforge/internal/testutil"
 )
 
 // TestFallbackFirstSucceeds: the first provider answers, later ones are untouched.
@@ -125,7 +127,7 @@ func sizeOf(p ModelProvider) int {
 // TestModelsConfigParses confirms the `models` array round-trips through the
 // strict loader.
 func TestModelsConfigParses(t *testing.T) {
-	c := mustParse(t, `{
+	c := testutil.MustParse(t, `{
       "entity":"Order",
       "model":{"provider":"gemini","baseURL":"https://x/openai","model":"g","apiKeyEnv":"QF_API_KEY"},
       "models":[
@@ -145,11 +147,11 @@ func TestModelsConfigParses(t *testing.T) {
 // TestEngineTranslateFallsThrough proves the whole pipeline recovers when the
 // primary model is down and a fallback answers.
 func TestEngineTranslateFallsThrough(t *testing.T) {
-	cfg := mustParse(t, genConfigJSON)
+	cfg := testutil.MustParse(t, testutil.GenConfigJSON)
 	down := &StubProvider{Err: errors.New("quota exceeded")}
-	up := &StubProvider{Response: canonicalAST}
+	up := &StubProvider{Response: testutil.CanonicalAST}
 	e := NewWithProvider(cfg, NewFallbackProvider(down, up))
-	e.Now = func() time.Time { return fixedNow }
+	e.Now = func() time.Time { return testutil.FixedNow }
 
 	res, err := e.Translate(context.Background(), "delivered orders", "sql", nil)
 	if err != nil {

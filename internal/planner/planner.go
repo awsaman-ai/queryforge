@@ -1,0 +1,370 @@
+// Package planner is the AI half: it builds the system prompt from a config,
+// asks a ModelProvider for a Query AST, and parses the reply.
+//
+// The three model sentinels it used to declare — ErrModelTransport,
+// ErrModelOutput and UnsupportedRequestError — now live in internal/failure,
+// which sits below both this package and internal/provider. That is what lets a
+// provider tag its own failures without importing the planner that calls it.
+package planner
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/awsaman-ai/queryforge/internal/ast"
+	"github.com/awsaman-ai/queryforge/internal/config"
+	"github.com/awsaman-ai/queryforge/internal/failure"
+	"github.com/awsaman-ai/queryforge/internal/provider"
+)
+
+// PromptVersion identifies the prompt template. Bumping it lets prompt changes
+// be A/B tested and rolled back, and it is cheap to log per request.
+const PromptVersion = "qf-planner-v2"
+
+// RepairKind says why a previous attempt was rejected, so the retry prompt can
+// tell the model something actionable instead of a generic "try again".
+type RepairKind int
+
+const (
+	RepairNone       RepairKind = iota // first attempt: no prior failure
+	RepairValidation                   // parsed fine, but broke a config rule
+	RepairParse                        // the reply was not usable JSON
+)
+
+// String names the kind for humans and for the wire. RepairKind is an int so
+// the zero value can mean "first attempt", but an integer in an API response
+// tells a caller nothing, so it is rendered as a word everywhere it escapes.
+func (k RepairKind) String() string {
+	switch k {
+	case RepairValidation:
+		return "validation"
+	case RepairParse:
+		return "parse"
+	default:
+		return "none"
+	}
+}
+
+// MarshalJSON emits the word rather than the integer, so RepairRecord.Kind
+// serializes as "validation" instead of 1.
+func (k RepairKind) MarshalJSON() ([]byte, error) {
+	return json.Marshal(k.String())
+}
+
+// RepairHint carries the previous failure into the next prompt.
+type RepairHint struct {
+	Kind    RepairKind // what went wrong last time
+	Message string     // the underlying error text, fed back verbatim
+}
+
+// Planner is the only AI-touching component. It builds a prompt entirely from
+// the config (the config IS the prompt: which fields, operators, and enum
+// values the model may use), asks the model for a JSON AST, and parses that
+// text back into a *Query. It performs no validation itself — the deterministic
+// validator is the guarantee — so the Planner's job ends at "produce a
+// candidate AST".
+type Planner struct {
+	Config   *config.Config         // vocabulary + model selection
+	Provider provider.ModelProvider // how the model is reached
+	Now      func() time.Time       // injectable clock (relative dates, tests)
+}
+
+// New wires a planner to a config and provider.
+func New(c *config.Config, p provider.ModelProvider) *Planner {
+	return &Planner{Config: c, Provider: p, Now: func() time.Time { return time.Now().UTC() }}
+}
+
+// Plan converts natural-language text into a candidate AST. hint is empty on the
+// first attempt; on a repair attempt it carries the previous validation error so
+// the model can correct itself. It returns the parsed AST and the raw model text
+// (useful for logging/telemetry).
+func (pl *Planner) Plan(ctx context.Context, text string, hint RepairHint) (*ast.Query, string, error) {
+	system := pl.SystemPrompt(pl.now()) // stable shell + injected config
+	user := BuildUserPrompt(text, hint) // the request (+ optional repair hint)
+
+	raw, err := pl.Provider.Complete(ctx, system, user)
+	if err != nil {
+		// Tagged as transport so the caller fails fast instead of burning the
+		// repair budget on an endpoint that is not answering.
+		return nil, "", fmt.Errorf("planner: model call failed: %w: %w", failure.ErrModelTransport, err)
+	}
+
+	ast, err := ParseAST(raw, pl.Config)
+	if err != nil {
+		// A deliberate refusal is a real answer: pass it through untagged so it
+		// is never mistaken for a malformed reply and retried.
+		var unsupported *failure.UnsupportedRequestError
+		if errors.As(err, &unsupported) {
+			return nil, raw, err
+		}
+		return nil, raw, fmt.Errorf("planner: %w: %w", failure.ErrModelOutput, err)
+	}
+	return ast, raw, nil
+}
+
+// now returns the planner's reference time (defaults to wall clock).
+func (pl *Planner) now() time.Time {
+	if pl.Now != nil {
+		return pl.Now()
+	}
+	return time.Now().UTC()
+}
+
+// SystemPrompt renders the stable instruction shell with the config's vocabulary
+// injected. Only metadata is ever placed here — never data values or PII.
+func (pl *Planner) SystemPrompt(now time.Time) string {
+	c := pl.Config
+	var b strings.Builder
+
+	// Role + hard rules.
+	b.WriteString("You translate a user's natural-language request into a JSON Query AST.\n")
+	b.WriteString("Return ONLY the JSON object — no prose, no markdown fences.\n")
+	b.WriteString("This is a read-only query builder: never invent fields, operators, or enum values.\n\n")
+
+	// Entity + today's date (for relative dates).
+	fmt.Fprintf(&b, "Entity: %s\n", c.Entity)
+	fmt.Fprintf(&b, "Today (UTC): %s\n", now.Format("2006-01-02"))
+	b.WriteString("For relative times like \"last 30 days\", use a relative_date value: {\"kind\":\"relative_date\",\"unit\":\"day\",\"amount\":-30}. Units: minute, hour, day, week, month, year.\n\n")
+
+	// Fields the model may use (queryable only — excluded fields are hidden).
+	b.WriteString("Allowed fields:\n")
+	// Only spend a prompt line on this reminder when some field actually sets a
+	// label — an unused feature must add nothing to a config's prompt.
+	if fieldsCarryLabels(c.Fields) {
+		b.WriteString("Some fields below show a label=\"…\" for context — always reference the field by the name shown first on its line, never by its label.\n")
+	}
+	for i := range c.Fields {
+		f := &c.Fields[i]
+		if !f.EffectiveQueryable() {
+			continue // never expose an excluded field to the model
+		}
+		b.WriteString(describeFieldForPrompt(f))
+	}
+	b.WriteString("\n")
+
+	// The AST shape, shown by example.
+	b.WriteString("AST shape (example):\n")
+	b.WriteString(ASTShapeExample)
+	b.WriteString("\nValue kinds: string, number, boolean, enum, array, date, relative_date.\n")
+	// The example above is one config's vocabulary, not this one's. Left to
+	// itself the model copies its predicates tag and all — emitting
+	// {"kind":"enum"} for a field this config declares as a string, purely
+	// because the example's status field was an enum. The validator repairs
+	// that tag rather than failing (kindnorm.go), but saying so here keeps the
+	// mistake out of the AST in the first place.
+	b.WriteString("Use the kind that matches the field's declared type above, not the kind the example happens to show: a string field takes {\"kind\":\"string\"}, and only a field listed as enum takes {\"kind\":\"enum\"}.\n")
+	b.WriteString("Combine predicates with logical nodes: {\"type\":\"logical\",\"op\":\"AND|OR|NOT\",\"children\":[...]}.\n")
+	b.WriteString("Omit any part you don't need (filter, sort, limit, select).\n\n")
+
+	// Refusal contract. Without this the model will happily map an unlisted
+	// concept onto whichever listed field looks closest (observed: "shipping
+	// warehouse" and "courier" both collapsed onto a generic tags field), which
+	// validates cleanly and returns silently wrong rows. Declining is the only
+	// safe answer, so the prompt gives it an explicit way to decline.
+	b.WriteString("If the request needs a field, operator, or enum value that is NOT listed above, do not substitute a different field and do not guess.\n")
+	b.WriteString("Instead return exactly: {\"unsupported\":\"<short reason naming what is missing>\"}\n")
+	b.WriteString("Only decline for genuinely missing vocabulary — a phrasing that matches a listed field's synonyms is supported.\n")
+	return b.String()
+}
+
+// fieldsCarryLabels reports whether any queryable field sets DisplayName, so
+// the prompt's "reference by name, not label" reminder only appears when it is
+// actually relevant.
+func fieldsCarryLabels(fields []config.Field) bool {
+	for i := range fields {
+		if fields[i].EffectiveQueryable() && fields[i].DisplayName != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// describeFieldForPrompt renders one field's contract as a compact line so the
+// model sees exactly what it may emit for that field. The leading token is
+// always the field's logical Name — the only thing the model may emit back in
+// the AST — with label/desc/hint appended purely as context, never in its place.
+func describeFieldForPrompt(f *config.Field) string {
+	var parts []string
+	parts = append(parts, fmt.Sprintf("- %s (%s)", f.Name, f.Type)) // name + type
+
+	if f.DisplayName != "" { // human label — context only, never a substitute for Name
+		parts = append(parts, fmt.Sprintf("label=%q", f.DisplayName))
+	}
+	if f.Description != "" {
+		parts = append(parts, fmt.Sprintf("desc=%q", f.Description))
+	}
+	if f.ValueHint != "" { // what a free-text field typically contains
+		parts = append(parts, fmt.Sprintf("hint=%q", f.ValueHint))
+	}
+	if f.Type == config.FieldEnum && len(f.Values) > 0 { // enum domain
+		parts = append(parts, "values=["+strings.Join(f.Values, ",")+"]")
+	}
+	parts = append(parts, "operators=["+ast.JoinOperators(f.EffectiveOperators())+"]") // legal operators
+	if len(f.Synonyms) > 0 {                                                           // phrasings that map here
+		parts = append(parts, "synonyms=["+strings.Join(f.Synonyms, ",")+"]")
+	}
+	if !f.EffectiveSortable() { // tell the model it cannot sort by this
+		parts = append(parts, "not-sortable")
+	}
+	return strings.Join(parts, " ") + "\n"
+}
+
+// ASTShapeExample is a compact, canonical AST used to anchor the model's output.
+//
+// The third predicate earns its place: it is the only one carrying an array
+// value. Five operators require one — between, in, notIn, containsAny,
+// containsAll — and with every example predicate holding a scalar, the model had
+// never been shown the shape those operators need. It then invented a scalar
+// instead, which the validator rejected with `operator "between" expects an
+// array value, got "number"`. Measured on gemini-3.1-flash-lite over 18
+// questions x 5 runs: `between` failed 10/10 without this predicate and 0/10
+// with it, taking overall accuracy from 88.9% to 100%. Anything removing it
+// should expect that regression back.
+const ASTShapeExample = `{"version":"1.0","entity":"Order","filter":{"type":"logical","op":"AND","children":[{"type":"comparison","field":"status","operator":"equals","value":{"kind":"enum","v":"DELIVERED"}},{"type":"comparison","field":"createdAt","operator":"after","value":{"kind":"relative_date","unit":"day","amount":-30}},{"type":"comparison","field":"amount","operator":"between","value":{"kind":"array","v":[100,500]}}]},"sort":[{"field":"createdAt","dir":"DESC"}],"limit":50}`
+
+// BuildUserPrompt assembles the user turn: the request, plus a repair hint when
+// a prior attempt failed. The two failure kinds get different advice — a schema
+// violation needs the rule it broke, whereas an unreadable reply needs to be
+// told about the output format, not about fields.
+func BuildUserPrompt(text string, hint RepairHint) string {
+	if hint.Kind == RepairNone || hint.Message == "" {
+		return "Request: " + text
+	}
+	if hint.Kind == RepairParse {
+		return "Request: " + text +
+			"\n\nYour previous reply could not be parsed as JSON: " + hint.Message +
+			"\nReturn exactly one JSON object and nothing else — no prose, no markdown fences, no trailing text."
+	}
+	return "Request: " + text +
+		"\n\nYour previous JSON failed validation: " + hint.Message +
+		"\nReturn corrected JSON only."
+}
+
+// ParseAST extracts the JSON object from the model's raw text and decodes it
+// into a Query. It tolerates code fences and surrounding prose by slicing from
+// the first '{' to the last '}'. Defaults are filled for version/entity so a
+// terse model output still forms a complete AST.
+func ParseAST(raw string, c *config.Config) (*ast.Query, error) {
+	js := ExtractJSONObject(raw)
+	if js == "" {
+		return nil, fmt.Errorf("no JSON object found in model output")
+	}
+	// Check for a deliberate refusal before decoding an AST. The model returns
+	// {"unsupported":"…"} when the request needs vocabulary the config does not
+	// define; that object would otherwise decode into an empty Query and compile
+	// into an unfiltered "return everything" query — the worst possible reading
+	// of "I can't answer this".
+	var refusal struct {
+		Unsupported string `json:"unsupported"`
+	}
+	if err := json.Unmarshal([]byte(js), &refusal); err == nil && strings.TrimSpace(refusal.Unsupported) != "" {
+		return nil, &failure.UnsupportedRequestError{Reason: strings.TrimSpace(refusal.Unsupported)}
+	}
+
+	var q ast.Query
+	// Lenient decode: ignore any extra keys the model may add (e.g. a stray
+	// "explanation"). Semantic correctness is the validator's job, not the
+	// parser's.
+	if err := json.Unmarshal([]byte(js), &q); err != nil {
+		return nil, fmt.Errorf("model output was not a valid AST: %w", err)
+	}
+	// A reply with no filter, no projection, no ordering and no paging is not an
+	// answer to a question — it is an empty object wearing an AST's defaults. The
+	// refusal guard above catches {"unsupported":"…"}, but it requires a NON-EMPTY
+	// reason, so a model that tried to decline and got the shape slightly wrong
+	// ({"unsupported":""}), or that returned {} outright, fell straight through to
+	// "SELECT * FROM orders LIMIT 50" — returned to the caller as a success, with
+	// RepairAttempts: 0. The worst possible reading of "I can't answer this", and
+	// exactly the hazard the comment above already names.
+	//
+	// Treated as unparseable output, it costs a repair attempt and then fails
+	// closed. A caller who genuinely wants every row does not need the model for
+	// it: build the Query and call GenerateFrom.
+	if IsStructurallyEmpty(&q) {
+		return nil, fmt.Errorf("model returned an empty query (no filter, select, sort or paging); " +
+			"answer the question with an AST or decline with {\"unsupported\":\"<reason>\"}")
+	}
+
+	if q.Version == "" { // default the version if the model omitted it
+		q.Version = ast.ASTVersion
+	}
+	if q.Entity == "" && c != nil { // default the entity to the config's
+		q.Entity = c.Entity
+	}
+	return &q, nil
+}
+
+// IsStructurallyEmpty reports whether a decoded Query says nothing at all about
+// what to return. Version and entity are excluded deliberately: both are filled
+// from the config a moment later, so counting them would make {} look answered.
+func IsStructurallyEmpty(q *ast.Query) bool {
+	return q.Filter == nil && len(q.Select) == 0 && len(q.Sort) == 0 && q.Limit == nil && q.Offset == nil
+}
+
+// ExtractJSONObject returns the first complete, brace-balanced JSON object in
+// the model's reply, after stripping markdown code fences. Returns "" when no
+// complete object is present.
+//
+// It scans for the matching close rather than taking the last '}' in the string,
+// because "first brace to last brace" breaks on trailing junk: Gemini's
+// OpenAI-compatibility endpoint sometimes appends a spurious extra '}', which
+// that approach would include, yielding "invalid character '}' after top-level
+// value". Counting depth ignores anything after the object closes.
+//
+// Braces inside string literals are skipped, so a value like "}" cannot end the
+// object early. If the depth never returns to zero the object is incomplete; we
+// return "" rather than inventing the missing braces, because guessing the
+// structure of a truncated filter could silently produce a valid-looking query
+// that means something the user never asked for.
+func ExtractJSONObject(s string) string {
+	s = strings.TrimSpace(s)
+	if strings.Contains(s, "```") { // strip ```json ... ``` fences if present
+		s = strings.ReplaceAll(s, "```json", "")
+		s = strings.ReplaceAll(s, "```JSON", "")
+		s = strings.ReplaceAll(s, "```", "")
+		s = strings.TrimSpace(s)
+	}
+
+	start := strings.Index(s, "{")
+	if start < 0 {
+		return ""
+	}
+
+	depth := 0        // open-brace count at the current position
+	inString := false // true while inside a "…" literal
+	escaped := false  // true when the previous char was a backslash
+	for i := start; i < len(s); i++ {
+		ch := s[i]
+
+		if escaped { // this char is escaped: consume it literally
+			escaped = false
+			continue
+		}
+		if ch == '\\' && inString { // start of an escape sequence
+			escaped = true
+			continue
+		}
+		if ch == '"' { // enter or leave a string literal
+			inString = !inString
+			continue
+		}
+		if inString { // braces inside strings are data, not structure
+			continue
+		}
+
+		switch ch {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 { // the object that opened at start just closed
+				return s[start : i+1]
+			}
+		}
+	}
+	return "" // unbalanced: the object never closed
+}
