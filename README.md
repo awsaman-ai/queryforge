@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/og.png" alt="QueryForge — one sentence, every database: a question compiles through a validated Query AST to PostgreSQL, MySQL, MongoDB and Elasticsearch. Available for Go, Python, Java and MCP." width="840">
+<img src="docs/og.png" alt="QueryForge — NLP to any query: a natural-language question passes through security, RBAC, scope, policy, validation and a typed AST, then compiles to PostgreSQL, MySQL, MongoDB and Elasticsearch. Available for Go, Python, Java and MCP. No invented columns, no injection, no mutation." width="840">
 
 # QueryForge
 
