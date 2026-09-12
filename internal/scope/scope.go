@@ -33,6 +33,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -86,6 +87,86 @@ func (s ScopeFilter) String() string {
 	}, nil)
 }
 
+// checkRequired enforces policy.requiredScope: the config's assertion that
+// scope is mandatory rather than optional.
+//
+// This is the missing half of the scope guarantee. Everything else in this file
+// makes a scope predicate impossible for the model to escape once it exists;
+// none of it obliged the application to supply one in the first place. A
+// forgotten scope argument produced a perfectly valid, perfectly unscoped query
+// — no error, no warning, every tenant's rows. This turns that into a failure at
+// the call site, which is where the mistake actually is.
+//
+// Presence is all that is checked here. Whether the value is usable is settled
+// by scopeFilterFor and the blank check in the scalar/list builders, which run
+// on every scope entry whether or not it was required.
+func checkRequired(s Scope, c *config.Config) error {
+	required, ok := c.RequiredScopeKeys()
+	if !ok {
+		return nil // scope is optional for this config
+	}
+
+	// Match on trimmed keys, because Normalize trims before building predicates:
+	// a caller passing " tenantId" gets a tenantId predicate, so it would be
+	// incoherent for the requirement check to say the key is missing.
+	present := make(map[string]bool, len(s))
+	for k := range s {
+		if name := strings.TrimSpace(k); name != "" {
+			present[name] = true
+		}
+	}
+
+	if len(required) == 0 { // mode "any"
+		if len(present) == 0 {
+			return fmt.Errorf("%w: this config requires a scope, but none was passed; "+
+				"pass the caller's tenant/user predicate as the scope argument", ErrScope)
+		}
+		return nil
+	}
+
+	// mode "fields": report every missing key at once. A caller wiring up scope
+	// for the first time should not have to rerun to discover the second name.
+	var missing []string
+	for _, name := range required {
+		if !present[name] {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("%w: this config requires scope key(s) %s, which the scope did not provide; "+
+			"pass a value for each", ErrScope, quoteList(missing))
+	}
+	return nil
+}
+
+// quoteList renders names as `"a", "b"` for an error message.
+func quoteList(names []string) string {
+	q := make([]string, len(names))
+	for i, n := range names {
+		q[i] = strconv.Quote(n)
+	}
+	return strings.Join(q, ", ")
+}
+
+// blankString reports whether a scope value is a string with nothing in it.
+//
+// A blank scope value is never meaningful and is always a bug: `tenantId: ""`
+// compiles to `tenant_id = ”`, which is syntactically fine, matches no row, and
+// so returns an empty result that reads exactly like "this tenant has no data".
+// It is the quietest possible failure, and it typically comes from an unset
+// environment variable or a claim that was missing from a token.
+//
+// Only KindString is considered. Numeric zero and false are legitimate values —
+// a tenant id of 0, a boolean scope flag — and time.Time arrives as KindDate, so
+// none of them are reachable here.
+func blankString(kind ast.ValueKind, payload any) bool {
+	if kind != ast.KindString {
+		return false
+	}
+	s, ok := payload.(string)
+	return ok && strings.TrimSpace(s) == ""
+}
+
 // Normalize turns the caller's map into an ordered, typed, validated list
 // of predicates. It returns nil for an empty scope so the no-scope path costs
 // nothing.
@@ -95,6 +176,12 @@ func (s ScopeFilter) String() string {
 // byte-identical for the same input, which is what lets scope behaviour be
 // covered by ordinary golden tests.
 func Normalize(s Scope, c *config.Config) ([]ScopeFilter, error) {
+	// Ahead of the empty-scope shortcut below: a config that demands scope has
+	// to fail on the caller who passed none, and that is exactly the case the
+	// shortcut would otherwise wave through.
+	if err := checkRequired(s, c); err != nil {
+		return nil, err
+	}
 	if len(s) == 0 {
 		return nil, nil // nothing to inject: existing behaviour, unchanged
 	}
@@ -170,6 +257,10 @@ func scopeScalarFilter(name string, raw any, f *config.Field, declared bool, c *
 		return ScopeFilter{}, fmt.Errorf("%w: field %q has unsupported value type %T; "+
 			"use a string, number, bool, time.Time, or a slice of those", ErrScope, name, raw)
 	}
+	if blankString(kind, payload) {
+		return ScopeFilter{}, fmt.Errorf("%w: field %q has an empty value; a scope value must not be blank "+
+			"(omit the key to skip the filter, or pass a real value)", ErrScope, name)
+	}
 
 	op := ast.OpEquals
 	if declared {
@@ -201,10 +292,17 @@ func scopeListFilter(name string, elems []any, f *config.Field, declared bool, c
 
 	conv := make([]any, len(elems))
 	for i, e := range elems {
-		_, payload, ok := scopeScalarValue(e)
+		kind, payload, ok := scopeScalarValue(e)
 		if !ok {
 			return ScopeFilter{}, fmt.Errorf("%w: field %q element %d has unsupported value type %T; "+
 				"list elements must be strings, numbers, bools, or time.Time", ErrScope, name, i, e)
+		}
+		// One blank entry in an IN list is the same silent bug as a blank
+		// scalar, but harder to spot: the other elements still match, so the
+		// query looks like it worked and simply returns too few rows.
+		if blankString(kind, payload) {
+			return ScopeFilter{}, fmt.Errorf("%w: field %q element %d is empty; a scope value must not be blank "+
+				"(remove the element, or pass a real value)", ErrScope, name, i)
 		}
 		conv[i] = payload
 	}

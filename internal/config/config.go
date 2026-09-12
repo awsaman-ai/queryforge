@@ -660,10 +660,16 @@ type Defaults struct {
 // that parses but does nothing is worse than one that does not exist: it reads
 // as protection in review and provides none at runtime.
 //
-// Multi-tenancy is deliberately absent. It is not a config key but a per-call
+// Multi-tenancy is still not expressed here as a predicate. It is a per-call
 // argument: pass a Scope to Translate/GenerateFrom and the tenant predicate is
 // AND-ed onto the root of the filter tree after validation, where no model
 // output can widen or negate it. See scope.go.
+//
+// RequiredScope is the one tenancy-adjacent key, and it is deliberately narrow:
+// it does not describe the predicate, it only asserts that the caller must
+// supply one. That keeps the rule enforceable — the check is a lookup in the
+// map the caller passed — and keeps this struct's promise intact, that every
+// key here does something at runtime.
 type Policy struct {
 	MaxNestingDepth int      `json:"maxNestingDepth,omitempty"`
 	DenyRegexOn     []string `json:"denyRegexOn,omitempty"`
@@ -703,7 +709,50 @@ type Policy struct {
 	// and every AST that passes ordinary validation is accepted, unchanged from
 	// before this field existed.
 	Requires []FieldRequirement `json:"requires,omitempty"`
+
+	// RequiredScope makes the caller-supplied Scope mandatory instead of
+	// optional. Nil (the default) means optional, which is how every config
+	// behaved before this key existed.
+	//
+	// This closes the one hole in the scope design: scope is enforced perfectly
+	// WHEN it is passed, but nothing ever obliged a caller to pass it, so a
+	// forgotten argument produced an unscoped query that looked entirely normal.
+	// A config that sets this turns that mistake into a loud error at the call.
+	RequiredScope *RequiredScope `json:"requiredScope,omitempty"`
 }
+
+// RequiredScope says a caller must supply scope, and optionally which keys.
+//
+// Two modes, because two different things are worth asserting:
+//
+//	{"mode": "any"}                              -> some scope must be passed
+//	{"mode": "fields", "fields": ["tenantId"]}   -> these keys must be passed
+//
+// "fields" is the stronger and more useful one: "any" catches a caller who
+// forgot the argument entirely, but only "fields" catches a caller who passed
+// a scope that happens to be missing the tenant key.
+//
+// The listed names are SCOPE KEYS, not config fields, and are deliberately not
+// checked against the field list. The common — and recommended — case is a
+// tenant column the NLP layer must never learn about, which by design does not
+// appear in Fields at all. Validating against the field list here would make
+// the safest configuration the one that fails to load.
+type RequiredScope struct {
+	// Mode is "any" or "fields". Required; there is no default, because
+	// guessing between "some scope" and "these exact keys" would silently pick
+	// the weaker guarantee.
+	Mode string `json:"mode"`
+
+	// Fields lists the scope keys that must be present. Required when Mode is
+	// "fields", and must be empty otherwise.
+	Fields []string `json:"fields,omitempty"`
+}
+
+// The two legal values of RequiredScope.Mode.
+const (
+	ScopeModeAny    = "any"    // any non-empty scope satisfies the rule
+	ScopeModeFields = "fields" // every name in Fields must be a scope key
+)
 
 // FieldRequirement is one business rule: filtering When.Field (optionally only
 // with one of When.Operators) makes the query meaningless unless the question
@@ -971,6 +1020,12 @@ func (c *Config) finalize() error {
 	if err := c.validatePolicyRequires(); err != nil {
 		return err
 	}
+	// requiredScope names scope KEYS rather than registered fields, so unlike
+	// the check above it needs no index — but it belongs here anyway, so that a
+	// malformed rule fails at load instead of on the first query that trips it.
+	if err := c.validateRequiredScope(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -1003,6 +1058,80 @@ func (c *Config) validatePolicyRequires() error {
 		}
 	}
 	return nil
+}
+
+// validateRequiredScope checks the policy.requiredScope block. The rule is a
+// security control, so every way of writing it wrong is a hard load error
+// rather than a tolerated near-miss: a rule that parses but never fires is the
+// exact failure mode this key was added to eliminate.
+func (c *Config) validateRequiredScope() error {
+	rs := c.Policy.RequiredScope
+	if rs == nil {
+		return nil // absent: scope stays optional, unchanged from before
+	}
+
+	switch rs.Mode {
+	case ScopeModeAny:
+		// "any" plus a field list is contradictory: the list looks like it is
+		// being enforced and is not. Reject rather than silently ignore it.
+		if len(rs.Fields) > 0 {
+			return fmt.Errorf("config: policy.requiredScope.mode is %q, which ignores the %d name(s) in "+
+				"\"fields\"; use mode %q to require those names, or remove them", ScopeModeAny, len(rs.Fields), ScopeModeFields)
+		}
+		return nil
+
+	case ScopeModeFields:
+		if len(rs.Fields) == 0 {
+			return fmt.Errorf("config: policy.requiredScope.mode is %q, so \"fields\" must list at least one "+
+				"scope key (use mode %q to require a scope without naming keys)", ScopeModeFields, ScopeModeAny)
+		}
+		seen := make(map[string]bool, len(rs.Fields))
+		for i, name := range rs.Fields {
+			where := fmt.Sprintf("policy.requiredScope.fields[%d]", i)
+			trimmed := strings.TrimSpace(name)
+			if trimmed == "" {
+				return fmt.Errorf("config: %s is empty; every entry must name a scope key", where)
+			}
+			// Scope keys are matched against the caller's map after the same
+			// TrimSpace, and Normalize rejects any key that is not a valid
+			// identifier path. A name that could never be a legal scope key
+			// could never be satisfied, so catch it here instead of producing a
+			// rule no caller can ever pass.
+			if !identifier.ValidIdentPath(trimmed) {
+				return fmt.Errorf("config: %s is %q, which is not a valid scope key; a scope key is one or more "+
+					"dot-separated identifiers (letters, digits and underscores, not starting with a digit)", where, name)
+			}
+			if seen[trimmed] {
+				return fmt.Errorf("config: %s repeats scope key %q; list it once", where, trimmed)
+			}
+			seen[trimmed] = true
+		}
+		return nil
+
+	default:
+		return fmt.Errorf("config: policy.requiredScope.mode is %q; it must be %q (a scope must be passed) "+
+			"or %q (these scope keys must be passed)", rs.Mode, ScopeModeAny, ScopeModeFields)
+	}
+}
+
+// RequiredScopeKeys returns the trimmed scope keys policy.requiredScope demands,
+// and whether any scope at all is required. It is the single reader of the rule,
+// so the scope package does not have to re-derive the mode semantics.
+//
+// ok is false when scope is optional. keys is nil in mode "any", where the
+// requirement is "something", not "these".
+func (c *Config) RequiredScopeKeys() (keys []string, ok bool) {
+	rs := c.Policy.RequiredScope
+	if rs == nil {
+		return nil, false
+	}
+	if rs.Mode == ScopeModeFields {
+		keys = make([]string, 0, len(rs.Fields))
+		for _, name := range rs.Fields {
+			keys = append(keys, strings.TrimSpace(name))
+		}
+	}
+	return keys, true
 }
 
 // FieldByName returns the registered field with the given logical name.

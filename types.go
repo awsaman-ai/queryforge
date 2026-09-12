@@ -144,6 +144,8 @@ type (
 	// RequirementTrigger names the field (and optionally the operators) whose
 	// presence fires a FieldRequirement.
 	RequirementTrigger = config.RequirementTrigger
+	// RequiredScope makes the Scope argument mandatory for this config.
+	RequiredScope = config.RequiredScope
 	// SourceType names how an Elasticsearch source was resolved.
 	SourceType = config.SourceType
 	// IndexRoutingStrategy selects how IndexRouting resolves physical indexes.
@@ -165,6 +167,12 @@ type (
 	ValueCase = config.ValueCase
 	// Protocol names the wire dialect a provider speaks.
 	Protocol = config.Protocol
+)
+
+// The two policy.requiredScope modes: require some scope, or require named keys.
+const (
+	ScopeModeAny    = config.ScopeModeAny
+	ScopeModeFields = config.ScopeModeFields
 )
 
 // The logical field types.
