@@ -105,7 +105,7 @@ final class BinaryResolver {
      * <p>The property wins so a JVM launch flag can override an environment inherited from a
      * container image, which is the direction that is almost always intended.
      */
-    private static String override(String property, String envVar) {
+    static String override(String property, String envVar) {
         String value = System.getProperty(property);
         if (value == null || value.trim().isEmpty()) {
             value = System.getenv(envVar);

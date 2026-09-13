@@ -114,6 +114,10 @@ public class QueryForgeException extends RuntimeException {
             case "GENERATE_FAILED":
                 return new GenerateException(message, c, details);
             case "TIMEOUT":
+            // Raised by the SDK itself when QUERYFORGE_MAX_CONCURRENT_PROCESSES is set and no engine
+            // slot frees up in time. The engine never sends it; it is mapped so this switch stays
+            // the one complete code -> class reference.
+            case "SDK_BUSY":
                 return new TimeoutException(message, c, details);
             default:
                 return new QueryForgeException(message, c, details);

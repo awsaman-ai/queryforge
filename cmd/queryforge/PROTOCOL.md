@@ -265,6 +265,12 @@ The full checklist:
 8. **Ignore unknown response fields**, so a newer engine does not break you.
 9. **Send `logLevel` and `requestId` only when the host has configured logging.** Always sending
    them breaks every caller pointing at a pre-1.1 engine, for a field they never asked for.
+10. **Optionally, honour `QUERYFORGE_MAX_CONCURRENT_PROCESSES`.** Off when unset. When set, hold a
+    semaphore slot for the lifetime of each engine process and release it on every exit path;
+    charge time spent queued against `options.timeoutMs` (send the engine only what is left);
+    raise the SDK's timeout error with code `SDK_BUSY` if the deadline passes while queued; reject
+    anything but a whole number from 1 to 2147483647. This is purely SDK-side — nothing on the
+    wire changes.
 
 The Python (`sdk-python/`) and Java (`sdk-java/`) implementations are both small and are the
 reference for all of the above.

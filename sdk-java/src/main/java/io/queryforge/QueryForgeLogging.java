@@ -109,6 +109,11 @@ public final class QueryForgeLogging {
     static final String FIELD_ENTITY = "entity";
     static final String FIELD_REQUEST_ID = "request_id";
     static final String FIELD_DURATION_MS = "duration_ms";
+    /**
+     * Milliseconds spent queued for an engine slot. Present only when
+     * QUERYFORGE_MAX_CONCURRENT_PROCESSES is set; SDK-only, the Go engine never emits it.
+     */
+    static final String FIELD_WAIT_MS = "wait_ms";
     static final String FIELD_ERROR_CODE = "error_code";
     static final String FIELD_ERROR_TYPE = "error_type";
     static final String FIELD_SCOPE_KEYS = "scope_keys";

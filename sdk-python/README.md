@@ -148,6 +148,7 @@ except QueryForgeError as e:
 | `ModelTransportError` | `MODEL_TRANSPORT` | Check the API key and the endpoint |
 | `GenerateError` | `GENERATE_FAILED` | The AST is legal but not compilable for this backend |
 | `TimeoutError` | `TIMEOUT` | Raise the timeout |
+| `TimeoutError` | `SDK_BUSY` | No engine slot freed up in time — see [Limiting concurrent engine processes](#limiting-concurrent-engine-processes) |
 | `BinaryNotFoundError` | `BINARY_NOT_FOUND` | Reinstall, or set `QUERYFORGE_BINARY` |
 | `ProtocolError` | `PROTOCOL_ERROR` | Broken install — the binary crashed or is the wrong version |
 
@@ -252,7 +253,34 @@ qf.query(text).timeout(10).max_repairs(0).include_raw().scope_in_ast()
 |---|---|
 | `QUERYFORGE_BINARY` | Run this executable instead of the bundled one. Reported, never silently ignored, if it does not work. |
 | `QUERYFORGE_LOG_LEVEL` | `off` \| `error` \| `warn` \| `info` \| `debug`. Turns on SDK and engine diagnostics without a code change. Unset means off. |
+| `QUERYFORGE_MAX_CONCURRENT_PROCESSES` | Positive whole number: at most this many engine processes run at once in this Python process. Unset means no limit. See below. |
 | whatever your config's `apiKeyEnv` names | The model API key. Never put the key in the config file. |
+
+### Limiting concurrent engine processes
+
+Every call starts one short-lived engine process that lives as long as the call — and a
+`query(...)` call spends seconds waiting on the model. Under a burst of traffic that is one live
+process per in-flight request. To cap it:
+
+```bash
+export QUERYFORGE_MAX_CONCURRENT_PROCESSES=8
+```
+
+- **Off by default.** Unset (or blank) means no limit and exactly the old behaviour.
+- **Scope: one Python interpreter process.** Every thread shares the cap, but separate processes
+  do not: 4 gunicorn/uvicorn workers with a cap of 8 can run 32 engine processes between them.
+  Size the cap per worker. A forked worker starts with a full set of slots.
+- **Callers queue** (no polling, no extra threads) until a slot frees up.
+- **Queueing spends the call's timeout, it does not extend it.** With `.timeout(5)`, a call that
+  waited 2 s for a slot gives the engine the remaining 3 s. If the timeout runs out while still
+  queued, the call raises `TimeoutError` with `code == "SDK_BUSY"` and no process is started.
+  A call with no timeout waits as long as it takes.
+- **An invalid value** (`0`, `-1`, `abc`, `1.5`) raises `InvalidConfigError` on every call, naming
+  the variable. It is never silently treated as "no limit".
+- **Read once**, on the first call. Changing the variable later in the same process has no effect.
+- **Logging.** When the cap is set, each call's `engine request completed` / `failed` record gains
+  `wait_ms` — how long it queued. `duration_ms` includes that wait. If `wait_ms` is routinely
+  large, the cap is too low for your traffic.
 
 ### Supplying the key at runtime
 

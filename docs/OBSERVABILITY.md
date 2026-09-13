@@ -161,7 +161,8 @@ record's key set says what was actually established.
 | `request_id` | Correlation id, shared between an SDK and the engine it spawned. |
 | `backend` | `sql` \| `mysql` \| `mongo`. |
 | `entity` | The config's entity, e.g. `Order`. |
-| `duration_ms` | Wall time of the step. |
+| `duration_ms` | Wall time of the step. On an SDK call this includes `wait_ms`. |
+| `wait_ms` | *SDK only, and only when `QUERYFORGE_MAX_CONCURRENT_PROCESSES` is set.* How long the call queued for an engine slot. |
 | `attempt` | 0-based repair attempt. |
 | `repair_attempts` | Final repair count for a translation. |
 | `error_code` | The stable failure code — §5. Same string the SDKs put on the exception. |
@@ -208,6 +209,7 @@ on the wire it is the `code` field; in Python it is `QueryForgeError.code`; in J
 | `INTERNAL` | QueryForge produced an error it has no name for. A bug worth reporting. | QueryForge | No |
 | `BINARY_NOT_FOUND` | *SDK only.* No engine executable for this platform. | Installation | No |
 | `PROTOCOL_ERROR` | *SDK only.* The engine crashed, wrote non-JSON, or speaks an incompatible protocol. | Installation | No |
+| `SDK_BUSY` | *SDK only.* `QUERYFORGE_MAX_CONCURRENT_PROCESSES` is set and no engine slot freed up before the call's timeout. No engine process was started. Raised as the SDK's timeout exception class. | Capacity | **Yes** |
 
 `qf.FailureCode.Retryable()` answers the last column, so you do not have to keep your own copy of a
 table that goes stale.

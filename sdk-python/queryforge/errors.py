@@ -249,6 +249,10 @@ _CODE_TO_ERROR: dict[str, type[QueryForgeError]] = {
     "MODEL_TRANSPORT": ModelTransportError,
     "GENERATE_FAILED": GenerateError,
     "TIMEOUT": TimeoutError,
+    # Raised by the SDK itself when QUERYFORGE_MAX_CONCURRENT_PROCESSES is set and
+    # no engine slot frees up before the deadline. The engine never sends it;
+    # it is listed so the table stays the one complete code -> class reference.
+    "SDK_BUSY": TimeoutError,
     "INTERNAL": QueryForgeError,
 }
 

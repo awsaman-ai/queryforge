@@ -103,6 +103,9 @@ FIELD_BACKEND = "backend"
 FIELD_ENTITY = "entity"
 FIELD_REQUEST_ID = "request_id"
 FIELD_DURATION_MS = "duration_ms"
+#: Milliseconds spent queued for an engine slot. Present only when
+#: QUERYFORGE_MAX_CONCURRENT_PROCESSES is set; SDK-only, the Go engine never emits it.
+FIELD_WAIT_MS = "wait_ms"
 FIELD_ERROR_CODE = "error_code"
 FIELD_ERROR_TYPE = "error_type"
 FIELD_SCOPE_KEYS = "scope_keys"

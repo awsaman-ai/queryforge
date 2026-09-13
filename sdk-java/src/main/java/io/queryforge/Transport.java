@@ -101,7 +101,7 @@ final class Transport {
 
         long started = System.nanoTime();
         try {
-            Map<String, Object> response = execute(request, timeoutMillis, context, credentials);
+            Map<String, Object> response = execute(request, timeoutMillis, context, credentials, started);
             succeeded(context, started, response);
             return response;
         } catch (RuntimeException e) {
@@ -142,84 +142,125 @@ final class Transport {
         return true;
     }
 
-    /** Runs the subprocess and decodes its reply. */
+    /**
+     * Runs the subprocess and decodes its reply.
+     *
+     * @param started when the call began ({@link System#nanoTime}), so time spent queued for a slot
+     *     can be charged against the caller's deadline
+     */
     private static Map<String, Object> execute(
             Map<String, Object> request,
             Long timeoutMillis,
             Map<String, Object> context,
-            Map<String, String> credentials) {
+            Map<String, String> credentials,
+            long started) {
         Path binary = BinaryResolver.resolve();
         byte[] payload = Json.write(request).getBytes(StandardCharsets.UTF_8);
 
-        QueryForgeLogging.log(LOG, Level.FINE, "sending request to the engine", context);
+        // Wait for an engine slot. A no-op unless QUERYFORGE_MAX_CONCURRENT_PROCESSES is set. Taken
+        // after the binary is resolved and the payload encoded, so a missing binary or an
+        // unencodable request fails immediately instead of queueing first. A timed-out wait never
+        // starts a process.
+        ProcessLimiter.Slot slot = ProcessLimiter.acquire(timeoutMillis);
 
-        ProcessBuilder builder = new ProcessBuilder(binary.toString());
-        // environment() starts as a copy of this JVM's environment, so putAll ADDS to it rather
-        // than replacing it. A bare credentials map would strip PATH and HOME and break the engine
-        // in ways that look nothing like a credentials problem. The copy is per-builder, so this
-        // JVM's own environment is untouched and two instances with different keys cannot collide.
-        if (credentials != null && !credentials.isEmpty()) {
-            builder.environment().putAll(credentials);
-        }
-        // stderr is kept separate rather than merged into stdout. Merging would be the single
-        // fastest way to break every SDK at once: one diagnostic line on stderr would corrupt
-        // the JSON stream that stdout is contractually required to carry alone.
-        builder.redirectErrorStream(false);
-
-        Process process;
-        try {
-            process = builder.start();
-        } catch (IOException e) {
-            throw new ProtocolException(
-                    "Could not run the QueryForge executable at " + binary + ": " + e.getMessage(), e);
-        }
-
-        // stdout and stderr must be drained concurrently with the write to stdin. A subprocess
-        // that fills its stdout pipe blocks until someone reads it, and if this thread is still
-        // writing the request at that moment, both sides wait forever. Reading on separate
-        // threads is what makes a large config safe to send.
-        StreamReader stdout = new StreamReader(process.getInputStream(), "stdout");
-        StreamReader stderr = new StreamReader(process.getErrorStream(), "stderr");
-        stdout.start();
-        stderr.start();
-
-        // A broken pipe on the write means the process died before reading the request. The
-        // useful diagnosis is on stderr, which the wait below collects — but the write error is
-        // NOT discarded: it is kept and attached as the cause if this call ends up failing, so
-        // "the engine produced no response" comes with the reason the request never landed.
-        IOException writeFailure = null;
-        try (OutputStream in = process.getOutputStream()) {
-            in.write(payload);
-        } catch (IOException e) {
-            writeFailure = e;
-            process.destroyForcibly();
-        }
-
-        long waitMillis = timeoutMillis == null ? 0L : timeoutMillis + killGraceMillis;
+        // Everything from here to the end of the subprocess is inside try/finally, so the slot comes
+        // back on every exit: success, crash, kill, I/O failure, interrupt, and Errors.
+        String out;
+        String err;
         int exitCode;
+        IOException writeFailure = null;
         try {
-            if (waitMillis > 0) {
-                if (!process.waitFor(waitMillis, TimeUnit.MILLISECONDS)) {
-                    process.destroyForcibly();
-                    throw new ProtocolException(
-                            "The QueryForge executable did not respond within " + waitMillis
-                                    + "ms and was killed. This is a bug in the engine — its own deadline "
-                                    + "should have produced a TIMEOUT error first.");
-                }
-                exitCode = process.exitValue();
-            } else {
-                exitCode = process.waitFor();
+            if (slot.waitMillis() != null) {
+                context.put(QueryForgeLogging.FIELD_WAIT_MS, slot.waitMillis());
             }
-        } catch (InterruptedException e) {
-            process.destroyForcibly();
-            // Restore the flag rather than swallowing it: the caller's shutdown logic depends on
-            // seeing that this thread was interrupted.
-            Thread.currentThread().interrupt();
-            throw new ProtocolException("Interrupted while waiting for the QueryForge executable", e);
-        }
 
-        String out = stdout.await();
-        String err = stderr.await();
+            // Time spent queued comes out of the caller's deadline, not on top of it: the engine is
+            // sent only what is left. Skipped when the wait rounded to 0 ms, which keeps an
+            // uncontended request byte-identical.
+            if (slot.waitMillis() != null && slot.waitMillis() > 0 && timeoutMillis != null) {
+                long remaining = timeoutMillis - elapsedMillis(started);
+                if (remaining < 1) {
+                    // The slot arrived with no time left to use it. Reported as the queue timing
+                    // out, since the engine never got a chance to run.
+                    throw ProcessLimiter.busyError(timeoutMillis);
+                }
+                timeoutMillis = remaining;
+                request = withTimeout(request, remaining);
+                payload = Json.write(request).getBytes(StandardCharsets.UTF_8);
+            }
+
+            QueryForgeLogging.log(LOG, Level.FINE, "sending request to the engine", context);
+
+            ProcessBuilder builder = new ProcessBuilder(binary.toString());
+            // environment() starts as a copy of this JVM's environment, so putAll ADDS to it rather
+            // than replacing it. A bare credentials map would strip PATH and HOME and break the engine
+            // in ways that look nothing like a credentials problem. The copy is per-builder, so this
+            // JVM's own environment is untouched and two instances with different keys cannot collide.
+            if (credentials != null && !credentials.isEmpty()) {
+                builder.environment().putAll(credentials);
+            }
+            // stderr is kept separate rather than merged into stdout. Merging would be the single
+            // fastest way to break every SDK at once: one diagnostic line on stderr would corrupt
+            // the JSON stream that stdout is contractually required to carry alone.
+            builder.redirectErrorStream(false);
+
+            Process process;
+            try {
+                process = builder.start();
+            } catch (IOException e) {
+                throw new ProtocolException(
+                        "Could not run the QueryForge executable at " + binary + ": " + e.getMessage(), e);
+            }
+
+            // stdout and stderr must be drained concurrently with the write to stdin. A subprocess
+            // that fills its stdout pipe blocks until someone reads it, and if this thread is still
+            // writing the request at that moment, both sides wait forever. Reading on separate
+            // threads is what makes a large config safe to send.
+            StreamReader stdout = new StreamReader(process.getInputStream(), "stdout");
+            StreamReader stderr = new StreamReader(process.getErrorStream(), "stderr");
+            stdout.start();
+            stderr.start();
+
+            // A broken pipe on the write means the process died before reading the request. The
+            // useful diagnosis is on stderr, which the wait below collects — but the write error is
+            // NOT discarded: it is kept and attached as the cause if this call ends up failing, so
+            // "the engine produced no response" comes with the reason the request never landed.
+            try (OutputStream in = process.getOutputStream()) {
+                in.write(payload);
+            } catch (IOException e) {
+                writeFailure = e;
+                process.destroyForcibly();
+            }
+
+            long waitMillis = timeoutMillis == null ? 0L : timeoutMillis + killGraceMillis;
+            try {
+                if (waitMillis > 0) {
+                    if (!process.waitFor(waitMillis, TimeUnit.MILLISECONDS)) {
+                        process.destroyForcibly();
+                        throw new ProtocolException(
+                                "The QueryForge executable did not respond within " + waitMillis
+                                        + "ms and was killed. This is a bug in the engine — its own deadline "
+                                        + "should have produced a TIMEOUT error first.");
+                    }
+                    exitCode = process.exitValue();
+                } else {
+                    exitCode = process.waitFor();
+                }
+            } catch (InterruptedException e) {
+                process.destroyForcibly();
+                // Restore the flag rather than swallowing it: the caller's shutdown logic depends on
+                // seeing that this thread was interrupted.
+                Thread.currentThread().interrupt();
+                throw new ProtocolException("Interrupted while waiting for the QueryForge executable", e);
+            }
+
+            out = stdout.await();
+            err = stderr.await();
+        } finally {
+            // The process has exited (or never started) by now; decoding its output below does not
+            // need a slot, so the next caller should not wait for it.
+            slot.release();
+        }
         return decode(out, err, exitCode, binary, writeFailure);
     }
 
@@ -239,6 +280,22 @@ final class Transport {
         }
         options.putIfAbsent("logLevel", level);
         options.putIfAbsent("requestId", requestId);
+        copy.put("options", options);
+        return copy;
+    }
+
+    /**
+     * Returns a copy of the request with {@code options.timeoutMs} replaced — the deadline left
+     * after queueing for a slot. A copy for the same reason as {@link #withLogging}.
+     */
+    private static Map<String, Object> withTimeout(Map<String, Object> request, long remainingMillis) {
+        Map<String, Object> copy = new LinkedHashMap<>(request);
+        Map<String, Object> options = new LinkedHashMap<>();
+        Object existing = request.get("options");
+        if (existing instanceof Map) {
+            options.putAll(Values.map(existing));
+        }
+        options.put("timeoutMs", (int) Math.min(remainingMillis, Integer.MAX_VALUE));
         copy.put("options", options);
         return copy;
     }

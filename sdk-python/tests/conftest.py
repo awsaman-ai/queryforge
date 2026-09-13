@@ -223,9 +223,18 @@ def _clear_binary_cache():
 
 @pytest.fixture(autouse=True)
 def _isolate_env(monkeypatch: pytest.MonkeyPatch):
-    """Ensure a developer's own QUERYFORGE_BINARY does not leak into the suite."""
+    """Ensure a developer's own QUERYFORGE_* settings do not leak into the suite.
+
+    The concurrency cap is parsed once and cached, so the cache is dropped on both
+    sides of every test: a test that sets a cap must not leave it for the next.
+    """
+    from queryforge import _limit
+
     monkeypatch.delenv("QUERYFORGE_BINARY", raising=False)
+    monkeypatch.delenv("QUERYFORGE_MAX_CONCURRENT_PROCESSES", raising=False)
+    _limit._reset()
     yield
+    _limit._reset()
 
 
 @pytest.fixture(autouse=True)

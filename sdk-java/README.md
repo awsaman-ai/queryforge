@@ -172,6 +172,7 @@ try {
 | `ModelTransportException` | `MODEL_TRANSPORT` | Check the API key and the endpoint |
 | `GenerateException` | `GENERATE_FAILED` | The AST is legal but not compilable for this backend |
 | `TimeoutException` | `TIMEOUT` | Raise the timeout |
+| `TimeoutException` | `SDK_BUSY` | No engine slot freed up in time — see [Limiting concurrent engine processes](#limiting-concurrent-engine-processes) |
 | `BinaryNotFoundException` | `BINARY_NOT_FOUND` | Wrong platform artifact, or set the override |
 | `ProtocolException` | `PROTOCOL_ERROR` | Broken install — the binary crashed or is the wrong version |
 
@@ -338,10 +339,40 @@ use and reused afterwards, so different engine versions on one machine never ove
 | `-Dqueryforge.binary=/path` or `QUERYFORGE_BINARY` | Run this executable instead of the bundled one. Reported, never silently ignored, if it does not work. |
 | `-Dqueryforge.cacheDir=/path` or `QUERYFORGE_CACHE_DIR` | Where to extract the binary. Useful when the temp directory is mounted `noexec`. |
 | `-Dqueryforge.logLevel=info` or `QUERYFORGE_LOG_LEVEL` | `off` \| `error` \| `warn` \| `info` \| `debug`. Turns on SDK and engine diagnostics without a code change. Unset means off. |
+| `-Dqueryforge.maxConcurrentProcesses=8` or `QUERYFORGE_MAX_CONCURRENT_PROCESSES` | Positive whole number: at most this many engine processes run at once in this JVM. Unset means no limit. See below. |
 | whatever your config's `apiKeyEnv` names | The model API key. Never put the key in the config file. |
 
 The system property wins over the environment variable, so a JVM launch flag can override an
 environment inherited from a container image.
+
+### Limiting concurrent engine processes
+
+Every call starts one short-lived engine process that lives as long as the call — and a
+`query(...)` call spends seconds waiting on the model. Under a burst of request threads that is
+one live process per in-flight request. To cap it:
+
+```bash
+export QUERYFORGE_MAX_CONCURRENT_PROCESSES=8      # or: java -Dqueryforge.maxConcurrentProcesses=8 ...
+```
+
+- **Off by default.** Unset (or blank) means no limit and exactly the old behaviour.
+- **Scope: the whole JVM.** Every `QueryForge` instance and every thread share one cap. Separate
+  JVMs (replicas, pods) each have their own.
+- **Callers queue** in roughly arrival order (a fair semaphore; no polling, no extra threads)
+  until a slot frees up.
+- **Queueing spends the call's timeout, it does not extend it.** With `.timeout(5000)`, a call
+  that waited 2 s for a slot gives the engine the remaining 3 s. If the timeout runs out while
+  still queued, the call throws `TimeoutException` with `getCode()` equal to `"SDK_BUSY"` and no
+  process is started. A call with no timeout waits as long as it takes.
+- **Interrupting a queued thread** throws `ProtocolException` and restores the interrupt flag,
+  the same as interrupting a call whose engine is already running.
+- **An invalid value** (`0`, `-1`, `abc`, `1.5`) throws `InvalidConfigException` on every call,
+  naming the setting. It is never silently treated as "no limit", and it is not thrown from a
+  static initializer, so it cannot turn into a `NoClassDefFoundError`.
+- **Read once**, on the first call. Changing it later in the same JVM has no effect.
+- **Logging.** When the cap is set, each call's `engine request completed` / `failed` record gains
+  `wait_ms` — how long it queued. `duration_ms` includes that wait. If `wait_ms` is routinely
+  large, the cap is too low for your traffic.
 
 ### Supplying the key at runtime
 

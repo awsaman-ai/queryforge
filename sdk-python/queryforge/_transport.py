@@ -22,6 +22,7 @@ import time
 from pathlib import Path
 from typing import Any, Mapping
 
+from . import _limit
 from ._binary import resolve_binary
 from .errors import ProtocolError, error_from_response
 from .logging import (
@@ -34,6 +35,7 @@ from .logging import (
     FIELD_OUTCOME,
     FIELD_REQUEST_ID,
     FIELD_SCOPE_KEYS,
+    FIELD_WAIT_MS,
     engine_level,
     get_logger,
     log,
@@ -142,35 +144,78 @@ def run_request(
 
     binary = resolve_binary()
     payload = json.dumps(request, separators=(",", ":"), default=_json_default)
+    # Built before queueing for the same fail-fast reason as the payload: a
+    # malformed credentials name should not wait for a slot to be reported.
+    env = build_env(credentials)
 
-    kill_after = None if timeout_seconds is None else timeout_seconds + _KILL_GRACE_SECONDS
-    log(_log, logging.DEBUG, "sending request to the engine", **context)
-
+    # The clock starts before the queue, so duration_ms is the wall time the
+    # caller actually experienced, of which wait_ms (when capped) is the queued part.
     started = time.monotonic()
+
+    # Wait for an engine slot. A no-op unless QUERYFORGE_MAX_CONCURRENT_PROCESSES
+    # is set. Taken after the binary is resolved and the payload encoded, so a
+    # missing binary or an unserialisable scope fails immediately instead of
+    # queueing first. A timed-out wait never starts a process.
     try:
-        completed = subprocess.run(
-            [str(binary)],
-            input=payload,
-            capture_output=True,
-            text=True,
-            timeout=kill_after,
-            # No shell, ever: the config and the question are user data, and a
-            # shell would make them executable. The argument list form passes
-            # them as a single argv entry with no interpretation.
-            shell=False,
-            # None inherits this process's environment, which is exactly what
-            # happened before credentials existed.
-            env=build_env(credentials),
-        )
-    except subprocess.TimeoutExpired as exc:
-        message = (
-            f"The QueryForge executable did not respond within {kill_after:.0f}s and was killed. "
-            f"This is a bug in the engine — its own deadline should have produced a TIMEOUT error first."
-        )
-        raise _fail(ProtocolError(message, code="PROTOCOL_ERROR"), context, started) from exc
-    except OSError as exc:
-        message = f"Could not run the QueryForge executable at {binary}: {exc}"
-        raise _fail(ProtocolError(message, code="PROTOCOL_ERROR"), context, started) from exc
+        slot = _limit.acquire(timeout_seconds)
+    except Exception as exc:  # noqa: BLE001 - logged once at the boundary, then re-raised
+        _fail(exc, context, started)
+        raise
+
+    # Everything from here to the end of the subprocess is inside try/finally, so
+    # the slot comes back on every exit: success, crash, kill, OSError, and
+    # BaseExceptions such as KeyboardInterrupt.
+    try:
+        if slot.wait_ms is not None:
+            context = {**context, FIELD_WAIT_MS: slot.wait_ms}
+
+        # Time spent queued comes out of the caller's deadline, not on top of it:
+        # the engine is sent only what is left. Skipped when the wait rounded to
+        # 0 ms, which keeps an uncontended request byte-identical.
+        if slot.wait_ms and timeout_seconds is not None:
+            budget_ms = int(timeout_seconds * 1000)
+            remaining_ms = budget_ms - int((time.monotonic() - started) * 1000)
+            if remaining_ms < 1:
+                # The slot arrived with no time left to use it. Reported as the
+                # queue timing out, since the engine never got a chance to run.
+                raise _fail(_limit.busy_error(timeout_seconds), context, started)
+            timeout_seconds = remaining_ms / 1000.0
+            options = dict(request.get("options") or {})
+            options["timeoutMs"] = remaining_ms
+            request = {**request, "options": options}
+            payload = json.dumps(request, separators=(",", ":"), default=_json_default)
+
+        kill_after = None if timeout_seconds is None else timeout_seconds + _KILL_GRACE_SECONDS
+        log(_log, logging.DEBUG, "sending request to the engine", **context)
+
+        try:
+            completed = subprocess.run(
+                [str(binary)],
+                input=payload,
+                capture_output=True,
+                text=True,
+                timeout=kill_after,
+                # No shell, ever: the config and the question are user data, and a
+                # shell would make them executable. The argument list form passes
+                # them as a single argv entry with no interpretation.
+                shell=False,
+                # None inherits this process's environment, which is exactly what
+                # happened before credentials existed.
+                env=env,
+            )
+        except subprocess.TimeoutExpired as exc:
+            message = (
+                f"The QueryForge executable did not respond within {kill_after:.0f}s and was killed. "
+                f"This is a bug in the engine — its own deadline should have produced a TIMEOUT error first."
+            )
+            raise _fail(ProtocolError(message, code="PROTOCOL_ERROR"), context, started) from exc
+        except OSError as exc:
+            message = f"Could not run the QueryForge executable at {binary}: {exc}"
+            raise _fail(ProtocolError(message, code="PROTOCOL_ERROR"), context, started) from exc
+    finally:
+        # The process has exited (or never started) by now; decoding its output
+        # below does not need a slot, so the next caller should not wait for it.
+        slot.release()
 
     try:
         response = _decode(completed, binary)

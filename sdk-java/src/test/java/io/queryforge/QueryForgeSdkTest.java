@@ -185,6 +185,7 @@ class QueryForgeSdkTest {
         "MODEL_TRANSPORT,     io.queryforge.ModelTransportException",
         "GENERATE_FAILED,     io.queryforge.GenerateException",
         "TIMEOUT,             io.queryforge.TimeoutException",
+        "SDK_BUSY,            io.queryforge.TimeoutException",
         "INTERNAL,            io.queryforge.QueryForgeException",
     })
     void everyProtocolCodeMapsToAnException(String code, String expectedClass) throws Exception {

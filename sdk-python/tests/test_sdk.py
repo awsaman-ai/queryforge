@@ -161,6 +161,7 @@ def test_negative_max_repairs_is_refused(forge):
         ("MODEL_TRANSPORT", ModelTransportError),
         ("GENERATE_FAILED", GenerateError),
         ("TIMEOUT", TimeoutError),
+        ("SDK_BUSY", TimeoutError),
         ("INTERNAL", QueryForgeError),
     ],
 )
