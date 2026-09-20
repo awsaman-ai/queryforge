@@ -41,6 +41,12 @@ __pycache__/
 .idea/
 .vscode/
 
-# Personal working notes (kept locally, not published)
-design/new_requirements.md
+# Agent scratch space. .claude/worktrees holds full throwaway checkouts of this
+# same repo, so committing it would nest a copy of the tree inside itself.
+.claude/
+
+# Personal working notes (kept locally, not published). The path is
+# unanchored: the file has lived in design/ and at the repo root, and it
+# should stay untracked in either place.
+new_requirements.md
 bugs.csv

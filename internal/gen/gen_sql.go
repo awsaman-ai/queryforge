@@ -371,6 +371,9 @@ func (b *sqlBuilder) comparison(c *config.Config, cond *ast.Condition) (string, 
 		// surely as valueCase would.
 		return b.scalar(field, b.dialect.regexOp, cond.Value, config.FieldString, config.CaseAsIs, false)
 	case ast.OpBetween:
+		if cond.Value != nil && cond.Value.Kind == ast.KindPeriod {
+			return b.period(c, field, cond.Value)
+		}
 		return b.between(field, cond.Value, vc)
 	case ast.OpIn:
 		return b.inList(field, "IN", ast.OpIn, cond.Value, vc, ci)
@@ -454,6 +457,19 @@ func (b *sqlBuilder) between(field string, v *ast.Value, vc config.ValueCase) (s
 	}
 	elems = config.ApplyCaseElems(vc, elems)
 	return fmt.Sprintf("%s BETWEEN %s AND %s", field, b.bind(elems[0]), b.bind(elems[1])), nil
+}
+
+// period renders a calendar period as a half-open range,
+// "(field >= $a AND field < $b)". Not BETWEEN: BETWEEN is inclusive at both
+// ends, so it would either take in the first instant of the following day or
+// need an end of 23:59:59.999… that depends on the column's precision. The
+// parentheses keep the pair one predicate under a NOT.
+func (b *sqlBuilder) period(c *config.Config, field string, v *ast.Value) (string, error) {
+	start, end, err := ResolvePeriod(b.now, c, v)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", b.dialect.backend, err)
+	}
+	return fmt.Sprintf("(%s >= %s AND %s < %s)", field, b.bind(start), field, b.bind(end)), nil
 }
 
 // inList renders "field IN ($1, $2, …)" (or NOT IN) from an array value.

@@ -63,7 +63,7 @@ func resolveBusinessRuleIndex(q *ast.Query, c *config.Config, r *config.IndexRou
 	case config.RoutingPattern:
 		return resolvePatternRouting(q, r)
 	case config.RoutingDate:
-		return resolveDateRouting(q, r, now)
+		return resolveDateRouting(q, c, r, now)
 	case config.RoutingRules:
 		return resolveRulesRouting(q, c, r, now)
 	case config.RoutingIfElse:
@@ -149,6 +149,27 @@ func betweenRoutingValue(q *ast.Query, fieldName string) (lo, hi string, ok bool
 	return loS, hiS, true
 }
 
+// periodRoutingValue returns the value of the single AND-reachable "between"
+// comparison on fieldName when that value is a period. Same ambiguity rule as
+// betweenRoutingValue: two between conditions on the field resolve nothing.
+func periodRoutingValue(q *ast.Query, fieldName string) (*ast.Value, bool) {
+	var matches []*ast.Condition
+	collectRoutingConditions(q.Filter, fieldName, &matches)
+	var between *ast.Condition
+	for _, m := range matches {
+		if m.Operator == ast.OpBetween {
+			if between != nil {
+				return nil, false // more than one: ambiguous
+			}
+			between = m
+		}
+	}
+	if between == nil || between.Value == nil || between.Value.Kind != ast.KindPeriod {
+		return nil, false
+	}
+	return between.Value, true
+}
+
 // resolvePatternRouting substitutes the routing field's literal value into
 // IndexPattern's token, falling back to Default when the field is absent or
 // its value cannot be read as one of a single, comparable literal.
@@ -219,7 +240,19 @@ func indexOf(s, sub string) int {
 // silently expanding a request into "search everything" is exactly the
 // unrestricted-wildcard behaviour the package guarantees against. It falls
 // back to Default instead, same as an absent field.
-func resolveDateRouting(q *ast.Query, r *config.IndexRouting, now time.Time) ([]string, error) {
+func resolveDateRouting(q *ast.Query, c *config.Config, r *config.IndexRouting, now time.Time) ([]string, error) {
+	// A period is a between too, and as bounded as one — so "orders from last
+	// month" should hit last month's partitions, not the Default set. Its end
+	// is exclusive (the first instant of the next unit), so the partition walk
+	// stops one nanosecond short of it: a month ending at UTC midnight must not
+	// pull in the next day's index.
+	if pv, ok := periodRoutingValue(q, r.Field); ok {
+		start, end, err := ResolvePeriod(now, c, pv)
+		if err != nil {
+			return r.Default, nil //nolint:nilerr // unresolvable: same fallback as an unparsable literal
+		}
+		return expandDatePartitions(start, end.Add(-time.Nanosecond), r.Granularity, r.IndexPattern)
+	}
 	if lo, hi, ok := betweenRoutingValue(q, r.Field); ok {
 		start, err := parseRoutingDate(lo)
 		if err != nil {

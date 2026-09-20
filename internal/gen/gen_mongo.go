@@ -283,6 +283,14 @@ func mongoPredicate(c *config.Config, cond *ast.Condition, field string, now tim
 	case ast.OpBefore:
 		return mongoScalarExpr(field, "$lte", scalar, false)
 	case ast.OpBetween:
+		if cond.Value != nil && cond.Value.Kind == ast.KindPeriod {
+			// Half-open, same as SQL: $lt on the first instant of the next unit.
+			start, end, err := ResolvePeriod(now, c, cond.Value)
+			if err != nil {
+				return nil, fmt.Errorf("mongo: %w", err)
+			}
+			return map[string]any{field: map[string]any{"$gte": start, "$lt": end}}, nil
+		}
 		elems, err := sliceValue("mongo", ast.OpBetween, cond.Value, 2)
 		if err != nil {
 			return nil, err

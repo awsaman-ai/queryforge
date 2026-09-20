@@ -23,7 +23,7 @@ import (
 
 // PromptVersion identifies the prompt template. Bumping it lets prompt changes
 // be A/B tested and rolled back, and it is cheap to log per request.
-const PromptVersion = "qf-planner-v2"
+const PromptVersion = "qf-planner-v3" // v3: calendar periods + config timezone
 
 // RepairKind says why a previous attempt was rejected, so the retry prompt can
 // tell the model something actionable instead of a generic "try again".
@@ -125,10 +125,14 @@ func (pl *Planner) SystemPrompt(now time.Time) string {
 	b.WriteString("Return ONLY the JSON object — no prose, no markdown fences.\n")
 	b.WriteString("This is a read-only query builder: never invent fields, operators, or enum values.\n\n")
 
-	// Entity + today's date (for relative dates).
+	// Entity + today's date, as a calendar date in the zone periods are cut in.
+	// Rendering it in UTC for an Asia/Kolkata config would tell the model it is
+	// still yesterday for the first five and a half hours of every day.
+	loc := config.LocationFor(c)
 	fmt.Fprintf(&b, "Entity: %s\n", c.Entity)
-	fmt.Fprintf(&b, "Today (UTC): %s\n", now.Format("2006-01-02"))
-	b.WriteString("For relative times like \"last 30 days\", use a relative_date value: {\"kind\":\"relative_date\",\"unit\":\"day\",\"amount\":-30}. Units: minute, hour, day, week, month, year.\n\n")
+	fmt.Fprintf(&b, "Today (%s): %s\n", loc.String(), now.In(loc).Format("2006-01-02"))
+	b.WriteString(dateGuidance(c))
+	b.WriteString("\n")
 
 	// Fields the model may use (queryable only — excluded fields are hidden).
 	b.WriteString("Allowed fields:\n")
@@ -149,7 +153,7 @@ func (pl *Planner) SystemPrompt(now time.Time) string {
 	// The AST shape, shown by example.
 	b.WriteString("AST shape (example):\n")
 	b.WriteString(ASTShapeExample)
-	b.WriteString("\nValue kinds: string, number, boolean, enum, array, date, relative_date.\n")
+	b.WriteString("\nValue kinds: string, number, boolean, enum, array, date, relative_date, period.\n")
 	// The example above is one config's vocabulary, not this one's. Left to
 	// itself the model copies its predicates tag and all — emitting
 	// {"kind":"enum"} for a field this config declares as a string, purely
@@ -168,6 +172,57 @@ func (pl *Planner) SystemPrompt(now time.Time) string {
 	b.WriteString("If the request needs a field, operator, or enum value that is NOT listed above, do not substitute a different field and do not guess.\n")
 	b.WriteString("Instead return exactly: {\"unsupported\":\"<short reason naming what is missing>\"}\n")
 	b.WriteString("Only decline for genuinely missing vocabulary — a phrasing that matches a listed field's synonyms is supported.\n")
+	return b.String()
+}
+
+// dateGuidance renders how the model should express time, or nothing when the
+// config has no queryable date field — an unused feature must add nothing to a
+// config's prompt.
+//
+// It exists because the prompt used to say only "for relative times like
+// \"last 30 days\", use a relative_date", which left three readings open and
+// the model to pick one per request:
+//   - "last 30 days" became a rolling instant (30×24h before this second), so
+//     the answer depended on the time of day the question was asked;
+//   - "yesterday", "last month", "this year" had no shape at all — the model
+//     did calendar arithmetic itself, and a rolling 12 months for "this year"
+//     compiled to valid SQL that nothing flagged;
+//   - nothing said which timezone "today" begins in.
+//
+// A period moves all of that into deterministic code (datetime.PeriodBounds),
+// so the model only has to pick unit and offsets. The worked offsets below are
+// the ones that are easy to get wrong by one — "last 7 days" is -6..0, because
+// today counts — and the "last week" / "last 7 days" pair is spelled out
+// because the two differ only in one word.
+//
+// Period guidance is only offered when some date field actually allows
+// between, its one legal operator; otherwise the model would be taught a shape
+// every field rejects, and only the relative_date line is kept.
+func dateGuidance(c *config.Config) string {
+	hasDate, hasBetween := false, false
+	for i := range c.Fields {
+		f := &c.Fields[i]
+		if f.Type != config.FieldDate || !f.EffectiveQueryable() {
+			continue
+		}
+		hasDate = true
+		if f.AllowsOperator(ast.OpBetween) {
+			hasBetween = true
+		}
+	}
+	if !hasDate {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("Dates:\n")
+	if hasBetween {
+		b.WriteString("- Calendar periods (\"today\", \"yesterday\", \"this week\", \"last month\", \"this year\", \"last 30 days\"): use operator between with a period value, e.g. {\"kind\":\"period\",\"unit\":\"day\",\"from\":-1,\"to\":-1}. from and to count whole units from the current one (0 = current, -1 = previous) and both are inclusive.\n")
+		b.WriteString("  today: day 0..0; yesterday: day -1..-1; last 7 days: day -6..0 (includes today); last 30 days: day -29..0; this week: week 0..0 (weeks start Monday); last week: week -1..-1; last month: month -1..-1; this year: year 0..0.\n")
+		b.WriteString("- A span back from this exact moment (\"in the last 2 hours\", \"past 45 minutes\"): use after with a relative_date value, e.g. {\"kind\":\"relative_date\",\"unit\":\"hour\",\"amount\":-2}.\n")
+	} else {
+		b.WriteString("- For a time relative to now (\"in the last 30 days\"), use after with a relative_date value, e.g. {\"kind\":\"relative_date\",\"unit\":\"day\",\"amount\":-30}.\n")
+	}
+	b.WriteString("Units: minute, hour, day, week, month, year.\n")
 	return b.String()
 }
 
@@ -224,7 +279,13 @@ func describeFieldForPrompt(f *config.Field) string {
 // questions x 5 runs: `between` failed 10/10 without this predicate and 0/10
 // with it, taking overall accuracy from 88.9% to 100%. Anything removing it
 // should expect that regression back.
-const ASTShapeExample = `{"version":"1.0","entity":"Order","filter":{"type":"logical","op":"AND","children":[{"type":"comparison","field":"status","operator":"equals","value":{"kind":"enum","v":"DELIVERED"}},{"type":"comparison","field":"createdAt","operator":"after","value":{"kind":"relative_date","unit":"day","amount":-30}},{"type":"comparison","field":"amount","operator":"between","value":{"kind":"array","v":[100,500]}}]},"sort":[{"field":"createdAt","dir":"DESC"}],"limit":50}`
+//
+// The createdAt predicate is a period ("the last 30 days, including today")
+// rather than the relative_date it used to be. The example is copied closely,
+// and a rolling {"unit":"day","amount":-30} here taught the very reading of
+// "last 30 days" that periods replace. Showing between twice — once with a
+// period, once with an array — also puts the two legal between shapes side by side.
+const ASTShapeExample = `{"version":"1.0","entity":"Order","filter":{"type":"logical","op":"AND","children":[{"type":"comparison","field":"status","operator":"equals","value":{"kind":"enum","v":"DELIVERED"}},{"type":"comparison","field":"createdAt","operator":"between","value":{"kind":"period","unit":"day","from":-29,"to":0}},{"type":"comparison","field":"amount","operator":"between","value":{"kind":"array","v":[100,500]}}]},"sort":[{"field":"createdAt","dir":"DESC"}],"limit":50}`
 
 // BuildUserPrompt assembles the user turn: the request, plus a repair hint when
 // a prior attempt failed. The two failure kinds get different advice — a schema

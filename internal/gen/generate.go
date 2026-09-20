@@ -209,6 +209,32 @@ func collectIndexWarnings(q *ast.Query, c *config.Config) []string {
 	return warnings
 }
 
+// ResolvePeriod resolves a period value into the half-open instant range
+// [start, end) it covers, cut on calendar lines in the config's timezone
+// (datetime.PeriodBounds has the semantics).
+//
+// It re-checks what the validator checks — unit, magnitude, from <= to —
+// because every generator is also reachable through the exported Generator
+// with an AST that never saw Validate, and a generator that cannot resolve a
+// value must not invent one (see ResolveRelative).
+func ResolvePeriod(now time.Time, c *config.Config, v *ast.Value) (start, end time.Time, err error) {
+	if !datetime.IsRelativeUnit(v.Unit) {
+		return time.Time{}, time.Time{}, fmt.Errorf("period has unknown unit %q (expected one of: %s)",
+			v.Unit, strings.Join(datetime.RelativeUnits, ", "))
+	}
+	for _, n := range []int{v.From, v.To} {
+		if n > datetime.MaxRelativeAmount || n < -datetime.MaxRelativeAmount {
+			return time.Time{}, time.Time{}, fmt.Errorf("period offset %d is out of range (max magnitude %d)",
+				n, datetime.MaxRelativeAmount)
+		}
+	}
+	if v.From > v.To {
+		return time.Time{}, time.Time{}, fmt.Errorf("period from (%d) is after to (%d)", v.From, v.To)
+	}
+	start, end = datetime.PeriodBounds(now, config.LocationFor(c), v.Unit, v.From, v.To)
+	return start, end, nil
+}
+
 // ResolveRelative resolves a relative_date (unit, amount) against a reference
 // time into an absolute time. A negative amount is in the past.
 //

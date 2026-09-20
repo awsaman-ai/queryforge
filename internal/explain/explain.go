@@ -192,6 +192,18 @@ func DescribeComparison(cond *ast.Condition, c *config.Config) string {
 	if ast.IsNullOperator(cond.Operator) {  // null operators take no value
 		return label + " " + phrase
 	}
+	// A period is a named range, not two endpoints, so "is between" would read
+	// as nonsense ("is between yesterday"). It gets its own verb, and the zone
+	// the calendar is cut in when the config set one — "today" in Asia/Kolkata
+	// and "today" in UTC are different rows, and this readback is where a user
+	// can catch that before the query runs.
+	if cond.Value != nil && cond.Value.Kind == ast.KindPeriod {
+		out := label + " falls in " + DescribePeriod(cond.Value.Unit, cond.Value.From, cond.Value.To)
+		if c != nil && c.Timezone != "" {
+			out += " (" + c.Timezone + " time)"
+		}
+		return out
+	}
 	return label + " " + phrase + " " + describeValue(cond.Operator, cond.Value)
 }
 
@@ -302,6 +314,53 @@ func DescribeRelative(unit string, amount int) string {
 		suffix = "ago"
 	}
 	return fmt.Sprintf("%d %s %s", n, pluralizeUnit(unit, n), suffix)
+}
+
+// DescribePeriod turns a period's (unit, from, to) into the phrase a person
+// would have used: "yesterday", "last month", "the last 30 days including
+// today". Shapes with no everyday name fall back to naming both ends, so the
+// readback is always exact even when it is not idiomatic.
+func DescribePeriod(unit string, from, to int) string {
+	if from == to { // a single unit
+		return describeOffsetUnit(unit, from)
+	}
+	if to == 0 && from < 0 { // "last N <units>", counting the current one
+		n := -from + 1
+		return fmt.Sprintf("the last %d %s including %s", n, pluralizeUnit(unit, n), describeOffsetUnit(unit, 0))
+	}
+	if to == -1 && from < 0 { // "last N full <units>", stopping before the current one
+		n := -from
+		return fmt.Sprintf("the %d %s before %s", n, pluralizeUnit(unit, n), describeOffsetUnit(unit, 0))
+	}
+	return fmt.Sprintf("%s through %s", describeOffsetUnit(unit, from), describeOffsetUnit(unit, to))
+}
+
+// describeOffsetUnit names one calendar unit n away from the current one:
+// today / yesterday / tomorrow for days, this / last / next for the rest, and
+// "the week 3 weeks ago" beyond that.
+func describeOffsetUnit(unit string, n int) string {
+	if !datetime.IsRelativeUnit(unit) {
+		return fmt.Sprintf("<invalid unit %q>", unit)
+	}
+	if unit == "day" {
+		switch n {
+		case 0:
+			return "today"
+		case -1:
+			return "yesterday"
+		case 1:
+			return "tomorrow"
+		}
+	}
+	switch n {
+	case 0:
+		return "this " + unit
+	case -1:
+		return "last " + unit
+	case 1:
+		return "next " + unit
+	}
+	return "the " + unit + " " + DescribeRelative(unit, n)
 }
 
 // pluralizeUnit renders a relative-date unit for n of them.

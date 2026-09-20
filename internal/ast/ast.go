@@ -10,6 +10,7 @@ package ast
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 )
 
@@ -126,11 +127,13 @@ const (
 	KindArray        ValueKind = "array"
 	KindDate         ValueKind = "date"
 	KindRelativeDate ValueKind = "relative_date"
+	KindPeriod       ValueKind = "period" // a whole calendar range; only valid with between
 )
 
 // Value is a tagged union carrying a typed literal. For every kind except
-// relative_date the payload lives in V; relative_date uses Unit + Amount
-// (e.g. unit="day", amount=-30 means "30 days ago"). The tag lets the
+// relative_date and period the payload lives in V; relative_date uses Unit +
+// Amount (e.g. unit="day", amount=-30 means "30 days ago"), and period uses
+// Unit + From + To (e.g. unit="day", from=-1, to=-1 means "yesterday"). The tag lets the
 // validator enforce, deterministically and before any query is built, that
 // operators pair only with compatible value kinds.
 type Value struct {
@@ -140,9 +143,16 @@ type Value struct {
 	// Numbers decode as float64 and arrays as []any (JSON semantics).
 	V any
 
-	// Payload for relative_date.
+	// Payload for relative_date (Unit, Amount) and period (Unit, From, To).
 	Unit   string
 	Amount int
+
+	// From and To bound a period in whole calendar units away from the current
+	// one, both inclusive: 0 is the current unit, -1 the previous. The generators
+	// resolve them against the clock in the config's timezone
+	// (datetime.PeriodBounds).
+	From int
+	To   int
 }
 
 // MarshalJSON emits the union in its documented on-the-wire shape. It avoids
@@ -155,6 +165,14 @@ func (v Value) MarshalJSON() ([]byte, error) {
 			Unit   string    `json:"unit"`
 			Amount int       `json:"amount"`
 		}{v.Kind, v.Unit, v.Amount})
+	}
+	if v.Kind == KindPeriod { // no omitempty: a to of 0 ("through today") must survive
+		return json.Marshal(struct {
+			Kind ValueKind `json:"kind"`
+			Unit string    `json:"unit"`
+			From int       `json:"from"`
+			To   int       `json:"to"`
+		}{v.Kind, v.Unit, v.From, v.To})
 	}
 	return json.Marshal(struct {
 		Kind ValueKind `json:"kind"`
@@ -169,13 +187,30 @@ func (v *Value) UnmarshalJSON(data []byte) error {
 		V      json.RawMessage `json:"v"`
 		Unit   string          `json:"unit"`
 		Amount int             `json:"amount"`
+		From   *int            `json:"from"` // pointers only to tell "absent" from 0
+		To     *int            `json:"to"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
+	// A period with a bound missing is refused here rather than defaulted. Both
+	// bounds are ints whose zero value means "the current unit", so a model that
+	// wrote {"unit":"day","from":-1} meaning "yesterday" would otherwise decode
+	// to -1..0 — yesterday AND today — and pass every later check. Refusing it
+	// turns a silently wrong range into a repair attempt that names the fix.
+	if raw.Kind == KindPeriod && (raw.From == nil || raw.To == nil) {
+		return fmt.Errorf(`a period value needs both "from" and "to", e.g. {"kind":"period","unit":"day","from":-1,"to":-1} for yesterday`)
+	}
 	v.Kind = raw.Kind
 	v.Unit = raw.Unit
 	v.Amount = raw.Amount
+	v.From, v.To = 0, 0 // a reused Value must not keep a previous decode's bounds
+	if raw.From != nil {
+		v.From = *raw.From
+	}
+	if raw.To != nil {
+		v.To = *raw.To
+	}
 	v.V = nil
 	if len(raw.V) > 0 && string(raw.V) != "null" {
 		var payload any

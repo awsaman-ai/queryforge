@@ -60,6 +60,11 @@ func VRel(u string, a int) *ast.Value {
 	return &ast.Value{Kind: ast.KindRelativeDate, Unit: u, Amount: a}
 }
 
+// VPeriod builds a calendar-period value (unit, from, to — both inclusive).
+func VPeriod(u string, from, to int) *ast.Value {
+	return &ast.Value{Kind: ast.KindPeriod, Unit: u, From: from, To: to}
+}
+
 // Single wraps one comparison into a Query for the adversarial tables.
 func Single(cmp *ast.Condition) *ast.Query {
 	q := ast.NewQuery("Order")

@@ -182,6 +182,7 @@
     <a href="#hints">indexed &amp; priority</a>
     <a href="#operators">Operator catalogue</a>
     <a href="#values">Value kinds</a>
+    <a href="#dates">Dates, periods &amp; timezone</a>
     <a href="#defaults">defaults &amp; policy</a>
     <a href="#requires">Field rules (policy.requires)</a>
     <a href="#scope">Scope filters</a>
@@ -258,7 +259,7 @@ ORDER BY created_at DESC LIMIT 20
   <p>Every <code>/api/translate</code> response includes the AST it produced, in the <code>"ast"</code> field. The companion <code>/api/generate</code> endpoint accepts one directly and makes <strong>no model call at all</strong> — so it needs no API key and always returns the same query for the same input. Take the <code>ast</code> from a translate response, post it to generate with a different <code>backend</code>, and watch one object become the other dialect.</p>
 
   <h2 id="structure">Top-level structure</h2>
-  <p>A config has six top-level keys. Only <code>entity</code> and <code>fields</code> are strictly required, but a real config also sets <code>model</code> (to translate natural language) and <code>backends</code> (to map to physical tables/collections).</p>
+  <p>A config has seven top-level keys. Only <code>entity</code> and <code>fields</code> are strictly required, but a real config also sets <code>model</code> (to translate natural language) and <code>backends</code> (to map to physical tables/collections).</p>
   <div class="tablewrap"><table>
     <tr><th>Key</th><th>Type</th><th>Required</th><th>Purpose</th></tr>
     <tr><td><code>entity</code></td><td>string</td><td>yes</td><td>Logical name of the thing being queried (e.g. <code>Order</code>). Must match the AST's <code>entity</code>.</td></tr>
@@ -268,6 +269,7 @@ ORDER BY created_at DESC LIMIT 20
     <tr><td><code>fields</code></td><td>array</td><td>yes</td><td>The queryable attributes. See <a href="#fields">fields</a>.</td></tr>
     <tr><td><code>defaults</code></td><td>object</td><td>no</td><td>Default/max result window. See <a href="#defaults">defaults</a>.</td></tr>
     <tr><td><code>policy</code></td><td>object</td><td>no</td><td>Safety guardrails. See <a href="#defaults">policy</a>.</td></tr>
+    <tr><td><code>timezone</code></td><td>string</td><td>no</td><td>IANA zone (e.g. <code>Asia/Kolkata</code>) where calendar periods like "today" begin. Default <code>UTC</code>. See <a href="#dates">dates</a>.</td></tr>
   </table></div>
   <p class="muted">The loader is strict: an unknown key anywhere in the file is rejected, so typos surface immediately rather than being silently ignored. JSON only (no comments).</p>
 
@@ -418,7 +420,7 @@ ORDER BY created_at DESC LIMIT 20
     <tr><td><code>number</code></td><td>equals, notEquals, gt, lt, gte, lte, between, in, notIn, isNull, isNotNull</td><td>Supports <code>validators</code> min/max.</td></tr>
     <tr><td><code>boolean</code></td><td>equals, notEquals, isNull, isNotNull</td><td>Value kind <code>boolean</code>.</td></tr>
     <tr><td><code>enum</code></td><td>equals, notEquals, in, notIn, isNull, isNotNull</td><td><code>values</code> required; out-of-domain values are rejected.</td></tr>
-    <tr><td><code>date</code></td><td>before, after, between, equals, isNull, isNotNull</td><td>Accepts <code>date</code> and <code>relative_date</code> values. <code>after</code>/<code>before</code> are inclusive.</td></tr>
+    <tr><td><code>date</code></td><td>before, after, between, equals, isNull, isNotNull</td><td>Accepts <code>date</code>, <code>relative_date</code> and, with <code>between</code>, <code>period</code> values. <code>after</code>/<code>before</code> are inclusive.</td></tr>
     <tr><td><code>array</code></td><td>contains, containsAny, containsAll, isNull, isNotNull</td><td>Not sortable by default. Elements typed by <code>itemType</code>.</td></tr>
   </table></div>
 
@@ -547,7 +549,7 @@ ORDER BY created_at DESC LIMIT 20
     <tr><th>Operator</th><th>Meaning</th><th>Value shape</th></tr>
     <tr><td><code>equals</code> / <code>notEquals</code></td><td>Exact (in)equality</td><td>scalar</td></tr>
     <tr><td><code>gt</code> / <code>lt</code> / <code>gte</code> / <code>lte</code></td><td>Numeric comparison</td><td>scalar (number)</td></tr>
-    <tr><td><code>between</code></td><td>Inclusive range</td><td>array of exactly 2</td></tr>
+    <tr><td><code>between</code></td><td>Inclusive range; with a <code>period</code>, the half-open calendar range it names</td><td>array of exactly 2, or a period</td></tr>
     <tr><td><code>in</code> / <code>notIn</code></td><td>Membership in a set</td><td>array</td></tr>
     <tr><td><code>contains</code></td><td>Substring (string) or element membership (array)</td><td>scalar</td></tr>
     <tr><td><code>containsAny</code> / <code>containsAll</code></td><td>Array overlap / superset</td><td>array</td></tr>
@@ -569,7 +571,39 @@ ORDER BY created_at DESC LIMIT 20
     <tr><td><code>array</code></td><td><code>{"kind":"array","v":["a","b"]}</code></td><td>for in/between/contains*</td></tr>
     <tr><td><code>date</code></td><td><code>{"kind":"date","v":"2026-01-31"}</code></td><td>absolute date</td></tr>
     <tr><td><code>relative_date</code></td><td><code>{"kind":"relative_date","unit":"day","amount":-30}</code></td><td>"30 days ago"; units: minute, hour, day, week, month, year</td></tr>
+    <tr><td><code>period</code></td><td><code>{"kind":"period","unit":"day","from":-1,"to":-1}</code></td><td>"yesterday"; a whole calendar range, only with <code>between</code></td></tr>
   </table></div>
+
+  <h2 id="dates">Dates, periods &amp; timezone</h2>
+  <p>A time in a question is one of two different things, and the AST keeps them apart:</p>
+  <ul>
+    <li><strong>A calendar period</strong> — "today", "yesterday", "this week", "last month", "this year", "last 30 days". Use <code>between</code> with a <code>period</code> value. The range follows the calendar, so the same question asked at 09:00 or 23:00 returns the same rows.</li>
+    <li><strong>A span back from this exact moment</strong> — "in the last 2 hours", "past 45 minutes". Use <code>after</code> with a <code>relative_date</code> value: one instant, a fixed distance before now.</li>
+  </ul>
+  <h3>How a period is read</h3>
+  <p><code>from</code> and <code>to</code> count whole units away from the current one: <code>0</code> is the current day/week/month, <code>-1</code> the one before. <strong>Both ends are inclusive.</strong> Weeks start on Monday.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Phrase</th><th>Period</th><th>Asked 2026-09-15 (UTC), selects</th></tr>
+    <tr><td>today</td><td><code>day 0..0</code></td><td>2026-09-15 00:00 → 2026-09-16 00:00</td></tr>
+    <tr><td>yesterday</td><td><code>day -1..-1</code></td><td>2026-09-14 00:00 → 2026-09-15 00:00</td></tr>
+    <tr><td>last 30 days</td><td><code>day -29..0</code></td><td>2026-08-17 00:00 → 2026-09-16 00:00 (30 days, includes today)</td></tr>
+    <tr><td>this week</td><td><code>week 0..0</code></td><td>Mon 2026-09-14 00:00 → Mon 2026-09-21 00:00</td></tr>
+    <tr><td>last month</td><td><code>month -1..-1</code></td><td>2026-08-01 00:00 → 2026-09-01 00:00</td></tr>
+    <tr><td>this year</td><td><code>year 0..0</code></td><td>2026-01-01 00:00 → 2027-01-01 00:00</td></tr>
+  </table></div>
+  <p>Every backend compiles a period to a <strong>half-open</strong> range — start included, end excluded — rather than an inclusive <code>BETWEEN</code>, so a row at 23:59:59.999 on the last day is counted and midnight of the next day is not:</p>
+<pre><code>SQL            (created_at &gt;= $1 AND created_at &lt; $2)
+MongoDB        { "createdAt": { "$gte": ISODate(start), "$lt": ISODate(end) } }
+Elasticsearch  { "range": { "createdAt": { "gte": "…", "lt": "…" } } }</code></pre>
+  <p>The validator rejects a period whose <code>from</code> is after its <code>to</code>, whose unit is not one of the six, whose offsets exceed 1,000,000, that is used with any operator other than <code>between</code>, or that is missing <code>from</code> or <code>to</code> (a missing bound is never read as 0 — <code>{"from":-1}</code> would otherwise mean "yesterday <em>and</em> today"). Errors carry the code <code>invalid_relative_date</code>. On Elasticsearch date-partitioned routing, a period selects exactly the partitions it overlaps.</p>
+  <h3>timezone</h3>
+  <p>Set the top-level <code>timezone</code> to the IANA zone your users live in, and periods are cut on <em>their</em> midnight. With <code>"timezone": "Asia/Kolkata"</code>, "today" asked on 2026-09-15 selects 2026-09-14 18:30Z → 2026-09-15 18:30Z. The system prompt's <code>Today (…)</code> line is shown in the same zone, and the explanation names it: <em>createdAt falls in yesterday (Asia/Kolkata time)</em>.</p>
+  <ul>
+    <li>Omitted or <code>""</code> means <code>UTC</code> — exactly the behaviour before the key existed.</li>
+    <li>An unknown name, an abbreviation such as <code>IST</code>, an offset such as <code>+05:30</code>, and the host-dependent <code>Local</code> all fail at load.</li>
+    <li>Daylight-saving changes are handled: the day the clocks move is 23 or 25 hours long, and its boundaries still fall on local midnight.</li>
+    <li><code>relative_date</code> values are not affected — "3 hours ago" is the same instant in every zone. Absolute <code>date</code> literals such as <code>"2026-09-15"</code> are still read as UTC.</li>
+  </ul>
 
   <h2 id="defaults">defaults &amp; policy</h2>
   <h3>defaults</h3>

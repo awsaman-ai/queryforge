@@ -364,6 +364,15 @@ func esComparison(backend string, c *config.Config, cond *ast.Condition, now tim
 		}
 		return map[string]any{"range": map[string]any{exact: map[string]any{"lte": v}}}, nil
 	case ast.OpBetween:
+		if cond.Value != nil && cond.Value.Kind == ast.KindPeriod {
+			// Half-open, same as SQL and Mongo: lt on the first instant of the next unit.
+			start, end, err := ResolvePeriod(now, c, cond.Value)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", backend, err)
+			}
+			return map[string]any{"range": map[string]any{exact: map[string]any{
+				"gte": start.Format(time.RFC3339), "lt": end.Format(time.RFC3339)}}}, nil
+		}
 		elems, err := sliceValue(backend, ast.OpBetween, cond.Value, 2)
 		if err != nil {
 			return nil, err

@@ -38,7 +38,7 @@ const (
 	CodeListTooLong      ErrCode = "list_too_long"         // in/notIn/containsAny list exceeds policy.maxListLength
 	CodeValueTooLong     ErrCode = "value_too_long"        // string value exceeds policy.maxValueLength
 	CodeDuplicateField   ErrCode = "duplicate_field"       // the same field listed twice in select
-	CodeInvalidRelDate   ErrCode = "invalid_relative_date" // unknown unit, or an out-of-range amount
+	CodeInvalidRelDate   ErrCode = "invalid_relative_date" // relative_date/period: unknown unit, out-of-range offset, from > to
 	CodeRegexNotAllowed  ErrCode = "regex_not_allowed"     // policy.allowRegexOn does not name this field
 	CodeRegexPatternLong ErrCode = "regex_pattern_long"    // pattern exceeds policy.maxRegexLength
 	CodeRegexUnsafe      ErrCode = "regex_unsafe"          // pattern nests unbounded quantifiers (catastrophic backtracking)
@@ -403,6 +403,14 @@ func (w *walk) comparison(path string, cond *ast.Condition) ValidationErrors {
 	// and `containsAll/Any` compare against.
 	elemType := valuetype.ScalarTypeOf(f)
 
+	// A period is a whole range, not a literal, so it is judged before the
+	// array/scalar split: under that split it would be reported as "expects an
+	// array value" on between (misleading — between is its one legal operator)
+	// and slip past the scalar checks on everything else.
+	if cond.Value.Kind == ast.KindPeriod {
+		return append(errs, validatePeriod(path, f, elemType, cond)...)
+	}
+
 	if ast.IsArrayValueOperator(cond.Operator) {
 		errs = append(errs, ValidateArrayValue(c, path, f, elemType, cond)...)
 	} else {
@@ -539,6 +547,45 @@ func validateRelativeDate(path string, f *config.Field, elemType config.FieldTyp
 	return errs
 }
 
+// validatePeriod checks a calendar period value. Every rule here guards a range
+// that would otherwise compile cleanly and select the wrong rows:
+//   - only on a date field, and only with between — a period IS a range, so
+//     "after last month" or "equals this week" have no single reading;
+//   - a unit the generators know, as for relative_date;
+//   - from <= to, because -1..-30 would resolve to an empty range and return
+//     nothing, where the question almost certainly meant -30..-1;
+//   - both bounds within MaxRelativeAmount, so resolving stays in the calendar.
+func validatePeriod(path string, f *config.Field, elemType config.FieldType, cond *ast.Condition) ValidationErrors {
+	v := cond.Value
+	if elemType != config.FieldDate {
+		return ValidationErrors{{Code: CodeKindMismatch, Path: path, Field: f.Name,
+			Message: fmt.Sprintf("value %s is not compatible with field type %q", describePayload(v), elemType)}}
+	}
+	if cond.Operator != ast.OpBetween {
+		return ValidationErrors{{Code: CodeKindMismatch, Path: path, Field: f.Name,
+			Message: fmt.Sprintf("a period value is only valid with operator \"between\", not %q", cond.Operator)}}
+	}
+	var errs ValidationErrors
+	if !datetime.IsRelativeUnit(v.Unit) {
+		errs = append(errs, &ValidationError{Code: CodeInvalidRelDate, Path: path, Field: f.Name,
+			Message: fmt.Sprintf("period unit %q is not one of: %s", v.Unit, strings.Join(datetime.RelativeUnits, ", "))})
+	}
+	for _, b := range []struct {
+		name string
+		n    int
+	}{{"from", v.From}, {"to", v.To}} {
+		if b.n > datetime.MaxRelativeAmount || b.n < -datetime.MaxRelativeAmount {
+			errs = append(errs, &ValidationError{Code: CodeInvalidRelDate, Path: path, Field: f.Name,
+				Message: fmt.Sprintf("period %s %d is out of range (max magnitude %d)", b.name, b.n, datetime.MaxRelativeAmount)})
+		}
+	}
+	if v.From > v.To {
+		errs = append(errs, &ValidationError{Code: CodeInvalidRelDate, Path: path, Field: f.Name,
+			Message: fmt.Sprintf("period from (%d) is after to (%d); the earlier unit comes first, e.g. from -30 to -1", v.From, v.To)})
+	}
+	return errs
+}
+
 // --- small deterministic helpers ---
 
 // scalarKindOK reports whether a scalar Value can stand for the given type.
@@ -584,6 +631,9 @@ func scalarKindOK(t config.FieldType, v *ast.Value) bool {
 func describePayload(v *ast.Value) string {
 	if v.Kind == ast.KindRelativeDate {
 		return "relative date"
+	}
+	if v.Kind == ast.KindPeriod {
+		return "period"
 	}
 	switch p := v.V.(type) {
 	case string:

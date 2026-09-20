@@ -13,6 +13,10 @@ import (
 	"os"
 	"strings"
 	"time"
+	// Embeds the IANA zone database (~450 KB) so a "timezone" key resolves on
+	// hosts without one — Windows, and the scratch/distroless images the engine
+	// binary the SDKs spawn is commonly shipped in. Still standard library only.
+	_ "time/tzdata"
 
 	"github.com/awsaman-ai/queryforge/internal/ast"
 	"github.com/awsaman-ai/queryforge/internal/identifier"
@@ -39,9 +43,20 @@ type Config struct {
 	Defaults Defaults                 `json:"defaults,omitempty"`
 	Policy   Policy                   `json:"policy,omitempty"`
 
+	// Timezone is the IANA zone name ("Asia/Kolkata", "America/New_York") in
+	// which calendar periods are cut: where "today", "yesterday", "this week"
+	// and "last month" begin and end. Omitted means UTC, which is what the
+	// library did before the key existed. Rolling relative_date values are
+	// unaffected — "3 hours ago" is the same instant in every zone.
+	//
+	// It is a config key rather than a per-request argument: one config serves
+	// one entity's users, and keeping it here needs no wire-protocol change.
+	Timezone string `json:"timezone,omitempty"`
+
 	// Built at load time; not serialized.
 	fieldByName  map[string]*Field
 	synonymIndex map[string]*Field
+	location     *time.Location // resolved Timezone; nil until finalize
 }
 
 // ModelConfig selects the AI planner target. Swapping provider or model is a
@@ -864,6 +879,48 @@ func ParseConfig(data []byte) (*Config, error) {
 // queryforge.Config) does not grow one.
 func Finalize(c *Config) error { return c.finalize() }
 
+// LocationFor returns the zone calendar periods are cut in: the config's
+// resolved timezone, or UTC when none is set. It re-resolves when the Config
+// never went through finalize (built in Go and handed straight to a
+// generator), and falls back to UTC if that fails — the load path is where a
+// bad zone is reported, never mid-generation.
+func LocationFor(c *Config) *time.Location {
+	if c == nil {
+		return time.UTC
+	}
+	if c.location != nil {
+		return c.location
+	}
+	if loc, err := resolveTimezone(c.Timezone); err == nil {
+		return loc
+	}
+	return time.UTC
+}
+
+// resolveTimezone maps the config's timezone key to a *time.Location.
+//
+// time.LoadLocation alone is too forgiving for a config key: it accepts ""
+// and "UTC" (fine) but also "Local", which would make the same config cut
+// days differently on a laptop and on a server. That one is refused outright;
+// a config has to say which zone it means.
+func resolveTimezone(name string) (*time.Location, error) {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return time.UTC, nil // the pre-existing behaviour
+	}
+	if trimmed != name {
+		return nil, fmt.Errorf("config: timezone %q has surrounding whitespace", name)
+	}
+	if strings.EqualFold(name, "local") {
+		return nil, fmt.Errorf(`config: timezone "Local" depends on the host machine; name an IANA zone such as "Asia/Kolkata" or "UTC"`)
+	}
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		return nil, fmt.Errorf("config: timezone %q is not a known IANA zone name (e.g. \"Asia/Kolkata\", \"America/New_York\", \"UTC\")", name)
+	}
+	return loc, nil
+}
+
 // FieldIndex exposes the by-name field index Finalize builds. Same audience and
 // the same reasoning: a test that has to corrupt a resolved field in place
 // cannot reach the unexported map from another package.
@@ -877,6 +934,13 @@ func (c *Config) finalize() error {
 	if len(c.Fields) == 0 {
 		return fmt.Errorf("config: at least one field is required")
 	}
+	// Resolve the timezone now, so a misspelt zone fails the load with its name
+	// rather than surfacing on the first question that mentions "today".
+	loc, err := resolveTimezone(c.Timezone)
+	if err != nil {
+		return err
+	}
+	c.location = loc
 
 	// Check every model block's apiKeyEnv before anything else can go wrong.
 	// The field holds the NAME of an environment variable, never a key, and

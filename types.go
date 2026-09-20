@@ -108,6 +108,7 @@ const (
 	KindArray        = ast.KindArray
 	KindDate         = ast.KindDate
 	KindRelativeDate = ast.KindRelativeDate
+	KindPeriod       = ast.KindPeriod
 )
 
 // AllOperators is the fixed operator catalogue.

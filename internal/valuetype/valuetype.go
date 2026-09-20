@@ -39,7 +39,7 @@ import (
 // says what the model actually produced; the two are compared directly, in the
 // validator (scalarKindOK) and again in each generator (sqlBuilder.value,
 // mongoScalar). The tag survives only where it is the sole description
-// available: relative_date carries no payload, just unit and amount.
+// available: relative_date and period carry no payload, just a unit and offsets.
 //
 // This also leaves the model's AST untouched. An earlier attempt normalized the
 // tags in place and tripped TestScopeIsSafeForConcurrentUse — GenerateFrom
@@ -85,7 +85,7 @@ func TypeForKind(v *ast.Value) config.FieldType {
 		return config.FieldNumber
 	case ast.KindBoolean:
 		return config.FieldBoolean
-	case ast.KindDate, ast.KindRelativeDate:
+	case ast.KindDate, ast.KindRelativeDate, ast.KindPeriod:
 		return config.FieldDate
 	default: // string, enum, array (elements carry their own Go types)
 		return config.FieldString
