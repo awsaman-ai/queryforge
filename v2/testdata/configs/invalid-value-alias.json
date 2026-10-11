@@ -1,0 +1,26 @@
+{
+  "entities": [
+    { "name": "customer", "table": "customers" }
+  ],
+  "fields": [
+    {
+      "entity": "customer",
+      "name": "country",
+      "type": "string",
+      "valueAliases": { "India": "IN", "india": "IND", "Nowhere": "" }
+    },
+    {
+      "entity": "customer",
+      "name": "total_spent",
+      "type": "number",
+      "valueAliases": { "a lot": "100000" }
+    },
+    {
+      "entity": "customer",
+      "name": "status",
+      "type": "enum",
+      "enumValues": ["active", "inactive"],
+      "valueAliases": { "disabled": "suspended" }
+    }
+  ]
+}

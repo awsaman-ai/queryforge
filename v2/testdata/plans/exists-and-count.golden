@@ -1,0 +1,26 @@
+SELECT "t0"."name", "t0"."country"
+FROM "customers" AS "t0"
+WHERE EXISTS (
+    SELECT 1
+    FROM "orders" AS "t1"
+    JOIN "products" AS "t2" ON "t2"."id" = "t1"."product_id"
+    WHERE "t1"."customer_id" = "t0"."id"
+      AND "t2"."category" = $1
+  )
+   OR (
+    SELECT COUNT(*)
+    FROM "orders" AS "t3"
+    WHERE "t3"."customer_id" = "t0"."id"
+  ) > $2
+   OR NOT EXISTS (
+    SELECT 1
+    FROM "orders" AS "t4"
+    WHERE "t4"."customer_id" = "t0"."id"
+  )
+   OR NOT ("t0"."created_at" >= $3 AND "t0"."created_at" < $4);
+
+params:
+1 = "laptop" (string)
+2 = 3 (number)
+3 = 2026-08-01T00:00:00Z (time)
+4 = 2026-09-01T00:00:00Z (time)

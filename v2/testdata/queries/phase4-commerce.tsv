@@ -1,0 +1,34 @@
+# Phase 4 regression set — run against testdata/configs/commerce.json.
+#
+# Every Phase 2 miss and every Phase 2 "false positive worth keeping", now
+# asked of the ranker. Same columns as phase4-ambiguity.tsv.
+
+# --- Phase 2 miss 1: multi-span collapse (fixed by Phase 3 spans) ---
+client location	location	field:customer.country	Phase 2 miss; Phase 3 splits the span
+recent customer	recent	pattern:recent	Phase 2 miss; "recent" is the time-window pattern, the date field is Phase 5 binding
+
+# --- Phase 2 miss 2: relationships lose to entities on raw similarity ---
+placed an order	placed	relationship:customer_orders	Phase 2 miss: entity:order won the whole string
+customers who bought something	bought	relationship:customer_orders	Phase 2 miss at rank 5
+
+# --- Phase 2 miss 3: the exact tie the retrieval layer broke by id ---
+the highest ones	highest	AMBIGUOUS	Phase 2 expected top_n; with no count, refusing is the honest answer
+the 10 highest customers	highest	pattern:top_n	same tie, now decided by the count
+
+# --- Phase 2 false positives: 1.000 is not confidence ---
+name	name	AMBIGUOUS	customer.name and product.name tie at 1.000
+date	date	AMBIGUOUS	placed_at 0.726 vs created_at 0.711
+status	status	field:customer.status	only one status field: a wide margin, correctly accepted
+value	value	AMBIGUOUS	total_spent 0.682 vs amount 0.588: too weak and too close
+
+# --- decision 012 (user, Phase 4 gate): contextual, no global rule for "amount" ---
+amount	amount	field:order.amount	only order.amount is NAMED amount; total_spent says "amount spent" — accepted on margin
+order amount	order amount	field:order.amount	exact configured synonym
+
+# --- Phase 2 probes that must still work as sentences ---
+customer spending	spending	field:customer.total_spent	brief probe
+money spent	money spent	field:customer.total_spent	brief probe: pure paraphrase
+more than	more than	operator:gt	brief probe
+customers with total spent more than 50000	more than	operator:gt	operator inside a sentence
+customers from India	india	value:customer.country:alias:India	value; must render redacted
+how many customers	how many	aggregation:count	count agreement

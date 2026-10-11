@@ -1,0 +1,16 @@
+SELECT "t0"."amount", "t1"."name", "t2"."name"
+FROM "orders" AS "t0"
+LEFT JOIN "products" AS "t1" ON "t1"."id" = "t0"."product_id"
+LEFT JOIN "customers" AS "t2" ON "t2"."id" = "t0"."customer_id"
+WHERE "t1"."category" IN ($1, $2)
+  AND ("t0"."placed_at" >= $3 AND "t0"."placed_at" < $4)
+  AND "t2"."name" LIKE $5 ESCAPE '\'
+ORDER BY "t0"."amount" DESC NULLS LAST, "t2"."name" ASC NULLS LAST
+LIMIT 25;
+
+params:
+1 = "laptop" (string)
+2 = "tablet" (string)
+3 = 2025-01-01T00:00:00Z (time)
+4 = 2026-01-01T00:00:00Z (time)
+5 = "%50\\%\\_off\\\\%" (string)

@@ -1,0 +1,788 @@
+{
+  "title": "Phase 8 adversarial and hardening set",
+  "config": "commerce.json",
+  "now": "2026-09-21T12:00:00Z",
+  "tz": "UTC",
+  "cases": [
+    {
+      "id": "W01",
+      "category": "write",
+      "input": "Drop the customer table",
+      "meaning": "section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021)",
+      "expect": "SECURITY_REJECTED"
+    },
+    {
+      "id": "W02",
+      "category": "write",
+      "input": "Delete all customers",
+      "meaning": "section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021)",
+      "expect": "SECURITY_REJECTED"
+    },
+    {
+      "id": "W03",
+      "category": "write",
+      "input": "update customers set country = US",
+      "meaning": "section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021)",
+      "expect": "SECURITY_REJECTED"
+    },
+    {
+      "id": "W04",
+      "category": "write",
+      "input": "insert into customers values (1, 'x')",
+      "meaning": "section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021)",
+      "expect": "SECURITY_REJECTED"
+    },
+    {
+      "id": "W05",
+      "category": "write",
+      "input": "alter table customers add column password",
+      "meaning": "section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021)",
+      "expect": "SECURITY_REJECTED"
+    },
+    {
+      "id": "W06",
+      "category": "write",
+      "input": "truncate orders",
+      "meaning": "section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021)",
+      "expect": "SECURITY_REJECTED"
+    },
+    {
+      "id": "W07",
+      "category": "write",
+      "input": "create a new customer from India",
+      "meaning": "section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021)",
+      "expect": "SECURITY_REJECTED"
+    },
+    {
+      "id": "W08",
+      "category": "write",
+      "input": "grant access to customers",
+      "meaning": "section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021)",
+      "expect": "SECURITY_REJECTED"
+    },
+    {
+      "id": "W09",
+      "category": "write",
+      "input": "revoke access to orders",
+      "meaning": "section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021)",
+      "expect": "SECURITY_REJECTED"
+    },
+    {
+      "id": "W10",
+      "category": "write",
+      "input": "copy customers to a file",
+      "meaning": "section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021)",
+      "expect": "SECURITY_REJECTED"
+    },
+    {
+      "id": "W11",
+      "category": "write",
+      "input": "call the refund procedure for orders",
+      "meaning": "section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021)",
+      "expect": "SECURITY_REJECTED"
+    },
+    {
+      "id": "W12",
+      "category": "write",
+      "input": "merge customers from India into orders",
+      "meaning": "section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021)",
+      "expect": "SECURITY_REJECTED"
+    },
+    {
+      "id": "W13",
+      "category": "write",
+      "input": "DELETES all orders",
+      "meaning": "section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021); the plural and the capitals fold to the keyword",
+      "expect": "SECURITY_REJECTED"
+    },
+    {
+      "id": "W14",
+      "category": "write",
+      "input": "remove all customers from India",
+      "meaning": "a natural-language write verb that is not an SQL keyword: outside the keyword list, refused as an unexplained word (decision 016), as before Phase 8",
+      "expect": "UNSUPPORTED_QUERY"
+    },
+    {
+      "id": "W15",
+      "category": "write",
+      "input": "customers created in 2024",
+      "meaning": "an INFLECTED form ('created') is read vocabulary, not the keyword CREATE: customers whose created_at is in 2024",
+      "expect": "sql",
+      "shape": [
+        "FROM \"customers\" AS \"t0\"",
+        "\"t0\".\"created_at\" >= $1",
+        "\"t0\".\"created_at\" < $2"
+      ]
+    },
+    {
+      "id": "W16",
+      "category": "write",
+      "input": "customers from India; drop table customers",
+      "meaning": "section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021); the keyword follows a read that would compile on its own. Since the Phase 8 gate (decision 022 \u00a73) a request is one query: statement and comment syntax refuses it at the input boundary, before the read-only rule is reached",
+      "expect": "SECURITY_REJECTED"
+    },
+    {
+      "id": "I01",
+      "category": "injection",
+      "input": "SELECT * FROM users; DROP TABLE users;",
+      "meaning": "section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021); refused as a write, not as 'matches nothing'. Since the Phase 8 gate (decision 022 \u00a73) a request is one query: statement and comment syntax refuses it at the input boundary, before the read-only rule is reached",
+      "expect": "SECURITY_REJECTED"
+    },
+    {
+      "id": "I02",
+      "category": "injection",
+      "input": "' OR 1=1 --",
+      "meaning": "no entity, field or value: an explicit refusal. Since the Phase 8 gate (decision 022 \u00a73) a request is one query: statement and comment syntax refuses it at the input boundary",
+      "expect": "REFUSED"
+    },
+    {
+      "id": "I03",
+      "category": "injection",
+      "input": "UNION SELECT password FROM users",
+      "meaning": "SQL keywords and an unconfigured column: an explicit refusal",
+      "expect": "REFUSED"
+    },
+    {
+      "id": "I04",
+      "category": "injection",
+      "input": "customers named Robert'); DROP TABLE customers;--",
+      "meaning": "section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021) (DROP). Phase 7's Z05 hoped for a literal parameter; the explicit read-only rule refuses first. Since the Phase 8 gate (decision 022 \u00a73) a request is one query: statement and comment syntax refuses it at the input boundary, before the read-only rule is reached",
+      "expect": "SECURITY_REJECTED"
+    },
+    {
+      "id": "I05",
+      "category": "injection",
+      "input": "customers where name = 'x' OR 1=1",
+      "meaning": "a comparison written as SQL: an explicit refusal",
+      "expect": "REFUSED"
+    },
+    {
+      "id": "I06",
+      "category": "injection",
+      "input": "customers from India' OR '1'='1",
+      "meaning": "a tautology appended to a valid read: an explicit refusal, never OR 1=1 in SQL",
+      "expect": "REFUSED"
+    },
+    {
+      "id": "I07",
+      "category": "injection",
+      "input": "customers from India; select * from orders",
+      "meaning": "a second query appended: an explicit refusal. Since the Phase 8 gate (decision 022 \u00a73) a request is one query: statement and comment syntax refuses it at the input boundary",
+      "expect": "SECURITY_REJECTED"
+    },
+    {
+      "id": "I08",
+      "category": "injection",
+      "input": "customers/**/from/**/India",
+      "meaning": "comment markers in the request. EXPECTATION CHANGED at the Phase 8 gate (decision 022 \u00a73); was: the plain read with country = $1 (the markers were punctuation). Since the Phase 8 gate (decision 022 \u00a73) a request is one query: statement and comment syntax refuses it at the input boundary",
+      "expect": "SECURITY_REJECTED"
+    },
+    {
+      "id": "I09",
+      "category": "injection",
+      "input": "customers named Smith; --",
+      "meaning": "a terminator and a comment after a value. EXPECTATION CHANGED at the Phase 8 gate (decision 022 \u00a73); was: name = $1 with Smith. Since the Phase 8 gate (decision 022 \u00a73) a request is one query: statement and comment syntax refuses it at the input boundary",
+      "expect": "SECURITY_REJECTED"
+    },
+    {
+      "id": "I10",
+      "category": "injection",
+      "input": "customers named O'Brien",
+      "meaning": "a quote in a value is data: ONE parameter, never a quote in the SQL text. EXPECTATION CORRECTED after the first run: it was written as REFUSED on a wrong guess that Phase 3 splits the apostrophe; the engine produced the designed outcome (phase-8-results.md)",
+      "expect": "sql",
+      "shape": [
+        "\"t0\".\"name\" = $1"
+      ],
+      "absent": [
+        "O'Brien",
+        "'B"
+      ],
+      "params": [
+        "O'Brien"
+      ]
+    },
+    {
+      "id": "N01",
+      "category": "identifier",
+      "input": "customers.password",
+      "meaning": "a column the config does not have: refused, never emitted",
+      "expect": "REFUSED"
+    },
+    {
+      "id": "N02",
+      "category": "identifier",
+      "input": "show the password of every customer",
+      "meaning": "'password' is unexplained: refused",
+      "expect": "UNSUPPORTED_QUERY"
+    },
+    {
+      "id": "N03",
+      "category": "identifier",
+      "input": "show pg_catalog tables",
+      "meaning": "a system catalogue: refused",
+      "expect": "REFUSED"
+    },
+    {
+      "id": "N04",
+      "category": "identifier",
+      "input": "unknown_field",
+      "meaning": "the brief's 'unknown_field'",
+      "expect": "REFUSED"
+    },
+    {
+      "id": "N05",
+      "category": "identifier",
+      "input": "unknown_operator",
+      "meaning": "the brief's 'unknown_operator'",
+      "expect": "REFUSED"
+    },
+    {
+      "id": "N06",
+      "category": "identifier",
+      "input": "customers with shoe size above 10",
+      "meaning": "an attribute the config does not have: refused, never guessed",
+      "expect": "REFUSED"
+    },
+    {
+      "id": "L01",
+      "category": "limits",
+      "input": "customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers ",
+      "meaning": "600 characters, over maxInputLength 512: refused, never truncated",
+      "expect": "INVALID_INPUT"
+    },
+    {
+      "id": "L02",
+      "category": "limits",
+      "input": "x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x ",
+      "meaning": "140 characters but 70 words: 274 candidate spans, over maxPhrases 256, refused before retrieval (decision 021)",
+      "expect": "INVALID_INPUT"
+    },
+    {
+      "id": "L03",
+      "category": "limits",
+      "input": "customers with country India and country India and country India and country India and country India and country India and country India and country India and country India and country India and country India and country India and country India and country India",
+      "meaning": "the brief's 'very deep conditions': 14 conditions, over commerce's maxFilters 12",
+      "expect": "SECURITY_REJECTED"
+    },
+    {
+      "id": "U01",
+      "category": "unicode",
+      "input": "cust\u043emers from India",
+      "meaning": "a Cyrillic o inside 'customers': not the configured word; refused, never read as it",
+      "expect": "REFUSED"
+    },
+    {
+      "id": "U02",
+      "category": "unicode",
+      "input": "customers from Indi\u0430",
+      "meaning": "a Cyrillic a inside the VALUE 'India': a value needs literal evidence (019 section 1), so it is refused, never bound",
+      "expect": "REFUSED"
+    },
+    {
+      "id": "U03",
+      "category": "unicode",
+      "input": "customers\u200b from India",
+      "meaning": "a zero-width space carries nothing: the plain read",
+      "expect": "sql",
+      "shape": [
+        "\"t0\".\"country\" = $1"
+      ],
+      "params": [
+        "IN"
+      ]
+    },
+    {
+      "id": "U04",
+      "category": "unicode",
+      "input": "\u202ecustomers from India",
+      "meaning": "a right-to-left override is display-only: the plain read",
+      "expect": "sql",
+      "shape": [
+        "\"t0\".\"country\" = $1"
+      ],
+      "params": [
+        "IN"
+      ]
+    },
+    {
+      "id": "U05",
+      "category": "unicode",
+      "input": "\uff43\uff55\uff53\uff54\uff4f\uff4d\uff45\uff52\uff53 from India",
+      "meaning": "fullwidth letters are not folded by Phase 3: not the configured word, an explicit refusal",
+      "expect": "REFUSED"
+    },
+    {
+      "id": "U06",
+      "category": "unicode",
+      "input": "customers from India\u0000 DROP TABLE customers",
+      "meaning": "section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021); a NUL byte does not hide the keyword",
+      "expect": "SECURITY_REJECTED"
+    },
+    {
+      "id": "U07",
+      "category": "unicode",
+      "input": "\ud83d\ude00 customers from India \ud83d\ude00",
+      "meaning": "emoji are symbols, not words: the plain read",
+      "expect": "sql",
+      "shape": [
+        "\"t0\".\"country\" = $1"
+      ],
+      "params": [
+        "IN"
+      ]
+    },
+    {
+      "id": "V01",
+      "category": "value",
+      "input": "customers who spent more than 1e309",
+      "meaning": "exponent notation is not a form the engine reads exactly (decision 022 \u00a72): refused. Before the gate float parsing dropped this token (out of float range) and the operator was refused for having no value",
+      "expect": "REFUSED"
+    },
+    {
+      "id": "V02",
+      "category": "value",
+      "input": "customers who spent more than 99999999999999999999999",
+      "meaning": "a 23-digit number is carried EXACTLY from the sentence to the parameter (decision 022 \u00a72). EXPECTATION CHANGED at the Phase 8 gate; was VALUE_RESOLUTION_FAILED (the principled outcome while numbers were float64)",
+      "expect": "sql",
+      "shape": [
+        "\"t0\".\"total_spent\" > $1"
+      ],
+      "params": [
+        "99999999999999999999999"
+      ]
+    },
+    {
+      "id": "V03",
+      "category": "value",
+      "input": "orders placed on 2024-13-45",
+      "meaning": "an impossible date: refused, never normalised to another day",
+      "expect": "REFUSED"
+    },
+    {
+      "id": "V04",
+      "category": "value",
+      "input": "customers named 50%_off",
+      "meaning": "LIKE metacharacters and a percent in a value: a refusal (a percent is refused until unit metadata exists, 017 section 1), never a pattern in the SQL text",
+      "expect": "REFUSED"
+    },
+    {
+      "id": "P01",
+      "category": "ambiguity",
+      "input": "show customers by update date",
+      "meaning": "section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021); decision 021's ranking rule would refuse it too",
+      "expect": "SECURITY_REJECTED"
+    },
+    {
+      "id": "P02",
+      "category": "ambiguity",
+      "input": "show customers by modification date",
+      "meaning": "a generic configured word ('date', part of several fields' phrases) qualified by a word no reading configures names a target the config does not have: refused (decision 021)",
+      "expect": "AMBIGUOUS_MATCH"
+    },
+    {
+      "id": "P03",
+      "category": "ambiguity",
+      "input": "orders by shipping date",
+      "meaning": "a generic configured word ('date', part of several fields' phrases) qualified by a word no reading configures names a target the config does not have: refused (decision 021); 'orders' spells out 'order date', but no evidence elsewhere makes 'shipping date' a configured phrase",
+      "expect": "REFUSED"
+    },
+    {
+      "id": "P04",
+      "category": "ambiguity",
+      "input": "show order shipping date",
+      "meaning": "a generic configured word ('date', part of several fields' phrases) qualified by a word no reading configures names a target the config does not have: refused (decision 021)",
+      "expect": "REFUSED"
+    },
+    {
+      "id": "P05",
+      "category": "ambiguity",
+      "input": "customers by signup date",
+      "meaning": "a generic configured word ('date', part of several fields' phrases) qualified by a word no reading configures names a target the config does not have: refused (decision 021). The COST of the rule: 'signup date' plausibly means created_at, but 'signup' is configured nowhere, and similarity is not evidence (019 section 5)",
+      "expect": "AMBIGUOUS_MATCH"
+    },
+    {
+      "id": "P06",
+      "category": "ambiguity",
+      "input": "customers by joined date",
+      "meaning": "control: 'joined date' is created_at's configured synonym",
+      "expect": "sql",
+      "shape": [
+        "SELECT \"t0\".\"created_at\""
+      ]
+    },
+    {
+      "id": "P07",
+      "category": "ambiguity",
+      "input": "orders by date",
+      "meaning": "control (X12): 'order date' is spelled out",
+      "expect": "sql",
+      "shape": [
+        "SELECT \"t0\".\"placed_at\""
+      ]
+    },
+    {
+      "id": "P08",
+      "category": "ambiguity",
+      "input": "money spent",
+      "meaning": "control: the brief's pure paraphrase; 'spent' has one home",
+      "expect": "sql",
+      "shape": [
+        "SELECT \"t0\".\"total_spent\""
+      ]
+    },
+    {
+      "id": "P09",
+      "category": "ambiguity",
+      "input": "customers registered last year",
+      "meaning": "control: 'registered' shares no word with a configured phrase; semantic linking, untouched",
+      "expect": "sql",
+      "shape": [
+        "\"t0\".\"created_at\" >= $1"
+      ]
+    },
+    {
+      "id": "P10",
+      "category": "ambiguity",
+      "input": "show product discount price",
+      "meaning": "an unconfigured word ('discount') qualifies a configured phrase of product.price: the config has no target for the whole phrase, so it is refused (decision 022 \u00a71)",
+      "expect": "UNSUPPORTED_QUERY"
+    },
+    {
+      "id": "P11",
+      "category": "ambiguity",
+      "input": "show product list price",
+      "meaning": "'list' is a request verb in noun position, qualifying 'price'; no configured phrase contains it, so it is refused (decision 022 \u00a71)",
+      "expect": "UNSUPPORTED_QUERY"
+    },
+    {
+      "id": "G01",
+      "category": "qualifier",
+      "input": "show discount price",
+      "meaning": "\u00a71: a meaningful qualifier in a candidate phrase cannot be silently discarded (decision 022); P10 without the entity",
+      "expect": "UNSUPPORTED_QUERY"
+    },
+    {
+      "id": "G02",
+      "category": "qualifier",
+      "input": "show products with discount price above 100",
+      "meaning": "\u00a71: a meaningful qualifier in a candidate phrase cannot be silently discarded (decision 022); the qualified phrase in a condition",
+      "expect": "UNSUPPORTED_QUERY"
+    },
+    {
+      "id": "G03",
+      "category": "qualifier",
+      "input": "products with list price below 50",
+      "meaning": "\u00a71: a meaningful qualifier in a candidate phrase cannot be silently discarded (decision 022); a request verb in noun position, in a condition",
+      "expect": "UNSUPPORTED_QUERY"
+    },
+    {
+      "id": "G04",
+      "category": "qualifier",
+      "input": "show product cost price",
+      "meaning": "\u00a71: a meaningful qualifier in a candidate phrase cannot be silently discarded (decision 022); 'cost' and 'price' are two different configured surfaces of product.price, and the config names no 'cost price'",
+      "expect": "UNSUPPORTED_QUERY"
+    },
+    {
+      "id": "G05",
+      "category": "qualifier",
+      "input": "orders by return date",
+      "meaning": "\u00a71: a meaningful qualifier in a candidate phrase cannot be silently discarded (decision 022); a request verb qualifying 'date', which no configured phrase contains",
+      "expect": "UNSUPPORTED_QUERY"
+    },
+    {
+      "id": "G06",
+      "category": "qualifier",
+      "input": "show product display name",
+      "meaning": "\u00a71: a meaningful qualifier in a candidate phrase cannot be silently discarded (decision 022); a request verb qualifying 'name'",
+      "expect": "UNSUPPORTED_QUERY"
+    },
+    {
+      "id": "G07",
+      "category": "qualifier",
+      "input": "customers who return orders",
+      "meaning": "\u00a71: a meaningful qualifier in a candidate phrase cannot be silently discarded (decision 022); a request verb as a second verb: before the gate it vanished and the query was customers WITH orders",
+      "expect": "UNSUPPORTED_QUERY"
+    },
+    {
+      "id": "G08",
+      "category": "qualifier",
+      "input": "show price discount",
+      "meaning": "\u00a71: a meaningful qualifier in a candidate phrase cannot be silently discarded (decision 022); the qualifier after the head",
+      "expect": "UNSUPPORTED_QUERY"
+    },
+    {
+      "id": "G09",
+      "category": "qualifier",
+      "input": "show product unit price",
+      "meaning": "control: 'unit price' is product.price's configured synonym and 'product' names its entity",
+      "expect": "sql",
+      "shape": [
+        "SELECT \"t0\".\"price\"",
+        "FROM \"products\" AS \"t0\""
+      ]
+    },
+    {
+      "id": "G10",
+      "category": "qualifier",
+      "input": "show product price",
+      "meaning": "control: the configured synonym itself",
+      "expect": "sql",
+      "shape": [
+        "SELECT \"t0\".\"price\"",
+        "FROM \"products\" AS \"t0\""
+      ]
+    },
+    {
+      "id": "G11",
+      "category": "qualifier",
+      "input": "show customer amount spent",
+      "meaning": "control: 'amount spent' is configured and 'customer' names the owning entity",
+      "expect": "sql",
+      "shape": [
+        "\"t0\".\"total_spent\"",
+        "FROM \"customers\" AS \"t0\""
+      ]
+    },
+    {
+      "id": "G12",
+      "category": "qualifier",
+      "input": "customers with money spent over 100",
+      "meaning": "control: paraphrase with no complete configured surface is semantic linking, untouched",
+      "expect": "sql",
+      "shape": [
+        "\"t0\".\"total_spent\" > $1"
+      ],
+      "params": [
+        "100"
+      ]
+    },
+    {
+      "id": "G13",
+      "category": "qualifier",
+      "input": "list customers from India",
+      "meaning": "control: the request verb that opens the request",
+      "expect": "sql",
+      "shape": [
+        "\"t0\".\"country\" = $1"
+      ],
+      "params": [
+        "IN"
+      ]
+    },
+    {
+      "id": "G14",
+      "category": "qualifier",
+      "input": "give me a list of customers from India",
+      "meaning": "control: 'a list of' is a framing noun (the verb is followed by a function word)",
+      "expect": "sql",
+      "shape": [
+        "\"t0\".\"country\" = $1"
+      ],
+      "params": [
+        "IN"
+      ]
+    },
+    {
+      "id": "G15",
+      "category": "qualifier",
+      "input": "show average price",
+      "meaning": "control: 'average' has its own reading (avg), so it is not discarded",
+      "expect": "sql",
+      "shape": [
+        "AVG(\"t0\".\"price\")"
+      ]
+    },
+    {
+      "id": "G16",
+      "category": "number",
+      "input": "customers who spent more than -5",
+      "meaning": "\u00a72: a number is carried exactly or refused, never rounded, re-signed or dropped (decision 022); before the gate the sign was punctuation and the value 5",
+      "expect": "sql",
+      "shape": [
+        "\"t0\".\"total_spent\" > $1"
+      ],
+      "params": [
+        "-5"
+      ]
+    },
+    {
+      "id": "G17",
+      "category": "number",
+      "input": "customers who spent more than .5",
+      "meaning": "\u00a72: a number is carried exactly or refused, never rounded, re-signed or dropped (decision 022); before the gate the value was 5",
+      "expect": "sql",
+      "shape": [
+        "\"t0\".\"total_spent\" > $1"
+      ],
+      "params": [
+        "0.5"
+      ]
+    },
+    {
+      "id": "G18",
+      "category": "number",
+      "input": "customers who spent more than 0.1234567890123456789",
+      "meaning": "\u00a72: a number is carried exactly or refused, never rounded, re-signed or dropped (decision 022); every digit reaches the parameter",
+      "expect": "sql",
+      "shape": [
+        "\"t0\".\"total_spent\" > $1"
+      ],
+      "params": [
+        "0.1234567890123456789"
+      ]
+    },
+    {
+      "id": "G19",
+      "category": "number",
+      "input": "customers who spent more than 4.35k",
+      "meaning": "\u00a72: a number is carried exactly or refused, never rounded, re-signed or dropped (decision 022); a suffix moves the decimal point (4.35 x 1000 is 4349.999... in float64)",
+      "expect": "sql",
+      "shape": [
+        "\"t0\".\"total_spent\" > $1"
+      ],
+      "params": [
+        "4350"
+      ]
+    },
+    {
+      "id": "G20",
+      "category": "number",
+      "input": "customers who spent more than 1,5",
+      "meaning": "\u00a72: a number is carried exactly or refused, never rounded, re-signed or dropped (decision 022); European grouping is not read (before the gate: 15)",
+      "expect": "VALUE_RESOLUTION_FAILED"
+    },
+    {
+      "id": "G21",
+      "category": "number",
+      "input": "customers who spent more than 12x",
+      "meaning": "\u00a72: a number is carried exactly or refused, never rounded, re-signed or dropped (decision 022); an unknown tag is not read (before the gate: 12)",
+      "expect": "VALUE_RESOLUTION_FAILED"
+    },
+    {
+      "id": "G22",
+      "category": "number",
+      "input": "customers who spent more than one billion billion",
+      "meaning": "\u00a72: a number is carried exactly or refused, never rounded, re-signed or dropped (decision 022); a repeated scale word ends the number and is then an unexplained word (before the gate: 2000000000)",
+      "expect": "REFUSED"
+    },
+    {
+      "id": "G23",
+      "category": "number",
+      "input": "top 9007199254740993 customers by total spent",
+      "meaning": "\u00a72: a number is carried exactly or refused, never rounded, re-signed or dropped (decision 022); 2^53 + 1 is the LIMIT exactly (before the gate: 9007199254740992)",
+      "expect": "sql",
+      "shape": [
+        "LIMIT 9007199254740993;"
+      ]
+    },
+    {
+      "id": "G24",
+      "category": "number",
+      "input": "customers who ordered more than 99999999999999999999999 times",
+      "meaning": "\u00a72: a number is carried exactly or refused, never rounded, re-signed or dropped (decision 022); a count compared exactly",
+      "expect": "sql",
+      "params": [
+        "99999999999999999999999"
+      ]
+    },
+    {
+      "id": "G25",
+      "category": "number",
+      "input": "orders in the last 2.5 months",
+      "meaning": "\u00a72: a number is carried exactly or refused, never rounded, re-signed or dropped (decision 022); a window count must be a whole number (before the gate: 2 months)",
+      "expect": "REFUSED"
+    },
+    {
+      "id": "G26",
+      "category": "number",
+      "input": "orders in the last 0 days",
+      "meaning": "\u00a72: a number is carried exactly or refused, never rounded, re-signed or dropped (decision 022); a window count must be at least 1 (before the gate: 1 day)",
+      "expect": "REFUSED"
+    },
+    {
+      "id": "G27",
+      "category": "boundary",
+      "input": "customers from India;",
+      "meaning": "\u00a73: a request is one query; statement and comment syntax is refused at the input boundary (decision 022); a lone trailing separator",
+      "expect": "SECURITY_REJECTED"
+    },
+    {
+      "id": "G28",
+      "category": "boundary",
+      "input": "customers from India -- and status active",
+      "meaning": "\u00a73: a request is one query; statement and comment syntax is refused at the input boundary (decision 022); a line comment",
+      "expect": "SECURITY_REJECTED"
+    },
+    {
+      "id": "G29",
+      "category": "boundary",
+      "input": "customers from India */",
+      "meaning": "\u00a73: a request is one query; statement and comment syntax is refused at the input boundary (decision 022); a block-comment closer alone",
+      "expect": "SECURITY_REJECTED"
+    },
+    {
+      "id": "G30",
+      "category": "boundary",
+      "input": "customers from India\uff1b select * from orders",
+      "meaning": "\u00a73: a request is one query; statement and comment syntax is refused at the input boundary (decision 022); a FULLWIDTH SEMICOLON (NFKC ';')",
+      "expect": "SECURITY_REJECTED"
+    },
+    {
+      "id": "G31",
+      "category": "boundary",
+      "input": "customers from India -\u200b- orders",
+      "meaning": "\u00a73: a request is one query; statement and comment syntax is refused at the input boundary (decision 022); a zero-width space inside '--'",
+      "expect": "SECURITY_REJECTED"
+    },
+    {
+      "id": "G32",
+      "category": "boundary",
+      "input": "top-5 customers by total spent",
+      "meaning": "control: a hyphen glued to a word is neither a sign nor a comment marker",
+      "expect": "sql",
+      "shape": [
+        "LIMIT 5;"
+      ]
+    },
+    {
+      "id": "G33",
+      "category": "qualifier",
+      "input": "products with price and discount above 10",
+      "meaning": "decision 022 \u00a75: the sentence names product.price by its own configured word, so an independent span may not resolve to it by similarity alone; here across a connective",
+      "expect": "UNSUPPORTED_QUERY"
+    },
+    {
+      "id": "G34",
+      "category": "qualifier",
+      "input": "price of discount",
+      "meaning": "decision 022 \u00a75: the sentence names product.price by its own configured word, so an independent span may not resolve to it by similarity alone; here across a function word",
+      "expect": "UNSUPPORTED_QUERY"
+    },
+    {
+      "id": "G35",
+      "category": "qualifier",
+      "input": "customers with amount spent over 100 and total spent below 50",
+      "meaning": "control for decision 022 \u00a75: both phrases hold \"spent\", a configured word of total_spent, so neither rests on similarity alone",
+      "expect": "sql",
+      "shape": [
+        "\"t0\".\"total_spent\" > $1",
+        "\"t0\".\"total_spent\" < $2"
+      ],
+      "params": [
+        "100",
+        "50"
+      ]
+    },
+    {
+      "id": "G36",
+      "category": "qualifier",
+      "input": "list price of products",
+      "meaning": "decision 022 \u00a76: commerce configures no phrase holding \"list\", so the opening request verb is the request and the sentence reads as the command \"list the price of products\". With a config that has a \"list price\" field, the same sentence reads that field instead (tested in internal/binding)",
+      "expect": "sql",
+      "shape": [
+        "SELECT \"t0\".\"price\"",
+        "FROM \"products\" AS \"t0\""
+      ]
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "entities": [
+    { "name": "customer", "table": "customers" },
+    { "name": "order", "table": "orders" }
+  ],
+  "fields": [
+    { "entity": "customer", "name": "id", "type": "number" },
+    { "entity": "order", "name": "customer_id", "type": "number" }
+  ],
+  "relationships": [
+    {
+      "name": "bad_entity",
+      "from": { "entity": "customer", "field": "id" },
+      "to": { "entity": "invoice", "field": "customer_id" },
+      "cardinality": "one-to-many"
+    },
+    {
+      "name": "bad_field",
+      "from": { "entity": "customer", "field": "id" },
+      "to": { "entity": "order", "field": "buyer_id" },
+      "cardinality": "one-to-many"
+    },
+    {
+      "name": "bad_cardinality",
+      "from": { "entity": "customer", "field": "id" },
+      "to": { "entity": "order", "field": "customer_id" },
+      "cardinality": "many-to-many"
+    }
+  ]
+}

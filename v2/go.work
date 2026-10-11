@@ -1,0 +1,14 @@
+// This workspace file exists ONLY to shadow the one at the repository's parent
+// directory (/Users/aman/AI/nlp_to_query/go.work), which lists queryforge, qfeval
+// and queryforge_mcp but — correctly — not this experiment.
+//
+// Go searches upward for go.work from the current directory and stops at the
+// first one it finds. Without this file, `cd v2 && go test ./...` walks up to the
+// root workspace and fails with "directory v2 is contained in a module that is
+// not one of the workspace modules". The alternative was adding v2 to the root
+// go.work, which rule 5 of the experiment brief forbids.
+//
+// See docs/decisions/001-isolation-strategy.md.
+go 1.25
+
+use .

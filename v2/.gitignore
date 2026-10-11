@@ -1,0 +1,17 @@
+# Python environment for the embedding worker. Recreated from
+# embedding_worker/requirements.txt; never committed.
+embedding_worker/.venv/
+
+# Downloaded model weights. Section 10 of the brief is explicit that weights are
+# not committed: they are large, they are reproducible from the pinned model id,
+# and a repository is the wrong place to distribute them.
+embedding_worker/models/
+
+# Built vector indexes. Derived artefacts — reproducible from config plus the
+# pinned model, and invalidated by any change to either.
+*.index.json
+/indexes/
+
+# Benchmark scratch output. Reports that are meant to be kept live in
+# benchmarks/reports/ and are committed deliberately.
+/benchmarks/scratch/

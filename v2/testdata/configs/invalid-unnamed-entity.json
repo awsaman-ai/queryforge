@@ -1,0 +1,7 @@
+{
+  "entities": [
+    { "name": "customer", "table": "customers" },
+    { "description": "an entity that forgot its name", "table": "orders" }
+  ],
+  "fields": []
+}

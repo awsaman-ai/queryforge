@@ -1,0 +1,52 @@
+{
+  "entities": [
+    {
+      "name": "customer",
+      "description": "A person or organization that buys products or services.",
+      "synonyms": ["customer", "client", "buyer", "account"],
+      "table": "customers"
+    }
+  ],
+  "fields": [
+    {
+      "entity": "customer",
+      "name": "name",
+      "type": "string",
+      "description": "The customer's full name.",
+      "synonyms": ["customer name", "client name"]
+    },
+    {
+      "entity": "customer",
+      "name": "country",
+      "type": "string",
+      "description": "The country where the customer is located.",
+      "synonyms": ["location", "nation", "customer country"],
+      "valueAliases": {
+        "India": "IN",
+        "United States": "US",
+        "United Kingdom": "UK"
+      }
+    },
+    {
+      "entity": "customer",
+      "name": "total_spent",
+      "type": "number",
+      "description": "Total amount of money spent by the customer.",
+      "synonyms": ["spending", "amount spent", "customer spend", "purchase value"],
+      "operators": ["eq", "gt", "gte", "lt", "lte"]
+    },
+    {
+      "entity": "customer",
+      "name": "created_at",
+      "type": "date",
+      "description": "Date the customer account was created.",
+      "synonyms": ["joined date", "registration date", "customer creation date"]
+    }
+  ],
+  "operators": {
+    "gt": ["more than", "greater than", "above", "over", "exceeds"],
+    "lt": ["less than", "below", "under"],
+    "eq": ["equals", "is", "matches"]
+  },
+  "relationships": []
+}

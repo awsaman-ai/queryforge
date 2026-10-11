@@ -1,0 +1,4 @@
+{
+  "root": "customer",
+  "select": [{ "field": "product.name", "via": ["customer_products"] }]
+}

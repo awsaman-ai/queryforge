@@ -1,0 +1,10 @@
+{
+  "entities": [
+    { "name": "customer", "table": "customers" }
+  ],
+  "fields": [
+    { "entity": "customer", "name": "name", "type": "string" }
+  ],
+  "operators": { "gt": [], "eq": ["is", "  "] },
+  "aggregations": { "sum": [] }
+}

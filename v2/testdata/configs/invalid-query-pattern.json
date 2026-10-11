@@ -1,0 +1,13 @@
+{
+  "entities": [
+    { "name": "customer", "table": "customers" }
+  ],
+  "fields": [
+    { "entity": "customer", "name": "name", "type": "string" }
+  ],
+  "queryPatterns": [
+    { "name": "top_n", "intent": "top_n", "phrases": ["top N"] },
+    { "name": "top_n", "intent": "ranking", "phrases": ["best"] },
+    { "name": "scoped", "intent": "count", "phrases": ["how many"], "entity": "invoice" }
+  ]
+}

@@ -1,0 +1,62 @@
+# Phase 2 retrieval probes.  query <TAB> expected corpus entry id <TAB> note
+#
+# An empty expected column means an exploratory query with no committed
+# expectation — recorded, but not scored.  Section 10 of the brief says not to
+# claim semantic understanding from a handful of successes, so the hard cases
+# below are deliberately included even though some of them are expected to fail.
+#
+# Every query is run against commerce.json.
+
+# --- the brief's own manual-gate probes (section 10) ---
+customer spending	field:customer.total_spent	brief probe
+money spent	field:customer.total_spent	brief probe: pure paraphrase, no shared token
+client location	field:customer.country	brief probe: synonym for both halves
+country where customer lives	field:customer.country	brief probe: descriptive phrasing
+more than	operator:gt	brief probe: operator phrase
+recent customer	field:customer.created_at	brief probe: implies a date field
+
+# --- field vocabulary mismatch: the core bet ---
+how much a customer paid	field:customer.total_spent	paraphrase of the description
+purchase value	field:customer.total_spent	configured synonym, exact
+when the account was opened	field:customer.created_at	paraphrase of "registration date"
+signup date	field:customer.created_at	unconfigured synonym
+what the customer is called	field:customer.name	descriptive
+nation	field:customer.country	single-word configured synonym
+price of an item	field:product.price	cross-entity, unambiguous
+order total	field:order.amount	configured synonym
+
+# --- entity retrieval ---
+buyers	entity:customer	configured synonym
+clients	entity:customer	configured synonym
+things we sell	entity:product	paraphrase, no shared token
+purchases	entity:order	configured synonym
+
+# --- operators and aggregations ---
+greater than	operator:gt	configured phrase
+at least	operator:gte	configured phrase, easily confused with gt
+below	operator:lt	configured phrase
+how many	aggregation:count	configured phrase
+average	aggregation:avg	configured phrase
+total of	aggregation:sum	near-configured phrase
+
+# --- relationships: often the only thing a verb maps to ---
+customers who bought something	relationship:customer_orders	verb maps to an edge, not a field
+placed an order	relationship:customer_orders	configured synonym
+the item an order is for	relationship:order_product	descriptive
+
+# --- query patterns ---
+top 10	pattern:top_n	configured phrase
+the highest ones	pattern:top_n	configured synonym
+in the last six months	pattern:recent	time window phrasing
+
+# --- values: these retrieve VALUE_ALIAS entries and are redacted in output ---
+India	value:customer.country:alias:India	exact alias
+laptops	value:product.category:alias:laptops	plural alias onto an enum value
+cancelled accounts	value:customer.status:enum:suspended	HARD: no such word is configured; expected to miss
+
+# --- deliberately hard / ambiguous: recorded, not scored ---
+amount		ambiguous between customer.total_spent, order.amount, product.price
+date		ambiguous between created_at and placed_at
+name		ambiguous between customer.name and product.name
+status		should reach customer.status
+value		vague; recorded to see what it attracts

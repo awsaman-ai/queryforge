@@ -1,0 +1,9 @@
+{
+  "entities": [
+    { "name": "customer", "table": "customers" },
+    { "name": "customer", "table": "clients" }
+  ],
+  "fields": [
+    { "entity": "customer", "name": "name", "type": "string" }
+  ]
+}

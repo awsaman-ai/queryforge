@@ -1,0 +1,4 @@
+{
+  "root": "customer",
+  "select": [{ "field": "customer.name\"; DROP TABLE customers; --" }]
+}

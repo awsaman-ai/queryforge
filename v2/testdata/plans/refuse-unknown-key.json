@@ -1,0 +1,7 @@
+{
+  "root": "customer",
+  "select": [{ "field": "customer.name" }],
+  "filters": [
+    { "kind": "compare", "field": "customer.country", "op": "eq", "values": [{ "string": "IN" }] }
+  ]
+}

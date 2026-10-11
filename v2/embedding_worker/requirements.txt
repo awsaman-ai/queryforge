@@ -1,0 +1,7 @@
+# Pinned for reproducibility: every benchmark and accuracy number in this
+# experiment has to be traceable to an exact model and an exact stack
+# (brief, section 25).
+#
+# The model itself is NOT vendored here — see README.md. Weights are downloaded
+# on first run and cached outside the repository.
+sentence-transformers==5.1.2

@@ -1,0 +1,15 @@
+{
+  "root": "order",
+  "select": [
+    { "field": "order.amount" },
+    { "field": "product.name", "via": ["order_product"] },
+    { "field": "customer.name", "via": ["customer_orders"] }
+  ],
+  "where": [
+    { "kind": "compare", "field": "product.category", "via": ["order_product"], "op": "in", "values": [{ "string": "laptop" }, { "string": "tablet" }] },
+    { "kind": "range", "field": "order.placed_at", "start": "2025-01-01T00:00:00Z", "end": "2026-01-01T00:00:00Z" },
+    { "kind": "compare", "field": "customer.name", "via": ["customer_orders"], "op": "like", "values": [{ "string": "50%_off\\" }] }
+  ],
+  "orderBy": [{ "field": "order.amount", "desc": true }, { "field": "customer.name", "via": ["customer_orders"] }],
+  "limit": 25
+}

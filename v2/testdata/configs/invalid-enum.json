@@ -1,0 +1,10 @@
+{
+  "entities": [
+    { "name": "customer", "table": "customers" }
+  ],
+  "fields": [
+    { "entity": "customer", "name": "status", "type": "enum" },
+    { "entity": "customer", "name": "tier", "type": "enum", "enumValues": ["gold", "Gold", "silver"] },
+    { "entity": "customer", "name": "name", "type": "string", "enumValues": ["bronze", "platinum"] }
+  ]
+}

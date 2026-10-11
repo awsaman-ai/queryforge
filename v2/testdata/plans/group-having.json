@@ -1,0 +1,16 @@
+{
+  "root": "customer",
+  "select": [{ "field": "customer.country" }],
+  "aggregates": [
+    { "func": "sum", "field": "order.amount", "via": ["customer_orders"] },
+    { "func": "count", "rows": "order", "via": ["customer_orders"] }
+  ],
+  "where": [
+    { "kind": "compare", "field": "customer.status", "op": "neq", "values": [{ "string": "suspended" }] }
+  ],
+  "having": [
+    { "aggregate": { "func": "avg", "field": "order.amount", "via": ["customer_orders"] }, "op": "gte", "value": { "number": 250.5 } }
+  ],
+  "orderBy": [{ "aggregate": 0, "desc": true }],
+  "limit": 5
+}

@@ -1,0 +1,58 @@
+# Phase 4 ambiguity set — run against testdata/configs/ambiguity.json.
+#
+# sentence <TAB> phrase under test <TAB> expected <TAB> note
+#
+# expected is a corpus entry id, or AMBIGUOUS when the only correct behaviour
+# is to refuse to pick. An empty expected column is exploratory: recorded, not
+# scored. Labels state what the SENTENCE means, not what any method produced.
+#
+# Scored three ways by --rank-probe: raw vector top-1 (always picks), top-1
+# gated by minScore only, and Phase 4 ranking. On an AMBIGUOUS row, any pick is
+# a silent guess and counts as WRONG.
+
+# --- the brief's five words, alone: nothing in the sentence can decide ---
+amount	amount	AMBIGUOUS	order.amount and payment.amount both named "amount"
+value	value	AMBIGUOUS	order value / payment value
+date	date	AMBIGUOUS	three date fields
+status	status	AMBIGUOUS	three status fields, all exact 1.000
+name	name	AMBIGUOUS	customer.name and product.name, both exact 1.000
+show the amount	amount	AMBIGUOUS	a verb and an article add no evidence
+list every status	status	AMBIGUOUS	still no entity named
+highest	highest	AMBIGUOUS	aggregation max vs pattern top_n, same configured phrase
+
+# --- the same words, decided by the rest of the sentence ---
+orders with amount over 100	amount	field:order.amount	entity context: orders
+payments with amount over 100	amount	field:payment.amount	entity context: payments
+the amount of the payment	amount	field:payment.amount	entity named after the field
+orders by date	date	field:order.created_at	entity context
+payment date	payment date	field:payment.paid_at	exact configured synonym
+status of the payment	status	field:payment.status	entity named after the field
+customers with status zorbified	status	field:customer.status	entity context plus a value of that field
+product name	product name	field:product.name	exact configured synonym
+order amount	order amount	field:order.amount	decision 012: exact synonym decides the ambiguous word
+payment amount	payment amount	field:payment.amount	decision 012: exact synonym decides the ambiguous word
+names of customers	names	field:customer.name	plural field word, entity named later
+the 5 highest orders	highest	pattern:top_n	a count next to "highest" asks for rows
+top 5 payments	top	pattern:top_n	configured "top N"
+maximum order amount	maximum	aggregation:max	unshared phrase: no ambiguity to resolve
+how many customers	how many	aggregation:count	count pattern and count aggregation agree
+
+# --- lower similarity, but clearly separated ---
+cost of a product	cost	field:product.price	unique synonym
+remittances over 50	remittances	entity:payment	plural synonym, sim < 1
+clients	clients	entity:customer	plural synonym
+
+# --- exact lexical matches that must stay ambiguous under context that does not decide ---
+customers and products by name	name	AMBIGUOUS	both owning entities named: context cannot choose
+orders and payments with amount over 5	amount	AMBIGUOUS	both owning entities named
+
+# --- operators, values, relationships ---
+payments over 500	over	operator:gt	operator attached to a number
+payments of at least 500	at least	operator:gte	gte, easily confused with gt
+customers from Freedonia	freedonia	value:customer.country:alias:Freedonia	value alias; must render redacted
+payments that bounced	bounced	value:payment.status:alias:bounced	value alias
+customers who placed an order	placed	relationship:customer_orders	verb maps to an edge
+customers who placed an order	order	entity:order	the noun is the entity, not the edge
+
+# --- exploratory ---
+what is the highest payment amount	highest		max vs top_n; no count, singular question

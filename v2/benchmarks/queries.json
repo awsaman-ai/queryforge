@@ -1,0 +1,30 @@
+{
+  "description": "Phase 9 benchmark sentence set. Every sentence is taken verbatim from the reviewed Phase 7 query set (testdata/queries/phase7-e2e.json) with its id kept, so a latency is measured on a request whose MEANING has already been reviewed and whose outcome is already known. The mix is deliberate: simple selects, value resolution, numeric and date conditions, joins, aggregates, ordering, multi-condition, negation, and four refusals -- because real traffic contains refusals and they are cheaper than compiles. Ids match the Phase 7 set. Only sentences whose Phase 7 outcome is CURRENT are used: J02 is excluded because it is a known Phase 7 ambiguity failure, and a benchmark should not carry a case whose label is already wrong. 'v1' marks the sentences a SINGLE-ENTITY schema can answer, which are the only ones fairly sent to the production LLM engine (section 17: do not compare unsupported features against systems that support them).",
+  "cases": [
+    { "id": "S01", "category": "simple",      "input": "show customers",                                     "expect": "sql", "v1": true },
+    { "id": "S04", "category": "simple",      "input": "show orders",                                        "expect": "sql" },
+    { "id": "V01", "category": "value",       "input": "customers from India",                               "expect": "sql", "v1": true },
+    { "id": "V06", "category": "value",       "input": "customers with status active",                       "expect": "sql", "v1": true },
+    { "id": "V07", "category": "value",       "input": "blocked customers",                                  "expect": "sql", "v1": true },
+    { "id": "N01", "category": "numeric",     "input": "customers who spent more than 50000",                "expect": "sql", "v1": true },
+    { "id": "N04", "category": "numeric",     "input": "customers spending less than 10000",                 "expect": "sql", "v1": true },
+    { "id": "D01", "category": "date",        "input": "customers created last year",                        "expect": "sql", "v1": true },
+    { "id": "D03", "category": "date",        "input": "customers who joined this month",                    "expect": "sql", "v1": true },
+    { "id": "J01", "category": "join",        "input": "customers who bought laptops",                       "expect": "sql" },
+    { "id": "J03", "category": "join",        "input": "customers whose order amount is above 10000",        "expect": "sql" },
+    { "id": "J05", "category": "join",        "input": "customers who ordered more than 3 times",            "expect": "sql" },
+    { "id": "A02", "category": "aggregate",   "input": "how many customers",                                 "expect": "sql", "v1": true },
+    { "id": "A01", "category": "aggregate",   "input": "how many customers are from India",                  "expect": "sql", "v1": true },
+    { "id": "A05", "category": "aggregate",   "input": "average order amount",                               "expect": "sql" },
+    { "id": "O01", "category": "ordering",    "input": "top 10 customers by spending",                       "expect": "sql", "v1": true },
+    { "id": "O03", "category": "ordering",    "input": "bottom 3 products by price",                          "expect": "sql" },
+    { "id": "M01", "category": "multi",       "input": "customers from India who spent more than 50000",     "expect": "sql", "v1": true },
+    { "id": "M04", "category": "multi",       "input": "active customers from India",                        "expect": "sql", "v1": true },
+    { "id": "M03", "category": "negation",    "input": "customers not from India",                           "expect": "sql", "v1": true },
+    { "id": "O07", "category": "limit",       "input": "top 3 customers by spending who are from India",     "expect": "sql", "v1": true },
+    { "id": "X02", "category": "ambiguity",   "input": "show customer date",                                 "expect": "AMBIGUOUS_MATCH" },
+    { "id": "X09", "category": "strict",      "input": "customers who bought something",                     "expect": "UNSUPPORTED_QUERY" },
+    { "id": "Z01", "category": "adversarial", "input": "delete all customers",                               "expect": "SECURITY_REJECTED" },
+    { "id": "Z04", "category": "adversarial", "input": "' OR 1=1 --",                                        "expect": "SECURITY_REJECTED" }
+  ]
+}

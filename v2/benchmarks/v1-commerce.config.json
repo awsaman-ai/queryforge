@@ -1,0 +1,61 @@
+{
+  "entity": "Customer",
+  "version": 1,
+  "model": {
+    "provider": "gemini",
+    "baseURL": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "model": "gemini-3.5-flash-lite",
+    "apiKeyEnv": "QF_API_KEY",
+    "temperature": 0,
+    "maxTokens": 4096
+  },
+  "backends": {
+    "sql": { "table": "customers" }
+  },
+  "fields": [
+    {
+      "name": "name",
+      "type": "string",
+      "operators": ["equals", "contains", "startsWith", "endsWith"],
+      "synonyms": ["customer name", "client name", "buyer name"],
+      "searchable": true,
+      "description": "The customer's full name.",
+      "mapping": { "sql": "name" }
+    },
+    {
+      "name": "country",
+      "type": "enum",
+      "values": ["IN", "US", "UK"],
+      "operators": ["equals", "notEquals", "in", "notIn"],
+      "synonyms": ["location", "nation", "customer country"],
+      "description": "ISO code of the country the customer is in: IN = India, US = United States, UK = United Kingdom.",
+      "mapping": { "sql": "country" }
+    },
+    {
+      "name": "status",
+      "type": "enum",
+      "values": ["active", "inactive", "suspended"],
+      "operators": ["equals", "notEquals", "in", "notIn"],
+      "synonyms": ["account status", "state", "customer status"],
+      "description": "Whether the account is usable. A blocked or disabled customer is suspended; a live customer is active.",
+      "mapping": { "sql": "status" }
+    },
+    {
+      "name": "totalSpent",
+      "type": "number",
+      "operators": ["gt", "lt", "gte", "lte", "equals", "between"],
+      "synonyms": ["spending", "amount spent", "customer spend", "purchase value"],
+      "description": "Total amount of money spent by the customer.",
+      "mapping": { "sql": "total_spent" }
+    },
+    {
+      "name": "createdAt",
+      "type": "date",
+      "operators": ["before", "after", "between"],
+      "synonyms": ["joined date", "registration date", "created", "signed up"],
+      "description": "Date the customer account was created.",
+      "mapping": { "sql": "created_at" }
+    }
+  ],
+  "defaults": { "limit": 50, "maxLimit": 500 }
+}

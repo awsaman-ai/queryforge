@@ -1,0 +1,8 @@
+{
+  "entities": [
+    { "name": "customer", "table": "customers; DROP TABLE users --" }
+  ],
+  "fields": [
+    { "entity": "customer", "name": "country", "type": "string", "column": "country code" }
+  ]
+}

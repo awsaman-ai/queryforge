@@ -1,0 +1,223 @@
+{
+  "entities": [
+    {
+      "name": "customer",
+      "description": "A person or organization that buys products or services.",
+      "synonyms": ["customer", "client", "buyer", "account"],
+      "table": "customers"
+    },
+    {
+      "name": "order",
+      "description": "A single purchase placed by a customer.",
+      "synonyms": ["order", "purchase", "transaction", "sale"],
+      "table": "orders"
+    },
+    {
+      "name": "product",
+      "description": "An item that can be bought.",
+      "synonyms": ["product", "item", "article", "goods"],
+      "table": "products"
+    }
+  ],
+  "fields": [
+    {
+      "entity": "customer",
+      "name": "id",
+      "type": "number",
+      "description": "Unique identifier of the customer.",
+      "synonyms": ["customer id"],
+      "selectable": false
+    },
+    {
+      "entity": "customer",
+      "name": "name",
+      "type": "string",
+      "description": "The customer's full name.",
+      "synonyms": ["customer name", "client name"]
+    },
+    {
+      "entity": "customer",
+      "name": "country",
+      "type": "string",
+      "description": "The country where the customer is located.",
+      "synonyms": ["location", "nation", "customer country"],
+      "valueAliases": {
+        "India": "IN",
+        "United States": "US",
+        "United Kingdom": "UK"
+      }
+    },
+    {
+      "entity": "customer",
+      "name": "status",
+      "type": "enum",
+      "description": "Whether the customer account is currently usable.",
+      "synonyms": ["account status", "state", "customer status"],
+      "enumValues": ["active", "inactive", "suspended"],
+      "valueAliases": {
+        "disabled": "suspended",
+        "blocked": "suspended",
+        "live": "active"
+      }
+    },
+    {
+      "entity": "customer",
+      "name": "total_spent",
+      "type": "number",
+      "description": "Total amount of money spent by the customer.",
+      "synonyms": ["spending", "amount spent", "customer spend", "purchase value"],
+      "operators": ["eq", "gt", "gte", "lt", "lte"]
+    },
+    {
+      "entity": "customer",
+      "name": "created_at",
+      "type": "date",
+      "description": "Date the customer account was created.",
+      "synonyms": ["joined date", "registration date", "customer creation date"]
+    },
+    {
+      "entity": "order",
+      "name": "id",
+      "type": "number",
+      "description": "Unique identifier of the order.",
+      "synonyms": ["order id", "order number"],
+      "selectable": false
+    },
+    {
+      "entity": "order",
+      "name": "customer_id",
+      "type": "number",
+      "description": "The customer who placed the order.",
+      "synonyms": ["order customer"],
+      "selectable": false,
+      "filterable": false
+    },
+    {
+      "entity": "order",
+      "name": "product_id",
+      "type": "number",
+      "description": "The product that was ordered.",
+      "synonyms": ["ordered product"],
+      "selectable": false,
+      "filterable": false
+    },
+    {
+      "entity": "order",
+      "name": "amount",
+      "type": "number",
+      "description": "Total value of the order.",
+      "synonyms": ["order amount", "order value", "order total"]
+    },
+    {
+      "entity": "order",
+      "name": "placed_at",
+      "type": "date",
+      "description": "Date the order was placed.",
+      "synonyms": ["order date", "purchase date", "ordered on"]
+    },
+    {
+      "entity": "product",
+      "name": "id",
+      "type": "number",
+      "description": "Unique identifier of the product.",
+      "synonyms": ["product id"],
+      "selectable": false
+    },
+    {
+      "entity": "product",
+      "name": "name",
+      "type": "string",
+      "description": "The name of the product.",
+      "synonyms": ["product name", "item name"]
+    },
+    {
+      "entity": "product",
+      "name": "category",
+      "type": "enum",
+      "description": "The kind of product.",
+      "synonyms": ["product category", "product type", "kind"],
+      "enumValues": ["laptop", "phone", "tablet", "monitor"],
+      "valueAliases": {
+        "laptops": "laptop",
+        "notebook": "laptop",
+        "phones": "phone",
+        "mobile": "phone"
+      }
+    },
+    {
+      "entity": "product",
+      "name": "price",
+      "type": "number",
+      "description": "The price of a single unit of the product.",
+      "synonyms": ["product price", "unit price", "cost"]
+    }
+  ],
+  "operators": {
+    "eq": ["equals", "is", "matches"],
+    "neq": ["is not", "does not equal", "other than"],
+    "gt": ["more than", "greater than", "above", "over", "exceeds"],
+    "gte": ["at least", "no less than", "greater than or equal to"],
+    "lt": ["less than", "below", "under"],
+    "lte": ["at most", "no more than", "less than or equal to"],
+    "in": ["one of", "any of", "among"],
+    "nin": ["none of", "not one of", "excluding"],
+    "like": ["contains", "includes", "has"]
+  },
+  "aggregations": {
+    "count": ["how many", "number of", "count of"],
+    "sum": ["total", "sum of", "combined"],
+    "avg": ["average", "mean", "typical"],
+    "min": ["lowest", "smallest", "minimum"],
+    "max": ["highest", "largest", "maximum"]
+  },
+  "relationships": [
+    {
+      "name": "customer_orders",
+      "description": "The orders a customer has placed.",
+      "synonyms": ["ordered", "bought", "placed", "purchased"],
+      "from": { "entity": "customer", "field": "id" },
+      "to": { "entity": "order", "field": "customer_id" },
+      "cardinality": "one-to-many"
+    },
+    {
+      "name": "order_product",
+      "description": "The product an order is for.",
+      "synonyms": ["product", "item", "for"],
+      "from": { "entity": "order", "field": "product_id" },
+      "to": { "entity": "product", "field": "id" },
+      "cardinality": "many-to-one"
+    }
+  ],
+  "queryPatterns": [
+    {
+      "name": "top_n",
+      "intent": "top_n",
+      "order": "desc",
+      "description": "The highest-ranked N rows by some metric.",
+      "phrases": ["top N", "best N", "highest", "largest", "biggest"]
+    },
+    {
+      "name": "bottom_n",
+      "intent": "top_n",
+      "order": "asc",
+      "description": "The lowest-ranked N rows by some metric.",
+      "phrases": ["bottom N", "worst N", "lowest", "smallest"]
+    },
+    {
+      "name": "how_many",
+      "intent": "count",
+      "description": "The number of rows matching a condition.",
+      "phrases": ["how many", "number of", "count"]
+    },
+    {
+      "name": "recent",
+      "intent": "time_window",
+      "description": "Rows restricted to a recent period of time.",
+      "phrases": ["recent", "lately", "in the last", "this month", "last year"]
+    }
+  ],
+  "security": {
+    "maxJoins": 3,
+    "maxFilters": 12
+  }
+}

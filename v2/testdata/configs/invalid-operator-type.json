@@ -1,0 +1,21 @@
+{
+  "entities": [
+    { "name": "customer", "table": "customers" }
+  ],
+  "fields": [
+    {
+      "entity": "customer",
+      "name": "name",
+      "type": "string",
+      "description": "Ordering comparisons on a name are lexicographic nonsense.",
+      "operators": ["eq", "gt", "lte"]
+    },
+    {
+      "entity": "customer",
+      "name": "total_spent",
+      "type": "number",
+      "description": "LIKE has no meaning on a number.",
+      "operators": ["gt", "like"]
+    }
+  ]
+}

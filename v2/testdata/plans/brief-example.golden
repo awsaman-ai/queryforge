@@ -1,0 +1,10 @@
+SELECT "t0"."name"
+FROM "customers" AS "t0"
+WHERE "t0"."country" = $1
+  AND "t0"."total_spent" > $2
+ORDER BY "t0"."total_spent" DESC NULLS LAST
+LIMIT 10;
+
+params:
+1 = "IN" (string)
+2 = 50000 (number)

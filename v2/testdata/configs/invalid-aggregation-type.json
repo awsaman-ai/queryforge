@@ -1,0 +1,14 @@
+{
+  "entities": [
+    { "name": "customer", "table": "customers" }
+  ],
+  "fields": [
+    {
+      "entity": "customer",
+      "name": "name",
+      "type": "string",
+      "description": "Summing a name is not a question anyone asks.",
+      "aggregations": ["count", "sum"]
+    }
+  ]
+}

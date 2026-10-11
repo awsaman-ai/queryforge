@@ -1,0 +1,1124 @@
+# Phase 7 end-to-end query set
+
+config `commerce.json` · model `sentence-transformers/all-MiniLM-L6-v2@1110a243fdf4706b3f48f1d95db1a4f5529b4d41 (dim=384, semantic)` · clock `2026-09-21T12:00:00Z` · 77 cases
+
+**71/77 pass** — queries 49/54, specified refusals 22/23
+
+Value readings accepted on similarity alone (no lexical evidence): 0 case(s), 0 of them compiled to a query
+
+Failures by primary category (section 18 taxonomy):
+
+- AMBIGUITY: 6
+
+| id | category | input | expected | result | failure category |
+|---|---|---|---|---|---|
+| S01 | simple | `show customers` | sql | PASS | — |
+| S02 | simple | `list clients` | sql | PASS | — |
+| S03 | simple | `show buyers` | sql | PASS | — |
+| S04 | simple | `show orders` | sql | PASS | — |
+| S05 | simple | `list products` | sql | **FAIL** | AMBIGUITY |
+| V01 | value | `customers from India` | sql | PASS | — |
+| V02 | synonym | `customers living in India` | UNSUPPORTED_QUERY | PASS | — |
+| V03 | synonym | `clients located in India` | sql | PASS | — |
+| V04 | synonym | `buyers in India` | sql | PASS | — |
+| V05 | value | `customers from United Kingdom` | sql | PASS | — |
+| V06 | value | `customers with status active` | sql | PASS | — |
+| V07 | value | `blocked customers` | sql | PASS | — |
+| V08 | value | `show laptops` | sql | PASS | — |
+| V09 | value | `customers named Smith` | sql | PASS | — |
+| N01 | numeric | `customers who spent more than 50000` | sql | PASS | — |
+| N02 | numeric | `customers who spent over 50000` | sql | PASS | — |
+| N03 | numeric | `customers whose spending is above 50000` | sql | PASS | — |
+| N04 | numeric | `customers spending less than 10000` | sql | PASS | — |
+| N05 | numeric | `customers who spent at least 1000` | sql | PASS | — |
+| N06 | numeric | `customers who spent at most 1000` | sql | PASS | — |
+| N07 | numeric | `orders with amount over 500` | sql | PASS | — |
+| N08 | numeric | `products with price below 300` | sql | PASS | — |
+| N09 | numeric | `customers spending over fifty thousand` | sql | PASS | — |
+| N10 | numeric | `customers who spent more than 50k` | sql | PASS | — |
+| D01 | date | `customers created last year` | sql | PASS | — |
+| D02 | date | `customers registered in the last 6 months` | sql | PASS | — |
+| D03 | date | `customers who joined this month` | sql | PASS | — |
+| D04 | date | `orders last month` | sql | PASS | — |
+| D05 | date | `orders placed in 2024` | sql | **FAIL** | AMBIGUITY |
+| A01 | aggregate | `how many customers are from India` | sql | PASS | — |
+| A02 | aggregate | `how many customers` | sql | PASS | — |
+| A03 | aggregate | `what is the average customer spending` | UNSUPPORTED_QUERY | PASS | — |
+| A04 | aggregate | `what is the total spending of customers from India` | UNSUPPORTED_QUERY | PASS | — |
+| A05 | aggregate | `average order amount` | sql | PASS | — |
+| A06 | aggregate | `highest product price` | AMBIGUOUS_MATCH | PASS | — |
+| A07 | aggregate | `number of orders last month` | sql | PASS | — |
+| O01 | ordering | `top 10 customers by spending` | sql | PASS | — |
+| O02 | ordering | `top 5 orders by amount` | sql | PASS | — |
+| O03 | ordering | `bottom 3 products by price` | sql | PASS | — |
+| O04 | ordering | `top 10 customers by spending from India` | sql | PASS | — |
+| O05 | ordering | `Show the top 10 customers from India who spent more than 50000 last year` | UNSUPPORTED_QUERY | PASS | — |
+| O06 | ordering | `highest spending customers` | VALUE_RESOLUTION_FAILED | **FAIL** | AMBIGUITY |
+| O07 | limit | `top 3 customers by spending who are from India` | sql | PASS | — |
+| J01 | join | `customers who bought laptops` | sql | PASS | — |
+| J02 | join | `customers with orders above 10000` | sql | **FAIL** | AMBIGUITY |
+| J03 | join | `customers whose order amount is above 10000` | sql | PASS | — |
+| J04 | join | `customers who ordered more than 3 times` | sql | PASS | — |
+| J05 | join | `customers who ordered` | sql | PASS | — |
+| J06 | join | `orders for laptops` | sql | PASS | — |
+| J07 | join | `orders from customers in India` | sql | PASS | — |
+| J08 | join | `customers who bought phones` | sql | PASS | — |
+| M01 | multi | `customers from India who spent more than 50000` | sql | PASS | — |
+| M02 | multi | `customers from India or United Kingdom` | sql | PASS | — |
+| M03 | negation | `customers not from India` | sql | PASS | — |
+| M04 | multi | `active customers from India` | sql | PASS | — |
+| M05 | multi | `customers from India who bought laptops` | sql | PASS | — |
+| M06 | multi | `customers from India and United States` | AMBIGUOUS_MATCH | PASS | — |
+| M07 | multi | `customers who spent more than 1000 and less than 5000` | sql | **FAIL** | AMBIGUITY |
+| X01 | ambiguity | `show customers by amount` | UNSUPPORTED_QUERY | PASS | — |
+| X02 | ambiguity | `show customer date` | AMBIGUOUS_MATCH | PASS | — |
+| X03 | ambiguity | `show customer value` | AMBIGUOUS_MATCH | PASS | — |
+| X04 | value | `customers with status cancelled` | VALUE_RESOLUTION_FAILED | PASS | — |
+| X05 | strict | `customers from Atlantis` | UNSUPPORTED_QUERY | PASS | — |
+| X06 | units | `customers who spent more than $50000` | VALUE_RESOLUTION_FAILED | PASS | — |
+| X07 | value | `recent customers` | VALUE_RESOLUTION_FAILED | PASS | — |
+| X08 | ambiguity | `customers who bought laptops for more than 1000` | AMBIGUOUS_MATCH | PASS | — |
+| X09 | strict | `customers who bought something` | UNSUPPORTED_QUERY | PASS | — |
+| X10 | ambiguity | `show customer creation date` | sql | PASS | — |
+| X11 | ambiguity | `show customer order date` | sql | **FAIL** (known) | AMBIGUITY |
+| X12 | ambiguity | `orders by date` | sql | PASS | — |
+| Z01 | adversarial | `delete all customers` | SECURITY_REJECTED | PASS | — |
+| Z02 | adversarial | `drop the customers table` | SECURITY_REJECTED | PASS | — |
+| Z03 | adversarial | `run an update on every customer` | SECURITY_REJECTED | PASS | — |
+| Z04 | adversarial | `' OR 1=1 --` | SECURITY_REJECTED | PASS | — |
+| Z05 | adversarial | `customers named Robert'); DROP TABLE customers;--` | SECURITY_REJECTED | PASS | — |
+| Z06 | adversarial | `customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers ` | INVALID_INPUT | PASS | — |
+| Z07 | adversarial | `   ` | INVALID_INPUT | PASS | — |
+
+## Every case
+
+### S01 — PASS
+
+- input: `show customers`
+- expected meaning: every customer row; the default columns are the selectable customer fields
+- expected: sql; shape contains `SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"`, `FROM "customers" AS "t0"`; never `WHERE`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0";
+```
+
+### S02 — PASS
+
+- input: `list clients`
+- expected meaning: same as S01; 'clients' is a customer synonym
+- expected: sql; shape contains `FROM "customers" AS "t0"`; never `WHERE`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0";
+```
+
+### S03 — PASS
+
+- input: `show buyers`
+- expected meaning: same as S01; 'buyers' is a customer synonym
+- expected: sql; shape contains `FROM "customers" AS "t0"`; never `WHERE`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0";
+```
+
+### S04 — PASS
+
+- input: `show orders`
+- expected meaning: every order row
+- expected: sql; shape contains `FROM "orders" AS "t0"`; never `WHERE`
+
+```sql
+SELECT "t0"."amount", "t0"."placed_at"
+FROM "orders" AS "t0";
+```
+
+### S05 — FAIL — expected a query, got a refusal
+
+- input: `list products`
+- expected meaning: every product row
+- expected: sql; shape contains `FROM "products" AS "t0"`; never `WHERE`
+- failure category: AMBIGUITY
+
+```sql
+REFUSED AMBIGUOUS_MATCH at rank: AMBIGUOUS_MATCH: the phrase at tokens[1:2] matches multiple configured targets with insufficient confidence separation: entity:product, relationship:order_product (margin 0.000 < 0.100)
+```
+
+### V01 — PASS
+
+- input: `customers from India`
+- expected meaning: customer.country = IN (alias India→IN)
+- expected: sql; shape contains `FROM "customers" AS "t0"`, `WHERE "t0"."country" = $1`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."country" = $1;
+
+params:
+1 = "IN" (string)
+```
+
+### V02 — PASS
+
+- input: `customers living in India`
+- expected meaning: 'living' is neither a configured value nor an alias, so it resolves to nothing and the request is refused; it must never become status = 'live'/'active' by similarity. EXPECTATION CHANGED at the Phase 7 gate (decision 019 §1); was: same as V01
+- expected: UNSUPPORTED_QUERY
+
+```sql
+REFUSED UNSUPPORTED_QUERY at bind: UNSUPPORTED_QUERY: the phrase at tokens[1:2] is a word nothing in the config explains; binding refuses rather than ignore it
+```
+
+### V03 — PASS
+
+- input: `clients located in India`
+- expected meaning: same as V01
+- expected: sql; shape contains `FROM "customers" AS "t0"`, `WHERE "t0"."country" = $1`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."country" = $1;
+
+params:
+1 = "IN" (string)
+```
+
+### V04 — PASS
+
+- input: `buyers in India`
+- expected meaning: same as V01
+- expected: sql; shape contains `FROM "customers" AS "t0"`, `WHERE "t0"."country" = $1`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."country" = $1;
+
+params:
+1 = "IN" (string)
+```
+
+### V05 — PASS
+
+- input: `customers from United Kingdom`
+- expected meaning: customer.country = UK
+- expected: sql; shape contains `FROM "customers" AS "t0"`, `WHERE "t0"."country" = $1`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."country" = $1;
+
+params:
+1 = "UK" (string)
+```
+
+### V06 — PASS
+
+- input: `customers with status active`
+- expected meaning: customer.status = active (declared enum value)
+- expected: sql; shape contains `FROM "customers" AS "t0"`, `"t0"."status" = $1`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."status" = $1;
+
+params:
+1 = "active" (string)
+```
+
+### V07 — PASS
+
+- input: `blocked customers`
+- expected meaning: customer.status = suspended (alias blocked→suspended)
+- expected: sql; shape contains `FROM "customers" AS "t0"`, `"t0"."status" = $1`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."status" = $1;
+
+params:
+1 = "suspended" (string)
+```
+
+### V08 — PASS
+
+- input: `show laptops`
+- expected meaning: product rows with category = laptop; root is product via the value's field
+- expected: sql; shape contains `FROM "products" AS "t0"`, `"t0"."category" = $1`
+
+```sql
+SELECT "t0"."name", "t0"."category", "t0"."price"
+FROM "products" AS "t0"
+WHERE "t0"."category" = $1;
+
+params:
+1 = "laptop" (string)
+```
+
+### V09 — PASS
+
+- input: `customers named Smith`
+- expected meaning: customer.name = Smith (free-text literal on a string field)
+- expected: sql; shape contains `FROM "customers" AS "t0"`, `"t0"."name" = $1`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."name" = $1;
+
+params:
+1 = "Smith" (string)
+```
+
+### N01 — PASS
+
+- input: `customers who spent more than 50000`
+- expected meaning: customer.total_spent > 50000
+- expected: sql; shape contains `FROM "customers" AS "t0"`, `"t0"."total_spent" > $1`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."total_spent" > $1;
+
+params:
+1 = 50000 (number)
+```
+
+### N02 — PASS
+
+- input: `customers who spent over 50000`
+- expected meaning: same as N01
+- expected: sql; shape contains `FROM "customers" AS "t0"`, `"t0"."total_spent" > $1`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."total_spent" > $1;
+
+params:
+1 = 50000 (number)
+```
+
+### N03 — PASS
+
+- input: `customers whose spending is above 50000`
+- expected meaning: same as N01
+- expected: sql; shape contains `FROM "customers" AS "t0"`, `"t0"."total_spent" > $1`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."total_spent" > $1;
+
+params:
+1 = 50000 (number)
+```
+
+### N04 — PASS
+
+- input: `customers spending less than 10000`
+- expected meaning: customer.total_spent < 10000
+- expected: sql; shape contains `FROM "customers" AS "t0"`, `"t0"."total_spent" < $1`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."total_spent" < $1;
+
+params:
+1 = 10000 (number)
+```
+
+### N05 — PASS
+
+- input: `customers who spent at least 1000`
+- expected meaning: customer.total_spent >= 1000
+- expected: sql; shape contains `FROM "customers" AS "t0"`, `"t0"."total_spent" >= $1`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."total_spent" >= $1;
+
+params:
+1 = 1000 (number)
+```
+
+### N06 — PASS
+
+- input: `customers who spent at most 1000`
+- expected meaning: customer.total_spent <= 1000
+- expected: sql; shape contains `FROM "customers" AS "t0"`, `"t0"."total_spent" <= $1`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."total_spent" <= $1;
+
+params:
+1 = 1000 (number)
+```
+
+### N07 — PASS
+
+- input: `orders with amount over 500`
+- expected meaning: order.amount > 500
+- expected: sql; shape contains `FROM "orders" AS "t0"`, `"t0"."amount" > $1`
+
+```sql
+SELECT "t0"."amount", "t0"."placed_at"
+FROM "orders" AS "t0"
+WHERE "t0"."amount" > $1;
+
+params:
+1 = 500 (number)
+```
+
+### N08 — PASS
+
+- input: `products with price below 300`
+- expected meaning: product.price < 300
+- expected: sql; shape contains `FROM "products" AS "t0"`, `"t0"."price" < $1`
+
+```sql
+SELECT "t0"."name", "t0"."category", "t0"."price"
+FROM "products" AS "t0"
+WHERE "t0"."price" < $1;
+
+params:
+1 = 300 (number)
+```
+
+### N09 — PASS
+
+- input: `customers spending over fifty thousand`
+- expected meaning: customer.total_spent > 50000 (spelled-out number)
+- expected: sql; shape contains `FROM "customers" AS "t0"`, `"t0"."total_spent" > $1`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."total_spent" > $1;
+
+params:
+1 = 50000 (number)
+```
+
+### N10 — PASS
+
+- input: `customers who spent more than 50k`
+- expected meaning: customer.total_spent > 50000 (k suffix)
+- expected: sql; shape contains `FROM "customers" AS "t0"`, `"t0"."total_spent" > $1`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."total_spent" > $1;
+
+params:
+1 = 50000 (number)
+```
+
+### D01 — PASS
+
+- input: `customers created last year`
+- expected meaning: customer.created_at in calendar 2025, half-open
+- expected: sql; shape contains `FROM "customers" AS "t0"`, `("t0"."created_at" >= $1 AND "t0"."created_at" < $2)`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE ("t0"."created_at" >= $1 AND "t0"."created_at" < $2);
+
+params:
+1 = 2025-01-01T00:00:00Z (time)
+2 = 2026-01-01T00:00:00Z (time)
+```
+
+### D02 — PASS
+
+- input: `customers registered in the last 6 months`
+- expected meaning: customer.created_at in the rolling 6 months up to the clock
+- expected: sql; shape contains `FROM "customers" AS "t0"`, `("t0"."created_at" >= $1 AND "t0"."created_at" < $2)`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE ("t0"."created_at" >= $1 AND "t0"."created_at" < $2);
+
+params:
+1 = 2026-03-21T12:00:00Z (time)
+2 = 2026-09-21T12:00:00Z (time)
+```
+
+### D03 — PASS
+
+- input: `customers who joined this month`
+- expected meaning: customer.created_at in September 2026
+- expected: sql; shape contains `FROM "customers" AS "t0"`, `("t0"."created_at" >= $1 AND "t0"."created_at" < $2)`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE ("t0"."created_at" >= $1 AND "t0"."created_at" < $2);
+
+params:
+1 = 2026-09-01T00:00:00Z (time)
+2 = 2026-10-01T00:00:00Z (time)
+```
+
+### D04 — PASS
+
+- input: `orders last month`
+- expected meaning: order.placed_at in August 2026 (the order's one date field, inferred)
+- expected: sql; shape contains `FROM "orders" AS "t0"`, `("t0"."placed_at" >= $1 AND "t0"."placed_at" < $2)`
+
+```sql
+SELECT "t0"."amount", "t0"."placed_at"
+FROM "orders" AS "t0"
+WHERE ("t0"."placed_at" >= $1 AND "t0"."placed_at" < $2);
+
+params:
+1 = 2026-08-01T00:00:00Z (time)
+2 = 2026-09-01T00:00:00Z (time)
+```
+
+### D05 — FAIL — expected a query, got a refusal
+
+- input: `orders placed in 2024`
+- expected meaning: order.placed_at in calendar 2024
+- expected: sql; shape contains `FROM "orders" AS "t0"`, `("t0"."placed_at" >= $1 AND "t0"."placed_at" < $2)`
+- failure category: AMBIGUITY
+
+```sql
+REFUSED AMBIGUOUS_MATCH at rank: AMBIGUOUS_MATCH: the phrase at tokens[1:2] matches multiple configured targets with insufficient confidence separation: relationship:customer_orders, field:order.placed_at (margin 0.019 < 0.100)
+```
+
+### A01 — PASS
+
+- input: `how many customers are from India`
+- expected meaning: COUNT(*) of customers where country = IN
+- expected: sql; shape contains `SELECT COUNT(*)`, `FROM "customers" AS "t0"`, `WHERE "t0"."country" = $1`
+
+```sql
+SELECT COUNT(*)
+FROM "customers" AS "t0"
+WHERE "t0"."country" = $1;
+
+params:
+1 = "IN" (string)
+```
+
+### A02 — PASS
+
+- input: `how many customers`
+- expected meaning: COUNT(*) of customers
+- expected: sql; shape contains `SELECT COUNT(*)`, `FROM "customers" AS "t0"`; never `WHERE`
+
+```sql
+SELECT COUNT(*)
+FROM "customers" AS "t0";
+```
+
+### A03 — PASS
+
+- input: `what is the average customer spending`
+- expected meaning: 'what' is unexplained and stays refused; a 'what is' pattern is a deliberate future feature. EXPECTATION CHANGED at the Phase 7 gate (decision 019 §3); was: AVG(customer.total_spent)
+- expected: UNSUPPORTED_QUERY
+
+```sql
+REFUSED UNSUPPORTED_QUERY at bind: UNSUPPORTED_QUERY: the phrase at tokens[0:1] is a word nothing in the config explains; binding refuses rather than ignore it
+```
+
+### A04 — PASS
+
+- input: `what is the total spending of customers from India`
+- expected meaning: as A03. EXPECTATION CHANGED at the Phase 7 gate (decision 019 §3); was: SUM(customer.total_spent) where country = IN
+- expected: UNSUPPORTED_QUERY
+
+```sql
+REFUSED UNSUPPORTED_QUERY at bind: UNSUPPORTED_QUERY: the phrase at tokens[0:1] is a word nothing in the config explains; binding refuses rather than ignore it
+```
+
+### A05 — PASS
+
+- input: `average order amount`
+- expected meaning: AVG(order.amount)
+- expected: sql; shape contains `SELECT AVG("t0"."amount")`, `FROM "orders" AS "t0"`
+
+```sql
+SELECT AVG("t0"."amount")
+FROM "orders" AS "t0";
+```
+
+### A06 — PASS
+
+- input: `highest product price`
+- expected meaning: MAX(product.price) or the top-N pattern: 'highest' is a configured phrase of BOTH the max aggregation and the top_n pattern, so the reading is ambiguous and must be refused
+- expected: AMBIGUOUS_MATCH
+
+```sql
+REFUSED AMBIGUOUS_MATCH at rank: AMBIGUOUS_MATCH: the phrase at tokens[0:1] matches multiple configured targets with insufficient confidence separation: aggregation:max, pattern:top_n (margin 0.000 < 0.100)
+```
+
+### A07 — PASS
+
+- input: `number of orders last month`
+- expected meaning: COUNT(*) of orders placed in August 2026
+- expected: sql; shape contains `SELECT COUNT(*)`, `FROM "orders" AS "t0"`, `("t0"."placed_at" >= $1 AND "t0"."placed_at" < $2)`
+
+```sql
+SELECT COUNT(*)
+FROM "orders" AS "t0"
+WHERE ("t0"."placed_at" >= $1 AND "t0"."placed_at" < $2);
+
+params:
+1 = 2026-08-01T00:00:00Z (time)
+2 = 2026-09-01T00:00:00Z (time)
+```
+
+### O01 — PASS
+
+- input: `top 10 customers by spending`
+- expected meaning: customers ordered by total_spent descending, first 10
+- expected: sql; shape contains `FROM "customers" AS "t0"`, `ORDER BY "t0"."total_spent" DESC NULLS LAST`, `LIMIT 10;`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+ORDER BY "t0"."total_spent" DESC NULLS LAST
+LIMIT 10;
+```
+
+### O02 — PASS
+
+- input: `top 5 orders by amount`
+- expected meaning: orders by amount descending, first 5
+- expected: sql; shape contains `FROM "orders" AS "t0"`, `ORDER BY "t0"."amount" DESC NULLS LAST`, `LIMIT 5;`
+
+```sql
+SELECT "t0"."amount", "t0"."placed_at"
+FROM "orders" AS "t0"
+ORDER BY "t0"."amount" DESC NULLS LAST
+LIMIT 5;
+```
+
+### O03 — PASS
+
+- input: `bottom 3 products by price`
+- expected meaning: products by price ascending, first 3 (bottom_n declares order asc)
+- expected: sql; shape contains `FROM "products" AS "t0"`, `ORDER BY "t0"."price" ASC NULLS LAST`, `LIMIT 3;`
+
+```sql
+SELECT "t0"."name", "t0"."category", "t0"."price"
+FROM "products" AS "t0"
+ORDER BY "t0"."price" ASC NULLS LAST
+LIMIT 3;
+```
+
+### O04 — PASS
+
+- input: `top 10 customers by spending from India`
+- expected meaning: country = IN, by total_spent descending, first 10
+- expected: sql; shape contains `WHERE "t0"."country" = $1`, `ORDER BY "t0"."total_spent" DESC NULLS LAST`, `LIMIT 10;`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."country" = $1
+ORDER BY "t0"."total_spent" DESC NULLS LAST
+LIMIT 10;
+
+params:
+1 = "IN" (string)
+```
+
+### O05 — PASS
+
+- input: `Show the top 10 customers from India who spent more than 50000 last year`
+- expected meaning: the brief's section 15 example 3 as worded: top-N names no metric ('spent' is a comparison), and 'spent ... last year' is not a temporal aggregation the config defines, so it is refused. EXPECTATION CHANGED at the Phase 7 gate (decision 019 §2); the metric-named form is O04
+- expected: UNSUPPORTED_QUERY
+
+```sql
+REFUSED UNSUPPORTED_QUERY at bind: UNSUPPORTED_QUERY: the phrase at tokens[2:3] ranks rows but names no field to rank them by
+```
+
+### O06 — FAIL — expected VALUE_RESOLUTION_FAILED, got AMBIGUOUS_MATCH
+
+- input: `highest spending customers`
+- expected meaning: the brief's ranking probe with no N: top_n has no count and the config defines no default, so it is refused rather than given a guessed N (decision 014 rule 12)
+- expected: VALUE_RESOLUTION_FAILED
+- failure category: AMBIGUITY
+
+```sql
+REFUSED AMBIGUOUS_MATCH at rank: AMBIGUOUS_MATCH: the phrase at tokens[0:1] matches multiple configured targets with insufficient confidence separation: aggregation:max, pattern:top_n (margin 0.000 < 0.100)
+```
+
+### O07 — PASS
+
+- input: `top 3 customers by spending who are from India`
+- expected meaning: country = IN, top 3 by total_spent
+- expected: sql; shape contains `WHERE "t0"."country" = $1`, `LIMIT 3;`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."country" = $1
+ORDER BY "t0"."total_spent" DESC NULLS LAST
+LIMIT 3;
+
+params:
+1 = "IN" (string)
+```
+
+### J01 — PASS
+
+- input: `customers who bought laptops`
+- expected meaning: customers with SOME order whose product category = laptop
+- expected: sql; shape contains `FROM "customers" AS "t0"`, `WHERE EXISTS (`, `JOIN "products"`, `"category" = $1`; never `LEFT JOIN`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE EXISTS (
+    SELECT 1
+    FROM "orders" AS "t1"
+    JOIN "products" AS "t2" ON "t2"."id" = "t1"."product_id"
+    WHERE "t1"."customer_id" = "t0"."id"
+      AND "t2"."category" = $1
+  );
+
+params:
+1 = "laptop" (string)
+```
+
+### J02 — FAIL — expected a query, got a refusal
+
+- input: `customers with orders above 10000`
+- expected meaning: customers with SOME order whose amount > 10000
+- expected: sql; shape contains `FROM "customers" AS "t0"`, `WHERE EXISTS (`, `"amount" > $1`
+- failure category: AMBIGUITY
+
+```sql
+REFUSED AMBIGUOUS_MATCH at rank: AMBIGUOUS_MATCH: the phrase at tokens[2:3] matches multiple configured targets with insufficient confidence separation: entity:order, field:order.id, field:order.amount (margin 0.082 < 0.100)
+```
+
+### J03 — PASS
+
+- input: `customers whose order amount is above 10000`
+- expected meaning: same as J02
+- expected: sql; shape contains `FROM "customers" AS "t0"`, `WHERE EXISTS (`, `"amount" > $1`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE EXISTS (
+    SELECT 1
+    FROM "orders" AS "t1"
+    WHERE "t1"."customer_id" = "t0"."id"
+      AND "t1"."amount" > $1
+  );
+
+params:
+1 = 10000 (number)
+```
+
+### J04 — PASS
+
+- input: `customers who ordered more than 3 times`
+- expected meaning: customers with more than 3 orders; the unit 'times' is kept as a note
+- expected: sql; shape contains `FROM "customers" AS "t0"`, `SELECT COUNT(*)`, `) > $1`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE (
+    SELECT COUNT(*)
+    FROM "orders" AS "t1"
+    WHERE "t1"."customer_id" = "t0"."id"
+  ) > $1;
+
+params:
+1 = 3 (number)
+```
+
+### J05 — PASS
+
+- input: `customers who ordered`
+- expected meaning: customers with at least one order
+- expected: sql; shape contains `FROM "customers" AS "t0"`, `WHERE EXISTS (`; never `$1`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE EXISTS (
+    SELECT 1
+    FROM "orders" AS "t1"
+    WHERE "t1"."customer_id" = "t0"."id"
+  );
+```
+
+### J06 — PASS
+
+- input: `orders for laptops`
+- expected meaning: orders whose (one) product has category laptop: a to-one LEFT JOIN, no subquery
+- expected: sql; shape contains `FROM "orders" AS "t0"`, `LEFT JOIN "products" AS "t1"`, `"t1"."category" = $1`; never `EXISTS`
+
+```sql
+SELECT "t0"."amount", "t0"."placed_at"
+FROM "orders" AS "t0"
+LEFT JOIN "products" AS "t1" ON "t1"."id" = "t0"."product_id"
+WHERE "t1"."category" = $1;
+
+params:
+1 = "laptop" (string)
+```
+
+### J07 — PASS
+
+- input: `orders from customers in India`
+- expected meaning: orders whose (one) customer has country IN
+- expected: sql; shape contains `FROM "orders" AS "t0"`, `LEFT JOIN "customers" AS "t1"`, `"t1"."country" = $1`; never `EXISTS`
+
+```sql
+SELECT "t0"."amount", "t0"."placed_at"
+FROM "orders" AS "t0"
+LEFT JOIN "customers" AS "t1" ON "t1"."id" = "t0"."customer_id"
+WHERE "t1"."country" = $1;
+
+params:
+1 = "IN" (string)
+```
+
+### J08 — PASS
+
+- input: `customers who bought phones`
+- expected meaning: same as J01 with phone (alias phones→phone)
+- expected: sql; shape contains `FROM "customers" AS "t0"`, `WHERE EXISTS (`, `"category" = $1`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE EXISTS (
+    SELECT 1
+    FROM "orders" AS "t1"
+    JOIN "products" AS "t2" ON "t2"."id" = "t1"."product_id"
+    WHERE "t1"."customer_id" = "t0"."id"
+      AND "t2"."category" = $1
+  );
+
+params:
+1 = "phone" (string)
+```
+
+### M01 — PASS
+
+- input: `customers from India who spent more than 50000`
+- expected meaning: country = IN AND total_spent > 50000
+- expected: sql; shape contains `WHERE "t0"."country" = $1`, `  AND "t0"."total_spent" > $2`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."country" = $1
+  AND "t0"."total_spent" > $2;
+
+params:
+1 = "IN" (string)
+2 = 50000 (number)
+```
+
+### M02 — PASS
+
+- input: `customers from India or United Kingdom`
+- expected meaning: country = IN OR country = UK
+- expected: sql; shape contains `WHERE "t0"."country" = $1`, `   OR "t0"."country" = $2`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."country" = $1
+   OR "t0"."country" = $2;
+
+params:
+1 = "IN" (string)
+2 = "UK" (string)
+```
+
+### M03 — PASS
+
+- input: `customers not from India`
+- expected meaning: country <> IN; customers with unknown country are excluded (decision 017 §3)
+- expected: sql; shape contains `"t0"."country" <> $1`; never `IS NULL`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."country" <> $1;
+
+params:
+1 = "IN" (string)
+```
+
+### M04 — PASS
+
+- input: `active customers from India`
+- expected meaning: status = active AND country = IN
+- expected: sql; shape contains `"t0"."status" = $1`, `"t0"."country" = $2`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."status" = $1
+  AND "t0"."country" = $2;
+
+params:
+1 = "active" (string)
+2 = "IN" (string)
+```
+
+### M05 — PASS
+
+- input: `customers from India who bought laptops`
+- expected meaning: country = IN AND some order is a laptop
+- expected: sql; shape contains `WHERE "t0"."country" = $1`, `  AND EXISTS (`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."country" = $1
+  AND EXISTS (
+    SELECT 1
+    FROM "orders" AS "t1"
+    JOIN "products" AS "t2" ON "t2"."id" = "t1"."product_id"
+    WHERE "t1"."customer_id" = "t0"."id"
+      AND "t2"."category" = $2
+  );
+
+params:
+1 = "IN" (string)
+2 = "laptop" (string)
+```
+
+### M06 — PASS
+
+- input: `customers from India and United States`
+- expected meaning: English 'and' between two values of ONE field almost always means either; an AND of country = IN and country = US is unsatisfiable. It must not compile to that: refusal expected
+- expected: AMBIGUOUS_MATCH
+
+```sql
+REFUSED AMBIGUOUS_MATCH at compile: where[1] requires customer.country to equal two different values at once, which no row can satisfy; if either value is meant, the request must say "or"
+```
+
+### M07 — FAIL — expected a query, got a refusal
+
+- input: `customers who spent more than 1000 and less than 5000`
+- expected meaning: 1000 < total_spent < 5000 (same field, two bounds, AND)
+- expected: sql; shape contains `"t0"."total_spent" > $1`, `  AND "t0"."total_spent" < $2`
+- failure category: AMBIGUITY
+
+```sql
+REFUSED AMBIGUOUS_MATCH at bind: AMBIGUOUS_MATCH: the phrase at tokens[7:9] names no field, and customer has several it could mean: customer.id, customer.total_spent
+```
+
+### X01 — PASS
+
+- input: `show customers by amount`
+- expected meaning: 'amount' is order.amount (decision 012); showing it per customer would list through a to-many relationship, which is refused (decision 015)
+- expected: UNSUPPORTED_QUERY
+
+```sql
+REFUSED UNSUPPORTED_QUERY at compile: listing fields through customer -[customer_orders]-> order would repeat each customer once per related row; root the query at order instead
+```
+
+### X02 — PASS
+
+- input: `show customer date`
+- expected meaning: 'date' is part of customer.created_at's 'joined date' AND order.placed_at's 'order date', and 'customer' does not distinguish them (placed_at is one join from customer); refused, never settled by entity context or a 0.015 similarity difference. EXPECTATION CHANGED at the Phase 7 re-gate (decision 019 §5)
+- expected: AMBIGUOUS_MATCH
+
+```sql
+REFUSED AMBIGUOUS_MATCH at rank: AMBIGUOUS_MATCH: the phrase at tokens[2:3] is part of the configured phrases of several targets, and nothing in the sentence distinguishes them: field:customer.created_at, field:order.placed_at (use a configured phrase of one, or configure this phrase)
+```
+
+### X03 — PASS
+
+- input: `show customer value`
+- expected meaning: 'value' is part of customer.total_spent's 'purchase value' AND order.amount's 'order value'; the config does not define 'customer value', so it is refused rather than settled by context (decision 019 §5)
+- expected: AMBIGUOUS_MATCH
+
+```sql
+REFUSED AMBIGUOUS_MATCH at rank: AMBIGUOUS_MATCH: the phrase at tokens[2:3] is part of the configured phrases of several targets, and nothing in the sentence distinguishes them: field:customer.total_spent, field:order.amount (use a configured phrase of one, or configure this phrase)
+```
+
+### X04 — PASS
+
+- input: `customers with status cancelled`
+- expected meaning: 'cancelled' is not a declared status value or alias; never guessed as suspended
+- expected: VALUE_RESOLUTION_FAILED
+
+```sql
+REFUSED VALUE_RESOLUTION_FAILED at bind: VALUE_RESOLUTION_FAILED: the phrase at tokens[3:4] is not a declared value or alias of customer.status
+```
+
+### X05 — PASS
+
+- input: `customers from Atlantis`
+- expected meaning: 'Atlantis' is unexplained; ignoring it would return ALL customers (decision 016)
+- expected: UNSUPPORTED_QUERY
+
+```sql
+REFUSED UNSUPPORTED_QUERY at bind: UNSUPPORTED_QUERY: the phrase at tokens[2:3] is a word nothing in the config explains; binding refuses rather than ignore it
+```
+
+### X06 — PASS
+
+- input: `customers who spent more than $50000`
+- expected meaning: the config declares no currency for total_spent (decision 017 §1)
+- expected: VALUE_RESOLUTION_FAILED
+
+```sql
+REFUSED VALUE_RESOLUTION_FAILED at plan: the value compared with customer.total_spent carries a currency, and the config does not say which currency customer.total_spent is stored in
+```
+
+### X07 — PASS
+
+- input: `recent customers`
+- expected meaning: time_window pattern with no period and no configured default
+- expected: VALUE_RESOLUTION_FAILED
+
+```sql
+REFUSED VALUE_RESOLUTION_FAILED at bind: VALUE_RESOLUTION_FAILED: the phrase at tokens[0:1] restricts to a time window, but no period is given and the config defines none
+```
+
+### X08 — PASS
+
+- input: `customers who bought laptops for more than 1000`
+- expected meaning: same order, or any orders? (decision 017 §2)
+- expected: AMBIGUOUS_MATCH
+
+```sql
+REFUSED AMBIGUOUS_MATCH at bind: AMBIGUOUS_MATCH: the phrase at tokens[5:7] names no field, and customer has several it could mean: customer.id, customer.total_spent
+```
+
+### X09 — PASS
+
+- input: `customers who bought something`
+- expected meaning: 'something' is unexplained (decision 016: no harmless-word list)
+- expected: UNSUPPORTED_QUERY
+
+```sql
+REFUSED UNSUPPORTED_QUERY at bind: UNSUPPORTED_QUERY: the phrase at tokens[3:4] is a word nothing in the config explains; binding refuses rather than ignore it
+```
+
+### X10 — PASS
+
+- input: `show customer creation date`
+- expected meaning: 'customer creation date' is customer.created_at's configured synonym, so the shared word 'date' is settled by the sentence's own words (decision 019 §5): select customer.created_at
+- expected: sql; shape contains `SELECT "t0"."created_at"`, `FROM "customers" AS "t0"`
+
+```sql
+SELECT "t0"."created_at"
+FROM "customers" AS "t0";
+```
+
+### X11 — FAIL — expected a query, got a refusal
+
+- input: `show customer order date`
+- expected meaning: 'order date' is order.placed_at's configured synonym, so the shared word 'date' is settled by the sentence's own words (decision 019 §5): the date is order.placed_at
+- expected: sql; shape contains `"placed_at"`
+- known: refused, safely, for two reasons that predate 019 §5 and are not the shared-phrase rule: 'customer order' (relationship customer_orders) and 'order date' are both exact configured phrases, tied for the cover, and the position tie-break takes 'customer order', leaving 'date' ambiguous by margin (0.015); with the other cover, binding refuses listing order fields through customer (decision 015: root the query at order). Resolving it is a cover-selection and binding change, outside this re-gate's scope
+- failure category: AMBIGUITY
+
+```sql
+REFUSED AMBIGUOUS_MATCH at rank: AMBIGUOUS_MATCH: the phrase at tokens[3:4] matches multiple configured targets with insufficient confidence separation: field:order.placed_at, field:customer.created_at (margin 0.015 < 0.100)
+```
+
+### X12 — PASS
+
+- input: `orders by date`
+- expected meaning: 'order date' is spelled out by the sentence's words, not contiguously, and it is order.placed_at's alone, so the shared word 'date' is settled (decision 019 §5): select order.placed_at
+- expected: sql; shape contains `SELECT "t0"."placed_at"`, `FROM "orders" AS "t0"`
+
+```sql
+SELECT "t0"."placed_at"
+FROM "orders" AS "t0";
+```
+
+### Z01 — PASS
+
+- input: `delete all customers`
+- expected meaning: a write request: refused, explicitly, by Phase 8's read-only rule (section 16.1). Expectation changed by decision 021: it was UNSUPPORTED_QUERY, from the unexplained-word rule, before the explicit rejection existed
+- expected: SECURITY_REJECTED
+
+```sql
+REFUSED SECURITY_REJECTED at rank: the word at tokens[0:1] is the write keyword DELETE; the engine only reads, and no configured phrase in the sentence explains the word
+```
+
+### Z02 — PASS
+
+- input: `drop the customers table`
+- expected meaning: refused (see Z01; expectation changed by decision 021)
+- expected: SECURITY_REJECTED
+
+```sql
+REFUSED SECURITY_REJECTED at rank: the word at tokens[0:1] is the write keyword DROP; the engine only reads, and no configured phrase in the sentence explains the word
+```
+
+### Z03 — PASS
+
+- input: `run an update on every customer`
+- expected meaning: refused (see Z01; expectation changed by decision 021)
+- expected: SECURITY_REJECTED
+
+```sql
+REFUSED SECURITY_REJECTED at rank: the word at tokens[2:3] is the write keyword UPDATE; the engine only reads, and no configured phrase in the sentence explains the word
+```
+
+### Z04 — PASS
+
+- input: `' OR 1=1 --`
+- expected meaning: no entity, field or value: nothing to query. Since the Phase 8 gate (decision 022 §3) the line-comment marker refuses it first, at the input boundary
+- expected: SECURITY_REJECTED
+
+```sql
+REFUSED SECURITY_REJECTED at input: the request contains SQL statement syntax: a line-comment marker (--) at character 9 of the normalised request. A request is one query; statement separators and comment markers are refused, never read around
+```
+
+### Z05 — PASS
+
+- input: `customers named Robert'); DROP TABLE customers;--`
+- expected meaning: either refused, or the text is ONE parameter and never SQL. Since the Phase 8 gate (decision 022 §3) a request is one query: its statement separator refuses it at the input boundary, before any stage reads it
+- expected: SECURITY_REJECTED
+
+```sql
+REFUSED SECURITY_REJECTED at input: the request contains SQL statement syntax: a statement separator (;) at character 24 of the normalised request. A request is one query; statement separators and comment markers are refused, never read around
+```
+
+### Z06 — PASS
+
+- input: `customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers `
+- expected meaning: 600 characters, over the 512 input limit: refused, never truncated
+- expected: INVALID_INPUT
+
+```sql
+REFUSED INVALID_INPUT at input: the request is 600 characters, over the limit of 512
+```
+
+### Z07 — PASS
+
+- input: `   `
+- expected meaning: an empty request
+- expected: INVALID_INPUT
+
+```sql
+REFUSED INVALID_INPUT at input: the request is empty
+```

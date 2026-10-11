@@ -1,0 +1,11 @@
+{
+  "root": "customer",
+  "select": [{ "field": "customer.name" }, { "field": "customer.country" }],
+  "where": [
+    { "kind": "compare", "field": "product.category", "via": ["customer_orders", "order_product"], "op": "eq", "values": [{ "string": "laptop" }] },
+    { "kind": "count", "via": ["customer_orders"], "op": "gt", "values": [{ "number": 3 }] },
+    { "kind": "exists", "via": ["customer_orders"], "negate": true },
+    { "kind": "range", "field": "customer.created_at", "start": "2026-08-01T00:00:00Z", "end": "2026-09-01T00:00:00Z", "negate": true }
+  ],
+  "whereJoin": "or"
+}

@@ -1,0 +1,7 @@
+{
+  "root": "customer",
+  "aggregates": [
+    { "func": "sum", "field": "customer.total_spent" },
+    { "func": "count", "rows": "order", "via": ["customer_orders"] }
+  ]
+}

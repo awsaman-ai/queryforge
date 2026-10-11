@@ -1,0 +1,10 @@
+{
+  "root": "customer",
+  "select": [{ "field": "customer.name" }],
+  "where": [
+    { "kind": "compare", "field": "customer.country", "op": "eq", "values": [{ "string": "IN" }] },
+    { "kind": "compare", "field": "customer.total_spent", "op": "gt", "values": [{ "number": 50000 }] }
+  ],
+  "orderBy": [{ "field": "customer.total_spent", "desc": true }],
+  "limit": 10
+}

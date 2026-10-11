@@ -1,0 +1,11 @@
+{
+  "root": "order",
+  "select": [
+    { "field": "order.amount" },
+    { "field": "customer.country", "via": ["order_billing_customer"] },
+    { "field": "customer.country", "via": ["order_shipping_customer"] }
+  ],
+  "where": [
+    { "kind": "compare", "field": "customer.country", "via": ["order_shipping_customer"], "op": "neq", "values": [{ "string": "RU_QX" }] }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "entities": [
+    { "name": "customer", "table": "customers" }
+  ],
+  "fields": [
+    { "entity": "order", "name": "amount", "type": "number" }
+  ]
+}

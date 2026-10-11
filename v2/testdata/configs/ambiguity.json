@@ -1,0 +1,124 @@
+{
+  "entities": [
+    {
+      "name": "customer",
+      "description": "A person who buys from the store.",
+      "synonyms": ["customer", "client", "buyer"],
+      "table": "customers"
+    },
+    {
+      "name": "order",
+      "description": "A single purchase placed by a customer.",
+      "synonyms": ["order", "purchase"],
+      "table": "orders"
+    },
+    {
+      "name": "payment",
+      "description": "Money received against an order.",
+      "synonyms": ["payment", "remittance"],
+      "table": "payments"
+    },
+    {
+      "name": "product",
+      "description": "An item that can be bought.",
+      "synonyms": ["product", "item"],
+      "table": "products"
+    }
+  ],
+  "fields": [
+    { "entity": "customer", "name": "id", "type": "number", "description": "Unique identifier of the customer.", "selectable": false },
+    { "entity": "customer", "name": "name", "type": "string", "description": "The customer's full name.", "synonyms": ["customer name", "client name"] },
+    {
+      "entity": "customer", "name": "status", "type": "enum",
+      "description": "Whether the customer's membership is current.",
+      "synonyms": ["customer status", "membership status"],
+      "enumValues": ["enrolled_qx", "lapsed_qx"],
+      "valueAliases": { "zorbified": "lapsed_qx" }
+    },
+    {
+      "entity": "customer", "name": "country", "type": "string",
+      "description": "The country where the customer lives.",
+      "synonyms": ["customer country", "location"],
+      "valueAliases": { "Freedonia": "FD_QX", "Sylvania": "SY_QX" }
+    },
+    { "entity": "customer", "name": "created_at", "type": "date", "description": "Date the customer signed up.", "synonyms": ["signup date", "customer date", "joined date"] },
+
+    { "entity": "order", "name": "id", "type": "number", "description": "Unique identifier of the order.", "selectable": false },
+    { "entity": "order", "name": "customer_id", "type": "number", "description": "The customer who placed the order.", "selectable": false, "filterable": false },
+    { "entity": "order", "name": "product_id", "type": "number", "description": "The product that was ordered.", "selectable": false, "filterable": false },
+    { "entity": "order", "name": "amount", "type": "number", "description": "Total value of the order.", "synonyms": ["order amount", "order value", "order total"] },
+    {
+      "entity": "order", "name": "status", "type": "enum",
+      "description": "Where the order is in fulfilment.",
+      "synonyms": ["order status", "fulfilment status"],
+      "enumValues": ["awaiting_qx", "dispatched_qx", "delivered_qx"]
+    },
+    { "entity": "order", "name": "created_at", "type": "date", "description": "Date the order was placed.", "synonyms": ["order date", "ordered on"] },
+
+    { "entity": "payment", "name": "id", "type": "number", "description": "Unique identifier of the payment.", "selectable": false },
+    { "entity": "payment", "name": "order_id", "type": "number", "description": "The order this payment settles.", "selectable": false, "filterable": false },
+    { "entity": "payment", "name": "amount", "type": "number", "description": "Money received in this payment.", "synonyms": ["payment amount", "payment value", "amount paid"] },
+    {
+      "entity": "payment", "name": "status", "type": "enum",
+      "description": "Whether the payment went through.",
+      "synonyms": ["payment status"],
+      "enumValues": ["settled_qx", "declined_qx", "reversed_qx"],
+      "valueAliases": { "bounced": "declined_qx" }
+    },
+    { "entity": "payment", "name": "paid_at", "type": "date", "description": "Date the payment was received.", "synonyms": ["payment date", "paid on"] },
+
+    { "entity": "product", "name": "id", "type": "number", "description": "Unique identifier of the product.", "selectable": false },
+    { "entity": "product", "name": "name", "type": "string", "description": "The name of the product.", "synonyms": ["product name", "item name"] },
+    { "entity": "product", "name": "price", "type": "number", "description": "The price of a single unit of the product.", "synonyms": ["product price", "unit price", "cost"] }
+  ],
+  "operators": {
+    "eq": ["equals", "is"],
+    "neq": ["is not", "other than"],
+    "gt": ["more than", "greater than", "above", "over"],
+    "gte": ["at least", "no less than"],
+    "lt": ["less than", "below", "under"],
+    "lte": ["at most", "no more than"],
+    "in": ["one of", "any of"],
+    "like": ["contains"]
+  },
+  "aggregations": {
+    "count": ["how many", "number of"],
+    "sum": ["total", "sum of"],
+    "avg": ["average", "mean"],
+    "min": ["lowest", "smallest", "minimum"],
+    "max": ["highest", "largest", "maximum"]
+  },
+  "relationships": [
+    {
+      "name": "customer_orders",
+      "description": "The orders a customer has placed.",
+      "synonyms": ["ordered", "bought", "placed"],
+      "from": { "entity": "customer", "field": "id" },
+      "to": { "entity": "order", "field": "customer_id" },
+      "cardinality": "one-to-many"
+    },
+    {
+      "name": "order_payments",
+      "description": "The payments received for an order.",
+      "synonyms": ["paid for", "settled"],
+      "from": { "entity": "order", "field": "id" },
+      "to": { "entity": "payment", "field": "order_id" },
+      "cardinality": "one-to-many"
+    },
+    {
+      "name": "order_product",
+      "description": "The product an order is for.",
+      "synonyms": ["for"],
+      "from": { "entity": "order", "field": "product_id" },
+      "to": { "entity": "product", "field": "id" },
+      "cardinality": "many-to-one"
+    }
+  ],
+  "queryPatterns": [
+    { "name": "top_n", "intent": "top_n", "order": "desc", "description": "The highest-ranked N rows by some metric.", "phrases": ["top N", "best N", "highest", "largest"] },
+    { "name": "bottom_n", "intent": "top_n", "order": "asc", "description": "The lowest-ranked N rows by some metric.", "phrases": ["bottom N", "lowest", "smallest"] },
+    { "name": "how_many", "intent": "count", "description": "The number of rows matching a condition.", "phrases": ["how many", "number of"] },
+    { "name": "recent", "intent": "time_window", "description": "Rows restricted to a recent period of time.", "phrases": ["recent", "lately", "in the last"] }
+  ],
+  "security": { "maxJoins": 3, "maxFilters": 12 }
+}

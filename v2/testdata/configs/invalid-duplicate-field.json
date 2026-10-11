@@ -1,0 +1,9 @@
+{
+  "entities": [
+    { "name": "customer", "table": "customers" }
+  ],
+  "fields": [
+    { "entity": "customer", "name": "country", "type": "string" },
+    { "entity": "customer", "name": "country", "type": "string", "column": "country_code" }
+  ]
+}

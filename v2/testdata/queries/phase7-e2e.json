@@ -1,0 +1,935 @@
+{
+  "config": "commerce.json",
+  "now": "2026-09-21T12:00:00Z",
+  "tz": "UTC",
+  "cases": [
+    {
+      "id": "S01",
+      "category": "simple",
+      "input": "show customers",
+      "meaning": "every customer row; the default columns are the selectable customer fields",
+      "expect": "sql",
+      "shape": [
+        "SELECT \"t0\".\"name\", \"t0\".\"country\", \"t0\".\"status\", \"t0\".\"total_spent\", \"t0\".\"created_at\"",
+        "FROM \"customers\" AS \"t0\""
+      ],
+      "absent": [
+        "WHERE"
+      ]
+    },
+    {
+      "id": "S02",
+      "category": "simple",
+      "input": "list clients",
+      "meaning": "same as S01; 'clients' is a customer synonym",
+      "expect": "sql",
+      "shape": [
+        "FROM \"customers\" AS \"t0\""
+      ],
+      "absent": [
+        "WHERE"
+      ]
+    },
+    {
+      "id": "S03",
+      "category": "simple",
+      "input": "show buyers",
+      "meaning": "same as S01; 'buyers' is a customer synonym",
+      "expect": "sql",
+      "shape": [
+        "FROM \"customers\" AS \"t0\""
+      ],
+      "absent": [
+        "WHERE"
+      ]
+    },
+    {
+      "id": "S04",
+      "category": "simple",
+      "input": "show orders",
+      "meaning": "every order row",
+      "expect": "sql",
+      "shape": [
+        "FROM \"orders\" AS \"t0\""
+      ],
+      "absent": [
+        "WHERE"
+      ]
+    },
+    {
+      "id": "S05",
+      "category": "simple",
+      "input": "list products",
+      "meaning": "every product row",
+      "expect": "sql",
+      "shape": [
+        "FROM \"products\" AS \"t0\""
+      ],
+      "absent": [
+        "WHERE"
+      ]
+    },
+    {
+      "id": "V01",
+      "category": "value",
+      "input": "customers from India",
+      "meaning": "customer.country = IN (alias India→IN)",
+      "expect": "sql",
+      "shape": [
+        "FROM \"customers\" AS \"t0\"",
+        "WHERE \"t0\".\"country\" = $1"
+      ],
+      "params": [
+        "IN"
+      ]
+    },
+    {
+      "id": "V02",
+      "category": "synonym",
+      "input": "customers living in India",
+      "meaning": "'living' is neither a configured value nor an alias, so it resolves to nothing and the request is refused; it must never become status = 'live'/'active' by similarity. EXPECTATION CHANGED at the Phase 7 gate (decision 019 §1); was: same as V01",
+      "expect": "UNSUPPORTED_QUERY"
+    },
+    {
+      "id": "V03",
+      "category": "synonym",
+      "input": "clients located in India",
+      "meaning": "same as V01",
+      "expect": "sql",
+      "shape": [
+        "FROM \"customers\" AS \"t0\"",
+        "WHERE \"t0\".\"country\" = $1"
+      ],
+      "params": [
+        "IN"
+      ]
+    },
+    {
+      "id": "V04",
+      "category": "synonym",
+      "input": "buyers in India",
+      "meaning": "same as V01",
+      "expect": "sql",
+      "shape": [
+        "FROM \"customers\" AS \"t0\"",
+        "WHERE \"t0\".\"country\" = $1"
+      ],
+      "params": [
+        "IN"
+      ]
+    },
+    {
+      "id": "V05",
+      "category": "value",
+      "input": "customers from United Kingdom",
+      "meaning": "customer.country = UK",
+      "expect": "sql",
+      "shape": [
+        "FROM \"customers\" AS \"t0\"",
+        "WHERE \"t0\".\"country\" = $1"
+      ],
+      "params": [
+        "UK"
+      ]
+    },
+    {
+      "id": "V06",
+      "category": "value",
+      "input": "customers with status active",
+      "meaning": "customer.status = active (declared enum value)",
+      "expect": "sql",
+      "shape": [
+        "FROM \"customers\" AS \"t0\"",
+        "\"t0\".\"status\" = $1"
+      ],
+      "params": [
+        "active"
+      ]
+    },
+    {
+      "id": "V07",
+      "category": "value",
+      "input": "blocked customers",
+      "meaning": "customer.status = suspended (alias blocked→suspended)",
+      "expect": "sql",
+      "shape": [
+        "FROM \"customers\" AS \"t0\"",
+        "\"t0\".\"status\" = $1"
+      ],
+      "params": [
+        "suspended"
+      ]
+    },
+    {
+      "id": "V08",
+      "category": "value",
+      "input": "show laptops",
+      "meaning": "product rows with category = laptop; root is product via the value's field",
+      "expect": "sql",
+      "shape": [
+        "FROM \"products\" AS \"t0\"",
+        "\"t0\".\"category\" = $1"
+      ],
+      "params": [
+        "laptop"
+      ]
+    },
+    {
+      "id": "V09",
+      "category": "value",
+      "input": "customers named Smith",
+      "meaning": "customer.name = Smith (free-text literal on a string field)",
+      "expect": "sql",
+      "shape": [
+        "FROM \"customers\" AS \"t0\"",
+        "\"t0\".\"name\" = $1"
+      ],
+      "params": [
+        "Smith"
+      ]
+    },
+    {
+      "id": "N01",
+      "category": "numeric",
+      "input": "customers who spent more than 50000",
+      "meaning": "customer.total_spent > 50000",
+      "expect": "sql",
+      "shape": [
+        "FROM \"customers\" AS \"t0\"",
+        "\"t0\".\"total_spent\" > $1"
+      ],
+      "params": [
+        "50000"
+      ]
+    },
+    {
+      "id": "N02",
+      "category": "numeric",
+      "input": "customers who spent over 50000",
+      "meaning": "same as N01",
+      "expect": "sql",
+      "shape": [
+        "FROM \"customers\" AS \"t0\"",
+        "\"t0\".\"total_spent\" > $1"
+      ],
+      "params": [
+        "50000"
+      ]
+    },
+    {
+      "id": "N03",
+      "category": "numeric",
+      "input": "customers whose spending is above 50000",
+      "meaning": "same as N01",
+      "expect": "sql",
+      "shape": [
+        "FROM \"customers\" AS \"t0\"",
+        "\"t0\".\"total_spent\" > $1"
+      ],
+      "params": [
+        "50000"
+      ]
+    },
+    {
+      "id": "N04",
+      "category": "numeric",
+      "input": "customers spending less than 10000",
+      "meaning": "customer.total_spent < 10000",
+      "expect": "sql",
+      "shape": [
+        "FROM \"customers\" AS \"t0\"",
+        "\"t0\".\"total_spent\" < $1"
+      ],
+      "params": [
+        "10000"
+      ]
+    },
+    {
+      "id": "N05",
+      "category": "numeric",
+      "input": "customers who spent at least 1000",
+      "meaning": "customer.total_spent >= 1000",
+      "expect": "sql",
+      "shape": [
+        "FROM \"customers\" AS \"t0\"",
+        "\"t0\".\"total_spent\" >= $1"
+      ],
+      "params": [
+        "1000"
+      ]
+    },
+    {
+      "id": "N06",
+      "category": "numeric",
+      "input": "customers who spent at most 1000",
+      "meaning": "customer.total_spent <= 1000",
+      "expect": "sql",
+      "shape": [
+        "FROM \"customers\" AS \"t0\"",
+        "\"t0\".\"total_spent\" <= $1"
+      ],
+      "params": [
+        "1000"
+      ]
+    },
+    {
+      "id": "N07",
+      "category": "numeric",
+      "input": "orders with amount over 500",
+      "meaning": "order.amount > 500",
+      "expect": "sql",
+      "shape": [
+        "FROM \"orders\" AS \"t0\"",
+        "\"t0\".\"amount\" > $1"
+      ],
+      "params": [
+        "500"
+      ]
+    },
+    {
+      "id": "N08",
+      "category": "numeric",
+      "input": "products with price below 300",
+      "meaning": "product.price < 300",
+      "expect": "sql",
+      "shape": [
+        "FROM \"products\" AS \"t0\"",
+        "\"t0\".\"price\" < $1"
+      ],
+      "params": [
+        "300"
+      ]
+    },
+    {
+      "id": "N09",
+      "category": "numeric",
+      "input": "customers spending over fifty thousand",
+      "meaning": "customer.total_spent > 50000 (spelled-out number)",
+      "expect": "sql",
+      "shape": [
+        "FROM \"customers\" AS \"t0\"",
+        "\"t0\".\"total_spent\" > $1"
+      ],
+      "params": [
+        "50000"
+      ]
+    },
+    {
+      "id": "N10",
+      "category": "numeric",
+      "input": "customers who spent more than 50k",
+      "meaning": "customer.total_spent > 50000 (k suffix)",
+      "expect": "sql",
+      "shape": [
+        "FROM \"customers\" AS \"t0\"",
+        "\"t0\".\"total_spent\" > $1"
+      ],
+      "params": [
+        "50000"
+      ]
+    },
+    {
+      "id": "D01",
+      "category": "date",
+      "input": "customers created last year",
+      "meaning": "customer.created_at in calendar 2025, half-open",
+      "expect": "sql",
+      "shape": [
+        "FROM \"customers\" AS \"t0\"",
+        "(\"t0\".\"created_at\" >= $1 AND \"t0\".\"created_at\" < $2)"
+      ],
+      "params": [
+        "2025-01-01T00:00:00Z",
+        "2026-01-01T00:00:00Z"
+      ]
+    },
+    {
+      "id": "D02",
+      "category": "date",
+      "input": "customers registered in the last 6 months",
+      "meaning": "customer.created_at in the rolling 6 months up to the clock",
+      "expect": "sql",
+      "shape": [
+        "FROM \"customers\" AS \"t0\"",
+        "(\"t0\".\"created_at\" >= $1 AND \"t0\".\"created_at\" < $2)"
+      ],
+      "params": [
+        "2026-03-21T12:00:00Z",
+        "2026-09-21T12:00:00Z"
+      ]
+    },
+    {
+      "id": "D03",
+      "category": "date",
+      "input": "customers who joined this month",
+      "meaning": "customer.created_at in September 2026",
+      "expect": "sql",
+      "shape": [
+        "FROM \"customers\" AS \"t0\"",
+        "(\"t0\".\"created_at\" >= $1 AND \"t0\".\"created_at\" < $2)"
+      ],
+      "params": [
+        "2026-09-01T00:00:00Z",
+        "2026-10-01T00:00:00Z"
+      ]
+    },
+    {
+      "id": "D04",
+      "category": "date",
+      "input": "orders last month",
+      "meaning": "order.placed_at in August 2026 (the order's one date field, inferred)",
+      "expect": "sql",
+      "shape": [
+        "FROM \"orders\" AS \"t0\"",
+        "(\"t0\".\"placed_at\" >= $1 AND \"t0\".\"placed_at\" < $2)"
+      ],
+      "params": [
+        "2026-08-01T00:00:00Z",
+        "2026-09-01T00:00:00Z"
+      ]
+    },
+    {
+      "id": "D05",
+      "category": "date",
+      "input": "orders placed in 2024",
+      "meaning": "order.placed_at in calendar 2024",
+      "expect": "sql",
+      "shape": [
+        "FROM \"orders\" AS \"t0\"",
+        "(\"t0\".\"placed_at\" >= $1 AND \"t0\".\"placed_at\" < $2)"
+      ],
+      "params": [
+        "2024-01-01T00:00:00Z",
+        "2025-01-01T00:00:00Z"
+      ]
+    },
+    {
+      "id": "A01",
+      "category": "aggregate",
+      "input": "how many customers are from India",
+      "meaning": "COUNT(*) of customers where country = IN",
+      "expect": "sql",
+      "shape": [
+        "SELECT COUNT(*)",
+        "FROM \"customers\" AS \"t0\"",
+        "WHERE \"t0\".\"country\" = $1"
+      ],
+      "params": [
+        "IN"
+      ]
+    },
+    {
+      "id": "A02",
+      "category": "aggregate",
+      "input": "how many customers",
+      "meaning": "COUNT(*) of customers",
+      "expect": "sql",
+      "shape": [
+        "SELECT COUNT(*)",
+        "FROM \"customers\" AS \"t0\""
+      ],
+      "absent": [
+        "WHERE"
+      ]
+    },
+    {
+      "id": "A03",
+      "category": "aggregate",
+      "input": "what is the average customer spending",
+      "meaning": "'what' is unexplained and stays refused; a 'what is' pattern is a deliberate future feature. EXPECTATION CHANGED at the Phase 7 gate (decision 019 §3); was: AVG(customer.total_spent)",
+      "expect": "UNSUPPORTED_QUERY"
+    },
+    {
+      "id": "A04",
+      "category": "aggregate",
+      "input": "what is the total spending of customers from India",
+      "meaning": "as A03. EXPECTATION CHANGED at the Phase 7 gate (decision 019 §3); was: SUM(customer.total_spent) where country = IN",
+      "expect": "UNSUPPORTED_QUERY"
+    },
+    {
+      "id": "A05",
+      "category": "aggregate",
+      "input": "average order amount",
+      "meaning": "AVG(order.amount)",
+      "expect": "sql",
+      "shape": [
+        "SELECT AVG(\"t0\".\"amount\")",
+        "FROM \"orders\" AS \"t0\""
+      ]
+    },
+    {
+      "id": "A06",
+      "category": "aggregate",
+      "input": "highest product price",
+      "meaning": "MAX(product.price) or the top-N pattern: 'highest' is a configured phrase of BOTH the max aggregation and the top_n pattern, so the reading is ambiguous and must be refused",
+      "expect": "AMBIGUOUS_MATCH"
+    },
+    {
+      "id": "A07",
+      "category": "aggregate",
+      "input": "number of orders last month",
+      "meaning": "COUNT(*) of orders placed in August 2026",
+      "expect": "sql",
+      "shape": [
+        "SELECT COUNT(*)",
+        "FROM \"orders\" AS \"t0\"",
+        "(\"t0\".\"placed_at\" >= $1 AND \"t0\".\"placed_at\" < $2)"
+      ],
+      "params": [
+        "2026-08-01T00:00:00Z",
+        "2026-09-01T00:00:00Z"
+      ]
+    },
+    {
+      "id": "O01",
+      "category": "ordering",
+      "input": "top 10 customers by spending",
+      "meaning": "customers ordered by total_spent descending, first 10",
+      "expect": "sql",
+      "shape": [
+        "FROM \"customers\" AS \"t0\"",
+        "ORDER BY \"t0\".\"total_spent\" DESC NULLS LAST",
+        "LIMIT 10;"
+      ]
+    },
+    {
+      "id": "O02",
+      "category": "ordering",
+      "input": "top 5 orders by amount",
+      "meaning": "orders by amount descending, first 5",
+      "expect": "sql",
+      "shape": [
+        "FROM \"orders\" AS \"t0\"",
+        "ORDER BY \"t0\".\"amount\" DESC NULLS LAST",
+        "LIMIT 5;"
+      ]
+    },
+    {
+      "id": "O03",
+      "category": "ordering",
+      "input": "bottom 3 products by price",
+      "meaning": "products by price ascending, first 3 (bottom_n declares order asc)",
+      "expect": "sql",
+      "shape": [
+        "FROM \"products\" AS \"t0\"",
+        "ORDER BY \"t0\".\"price\" ASC NULLS LAST",
+        "LIMIT 3;"
+      ]
+    },
+    {
+      "id": "O04",
+      "category": "ordering",
+      "input": "top 10 customers by spending from India",
+      "meaning": "country = IN, by total_spent descending, first 10",
+      "expect": "sql",
+      "shape": [
+        "WHERE \"t0\".\"country\" = $1",
+        "ORDER BY \"t0\".\"total_spent\" DESC NULLS LAST",
+        "LIMIT 10;"
+      ],
+      "params": [
+        "IN"
+      ]
+    },
+    {
+      "id": "O05",
+      "category": "ordering",
+      "input": "Show the top 10 customers from India who spent more than 50000 last year",
+      "meaning": "the brief's section 15 example 3 as worded: top-N names no metric ('spent' is a comparison), and 'spent ... last year' is not a temporal aggregation the config defines, so it is refused. EXPECTATION CHANGED at the Phase 7 gate (decision 019 §2); the metric-named form is O04",
+      "expect": "UNSUPPORTED_QUERY"
+    },
+    {
+      "id": "O06",
+      "category": "ordering",
+      "input": "highest spending customers",
+      "meaning": "the brief's ranking probe with no N: top_n has no count and the config defines no default, so it is refused rather than given a guessed N (decision 014 rule 12)",
+      "expect": "VALUE_RESOLUTION_FAILED"
+    },
+    {
+      "id": "O07",
+      "category": "limit",
+      "input": "top 3 customers by spending who are from India",
+      "meaning": "country = IN, top 3 by total_spent",
+      "expect": "sql",
+      "shape": [
+        "WHERE \"t0\".\"country\" = $1",
+        "LIMIT 3;"
+      ],
+      "params": [
+        "IN"
+      ]
+    },
+    {
+      "id": "J01",
+      "category": "join",
+      "input": "customers who bought laptops",
+      "meaning": "customers with SOME order whose product category = laptop",
+      "expect": "sql",
+      "shape": [
+        "FROM \"customers\" AS \"t0\"",
+        "WHERE EXISTS (",
+        "JOIN \"products\"",
+        "\"category\" = $1"
+      ],
+      "absent": [
+        "LEFT JOIN"
+      ],
+      "params": [
+        "laptop"
+      ]
+    },
+    {
+      "id": "J02",
+      "category": "join",
+      "input": "customers with orders above 10000",
+      "meaning": "customers with SOME order whose amount > 10000",
+      "expect": "sql",
+      "shape": [
+        "FROM \"customers\" AS \"t0\"",
+        "WHERE EXISTS (",
+        "\"amount\" > $1"
+      ],
+      "params": [
+        "10000"
+      ]
+    },
+    {
+      "id": "J03",
+      "category": "join",
+      "input": "customers whose order amount is above 10000",
+      "meaning": "same as J02",
+      "expect": "sql",
+      "shape": [
+        "FROM \"customers\" AS \"t0\"",
+        "WHERE EXISTS (",
+        "\"amount\" > $1"
+      ],
+      "params": [
+        "10000"
+      ]
+    },
+    {
+      "id": "J04",
+      "category": "join",
+      "input": "customers who ordered more than 3 times",
+      "meaning": "customers with more than 3 orders; the unit 'times' is kept as a note",
+      "expect": "sql",
+      "shape": [
+        "FROM \"customers\" AS \"t0\"",
+        "SELECT COUNT(*)",
+        ") > $1"
+      ],
+      "params": [
+        "3"
+      ]
+    },
+    {
+      "id": "J05",
+      "category": "join",
+      "input": "customers who ordered",
+      "meaning": "customers with at least one order",
+      "expect": "sql",
+      "shape": [
+        "FROM \"customers\" AS \"t0\"",
+        "WHERE EXISTS ("
+      ],
+      "absent": [
+        "$1"
+      ]
+    },
+    {
+      "id": "J06",
+      "category": "join",
+      "input": "orders for laptops",
+      "meaning": "orders whose (one) product has category laptop: a to-one LEFT JOIN, no subquery",
+      "expect": "sql",
+      "shape": [
+        "FROM \"orders\" AS \"t0\"",
+        "LEFT JOIN \"products\" AS \"t1\"",
+        "\"t1\".\"category\" = $1"
+      ],
+      "absent": [
+        "EXISTS"
+      ],
+      "params": [
+        "laptop"
+      ]
+    },
+    {
+      "id": "J07",
+      "category": "join",
+      "input": "orders from customers in India",
+      "meaning": "orders whose (one) customer has country IN",
+      "expect": "sql",
+      "shape": [
+        "FROM \"orders\" AS \"t0\"",
+        "LEFT JOIN \"customers\" AS \"t1\"",
+        "\"t1\".\"country\" = $1"
+      ],
+      "absent": [
+        "EXISTS"
+      ],
+      "params": [
+        "IN"
+      ]
+    },
+    {
+      "id": "J08",
+      "category": "join",
+      "input": "customers who bought phones",
+      "meaning": "same as J01 with phone (alias phones→phone)",
+      "expect": "sql",
+      "shape": [
+        "FROM \"customers\" AS \"t0\"",
+        "WHERE EXISTS (",
+        "\"category\" = $1"
+      ],
+      "params": [
+        "phone"
+      ]
+    },
+    {
+      "id": "M01",
+      "category": "multi",
+      "input": "customers from India who spent more than 50000",
+      "meaning": "country = IN AND total_spent > 50000",
+      "expect": "sql",
+      "shape": [
+        "WHERE \"t0\".\"country\" = $1",
+        "  AND \"t0\".\"total_spent\" > $2"
+      ],
+      "params": [
+        "IN",
+        "50000"
+      ]
+    },
+    {
+      "id": "M02",
+      "category": "multi",
+      "input": "customers from India or United Kingdom",
+      "meaning": "country = IN OR country = UK",
+      "expect": "sql",
+      "shape": [
+        "WHERE \"t0\".\"country\" = $1",
+        "   OR \"t0\".\"country\" = $2"
+      ],
+      "params": [
+        "IN",
+        "UK"
+      ]
+    },
+    {
+      "id": "M03",
+      "category": "negation",
+      "input": "customers not from India",
+      "meaning": "country <> IN; customers with unknown country are excluded (decision 017 §3)",
+      "expect": "sql",
+      "shape": [
+        "\"t0\".\"country\" <> $1"
+      ],
+      "absent": [
+        "IS NULL"
+      ],
+      "params": [
+        "IN"
+      ]
+    },
+    {
+      "id": "M04",
+      "category": "multi",
+      "input": "active customers from India",
+      "meaning": "status = active AND country = IN",
+      "expect": "sql",
+      "shape": [
+        "\"t0\".\"status\" = $1",
+        "\"t0\".\"country\" = $2"
+      ],
+      "params": [
+        "active",
+        "IN"
+      ]
+    },
+    {
+      "id": "M05",
+      "category": "multi",
+      "input": "customers from India who bought laptops",
+      "meaning": "country = IN AND some order is a laptop",
+      "expect": "sql",
+      "shape": [
+        "WHERE \"t0\".\"country\" = $1",
+        "  AND EXISTS ("
+      ],
+      "params": [
+        "IN",
+        "laptop"
+      ]
+    },
+    {
+      "id": "M06",
+      "category": "multi",
+      "input": "customers from India and United States",
+      "meaning": "English 'and' between two values of ONE field almost always means either; an AND of country = IN and country = US is unsatisfiable. It must not compile to that: refusal expected",
+      "expect": "AMBIGUOUS_MATCH"
+    },
+    {
+      "id": "M07",
+      "category": "multi",
+      "input": "customers who spent more than 1000 and less than 5000",
+      "meaning": "1000 < total_spent < 5000 (same field, two bounds, AND)",
+      "expect": "sql",
+      "shape": [
+        "\"t0\".\"total_spent\" > $1",
+        "  AND \"t0\".\"total_spent\" < $2"
+      ],
+      "params": [
+        "1000",
+        "5000"
+      ]
+    },
+    {
+      "id": "X01",
+      "category": "ambiguity",
+      "input": "show customers by amount",
+      "meaning": "'amount' is order.amount (decision 012); showing it per customer would list through a to-many relationship, which is refused (decision 015)",
+      "expect": "UNSUPPORTED_QUERY"
+    },
+    {
+      "id": "X02",
+      "category": "ambiguity",
+      "input": "show customer date",
+      "meaning": "'date' is part of customer.created_at's 'joined date' AND order.placed_at's 'order date', and 'customer' does not distinguish them (placed_at is one join from customer); refused, never settled by entity context or a 0.015 similarity difference. EXPECTATION CHANGED at the Phase 7 re-gate (decision 019 §5)",
+      "expect": "AMBIGUOUS_MATCH"
+    },
+    {
+      "id": "X03",
+      "category": "ambiguity",
+      "input": "show customer value",
+      "meaning": "'value' is part of customer.total_spent's 'purchase value' AND order.amount's 'order value'; the config does not define 'customer value', so it is refused rather than settled by context (decision 019 §5)",
+      "expect": "AMBIGUOUS_MATCH"
+    },
+    {
+      "id": "X04",
+      "category": "value",
+      "input": "customers with status cancelled",
+      "meaning": "'cancelled' is not a declared status value or alias; never guessed as suspended",
+      "expect": "VALUE_RESOLUTION_FAILED"
+    },
+    {
+      "id": "X05",
+      "category": "strict",
+      "input": "customers from Atlantis",
+      "meaning": "'Atlantis' is unexplained; ignoring it would return ALL customers (decision 016)",
+      "expect": "UNSUPPORTED_QUERY"
+    },
+    {
+      "id": "X06",
+      "category": "units",
+      "input": "customers who spent more than $50000",
+      "meaning": "the config declares no currency for total_spent (decision 017 §1)",
+      "expect": "VALUE_RESOLUTION_FAILED"
+    },
+    {
+      "id": "X07",
+      "category": "value",
+      "input": "recent customers",
+      "meaning": "time_window pattern with no period and no configured default",
+      "expect": "VALUE_RESOLUTION_FAILED"
+    },
+    {
+      "id": "X08",
+      "category": "ambiguity",
+      "input": "customers who bought laptops for more than 1000",
+      "meaning": "same order, or any orders? (decision 017 §2)",
+      "expect": "AMBIGUOUS_MATCH"
+    },
+    {
+      "id": "X09",
+      "category": "strict",
+      "input": "customers who bought something",
+      "meaning": "'something' is unexplained (decision 016: no harmless-word list)",
+      "expect": "UNSUPPORTED_QUERY"
+    },
+    {
+      "id": "X10",
+      "category": "ambiguity",
+      "input": "show customer creation date",
+      "meaning": "'customer creation date' is customer.created_at's configured synonym, so the shared word 'date' is settled by the sentence's own words (decision 019 §5): select customer.created_at",
+      "expect": "sql",
+      "shape": [
+        "SELECT \"t0\".\"created_at\"",
+        "FROM \"customers\" AS \"t0\""
+      ]
+    },
+    {
+      "id": "X11",
+      "category": "ambiguity",
+      "input": "show customer order date",
+      "meaning": "'order date' is order.placed_at's configured synonym, so the shared word 'date' is settled by the sentence's own words (decision 019 §5): the date is order.placed_at",
+      "expect": "sql",
+      "shape": [
+        "\"placed_at\""
+      ],
+      "known": "refused, safely, for two reasons that predate 019 §5 and are not the shared-phrase rule: 'customer order' (relationship customer_orders) and 'order date' are both exact configured phrases, tied for the cover, and the position tie-break takes 'customer order', leaving 'date' ambiguous by margin (0.015); with the other cover, binding refuses listing order fields through customer (decision 015: root the query at order). Resolving it is a cover-selection and binding change, outside this re-gate's scope"
+    },
+    {
+      "id": "X12",
+      "category": "ambiguity",
+      "input": "orders by date",
+      "meaning": "'order date' is spelled out by the sentence's words, not contiguously, and it is order.placed_at's alone, so the shared word 'date' is settled (decision 019 §5): select order.placed_at",
+      "expect": "sql",
+      "shape": [
+        "SELECT \"t0\".\"placed_at\"",
+        "FROM \"orders\" AS \"t0\""
+      ]
+    },
+    {
+      "id": "Z01",
+      "category": "adversarial",
+      "input": "delete all customers",
+      "meaning": "a write request: refused, explicitly, by Phase 8's read-only rule (section 16.1). Expectation changed by decision 021: it was UNSUPPORTED_QUERY, from the unexplained-word rule, before the explicit rejection existed",
+      "expect": "SECURITY_REJECTED"
+    },
+    {
+      "id": "Z02",
+      "category": "adversarial",
+      "input": "drop the customers table",
+      "meaning": "refused (see Z01; expectation changed by decision 021)",
+      "expect": "SECURITY_REJECTED"
+    },
+    {
+      "id": "Z03",
+      "category": "adversarial",
+      "input": "run an update on every customer",
+      "meaning": "refused (see Z01; expectation changed by decision 021)",
+      "expect": "SECURITY_REJECTED"
+    },
+    {
+      "id": "Z04",
+      "category": "adversarial",
+      "input": "' OR 1=1 --",
+      "meaning": "no entity, field or value: nothing to query. Since the Phase 8 gate (decision 022 §3) the line-comment marker refuses it first, at the input boundary",
+      "expect": "SECURITY_REJECTED"
+    },
+    {
+      "id": "Z05",
+      "category": "adversarial",
+      "input": "customers named Robert'); DROP TABLE customers;--",
+      "meaning": "either refused, or the text is ONE parameter and never SQL. Since the Phase 8 gate (decision 022 §3) a request is one query: its statement separator refuses it at the input boundary, before any stage reads it",
+      "expect": "SECURITY_REJECTED"
+    },
+    {
+      "id": "Z06",
+      "category": "adversarial",
+      "input": "customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers ",
+      "meaning": "600 characters, over the 512 input limit: refused, never truncated",
+      "expect": "INVALID_INPUT"
+    },
+    {
+      "id": "Z07",
+      "category": "adversarial",
+      "input": "   ",
+      "meaning": "an empty request",
+      "expect": "INVALID_INPUT"
+    }
+  ]
+}

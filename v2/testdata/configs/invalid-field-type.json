@@ -1,0 +1,9 @@
+{
+  "entities": [
+    { "name": "customer", "table": "customers" }
+  ],
+  "fields": [
+    { "entity": "customer", "name": "tags", "type": "array" },
+    { "entity": "customer", "name": "profile", "type": "json" }
+  ]
+}

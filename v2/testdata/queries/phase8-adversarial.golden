@@ -1,0 +1,1137 @@
+# Phase 8 adversarial and hardening set
+
+config `commerce.json` · model `sentence-transformers/all-MiniLM-L6-v2@1110a243fdf4706b3f48f1d95db1a4f5529b4d41 (dim=384, semantic)` · clock `2026-09-21T12:00:00Z` · 93 cases
+
+**93/93 pass** — queries 26/26, specified refusals 67/67
+
+Value readings accepted on similarity alone (no lexical evidence): 0 case(s), 0 of them compiled to a query
+
+| id | category | input | expected | result | failure category |
+|---|---|---|---|---|---|
+| W01 | write | `Drop the customer table` | SECURITY_REJECTED | PASS | — |
+| W02 | write | `Delete all customers` | SECURITY_REJECTED | PASS | — |
+| W03 | write | `update customers set country = US` | SECURITY_REJECTED | PASS | — |
+| W04 | write | `insert into customers values (1, 'x')` | SECURITY_REJECTED | PASS | — |
+| W05 | write | `alter table customers add column password` | SECURITY_REJECTED | PASS | — |
+| W06 | write | `truncate orders` | SECURITY_REJECTED | PASS | — |
+| W07 | write | `create a new customer from India` | SECURITY_REJECTED | PASS | — |
+| W08 | write | `grant access to customers` | SECURITY_REJECTED | PASS | — |
+| W09 | write | `revoke access to orders` | SECURITY_REJECTED | PASS | — |
+| W10 | write | `copy customers to a file` | SECURITY_REJECTED | PASS | — |
+| W11 | write | `call the refund procedure for orders` | SECURITY_REJECTED | PASS | — |
+| W12 | write | `merge customers from India into orders` | SECURITY_REJECTED | PASS | — |
+| W13 | write | `DELETES all orders` | SECURITY_REJECTED | PASS | — |
+| W14 | write | `remove all customers from India` | UNSUPPORTED_QUERY | PASS | — |
+| W15 | write | `customers created in 2024` | sql | PASS | — |
+| W16 | write | `customers from India; drop table customers` | SECURITY_REJECTED | PASS | — |
+| I01 | injection | `SELECT * FROM users; DROP TABLE users;` | SECURITY_REJECTED | PASS | — |
+| I02 | injection | `' OR 1=1 --` | REFUSED | PASS | — |
+| I03 | injection | `UNION SELECT password FROM users` | REFUSED | PASS | — |
+| I04 | injection | `customers named Robert'); DROP TABLE customers;--` | SECURITY_REJECTED | PASS | — |
+| I05 | injection | `customers where name = 'x' OR 1=1` | REFUSED | PASS | — |
+| I06 | injection | `customers from India' OR '1'='1` | REFUSED | PASS | — |
+| I07 | injection | `customers from India; select * from orders` | SECURITY_REJECTED | PASS | — |
+| I08 | injection | `customers/**/from/**/India` | SECURITY_REJECTED | PASS | — |
+| I09 | injection | `customers named Smith; --` | SECURITY_REJECTED | PASS | — |
+| I10 | injection | `customers named O'Brien` | sql | PASS | — |
+| N01 | identifier | `customers.password` | REFUSED | PASS | — |
+| N02 | identifier | `show the password of every customer` | UNSUPPORTED_QUERY | PASS | — |
+| N03 | identifier | `show pg_catalog tables` | REFUSED | PASS | — |
+| N04 | identifier | `unknown_field` | REFUSED | PASS | — |
+| N05 | identifier | `unknown_operator` | REFUSED | PASS | — |
+| N06 | identifier | `customers with shoe size above 10` | REFUSED | PASS | — |
+| L01 | limits | `customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers ` | INVALID_INPUT | PASS | — |
+| L02 | limits | `x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x ` | INVALID_INPUT | PASS | — |
+| L03 | limits | `customers with country India and country India and country India and country India and country India and country India and country India and country India and country India and country India and country India and country India and country India and country India` | SECURITY_REJECTED | PASS | — |
+| U01 | unicode | `custоmers from India` | REFUSED | PASS | — |
+| U02 | unicode | `customers from Indiа` | REFUSED | PASS | — |
+| U03 | unicode | `customers\u200b from India` | sql | PASS | — |
+| U04 | unicode | `\u202ecustomers from India` | sql | PASS | — |
+| U05 | unicode | `ｃｕｓｔｏｍｅｒｓ from India` | REFUSED | PASS | — |
+| U06 | unicode | `customers from India\u0000 DROP TABLE customers` | SECURITY_REJECTED | PASS | — |
+| U07 | unicode | `😀 customers from India 😀` | sql | PASS | — |
+| V01 | value | `customers who spent more than 1e309` | REFUSED | PASS | — |
+| V02 | value | `customers who spent more than 99999999999999999999999` | sql | PASS | — |
+| V03 | value | `orders placed on 2024-13-45` | REFUSED | PASS | — |
+| V04 | value | `customers named 50%_off` | REFUSED | PASS | — |
+| P01 | ambiguity | `show customers by update date` | SECURITY_REJECTED | PASS | — |
+| P02 | ambiguity | `show customers by modification date` | AMBIGUOUS_MATCH | PASS | — |
+| P03 | ambiguity | `orders by shipping date` | REFUSED | PASS | — |
+| P04 | ambiguity | `show order shipping date` | REFUSED | PASS | — |
+| P05 | ambiguity | `customers by signup date` | AMBIGUOUS_MATCH | PASS | — |
+| P06 | ambiguity | `customers by joined date` | sql | PASS | — |
+| P07 | ambiguity | `orders by date` | sql | PASS | — |
+| P08 | ambiguity | `money spent` | sql | PASS | — |
+| P09 | ambiguity | `customers registered last year` | sql | PASS | — |
+| P10 | ambiguity | `show product discount price` | UNSUPPORTED_QUERY | PASS | — |
+| P11 | ambiguity | `show product list price` | UNSUPPORTED_QUERY | PASS | — |
+| G01 | qualifier | `show discount price` | UNSUPPORTED_QUERY | PASS | — |
+| G02 | qualifier | `show products with discount price above 100` | UNSUPPORTED_QUERY | PASS | — |
+| G03 | qualifier | `products with list price below 50` | UNSUPPORTED_QUERY | PASS | — |
+| G04 | qualifier | `show product cost price` | UNSUPPORTED_QUERY | PASS | — |
+| G05 | qualifier | `orders by return date` | UNSUPPORTED_QUERY | PASS | — |
+| G06 | qualifier | `show product display name` | UNSUPPORTED_QUERY | PASS | — |
+| G07 | qualifier | `customers who return orders` | UNSUPPORTED_QUERY | PASS | — |
+| G08 | qualifier | `show price discount` | UNSUPPORTED_QUERY | PASS | — |
+| G09 | qualifier | `show product unit price` | sql | PASS | — |
+| G10 | qualifier | `show product price` | sql | PASS | — |
+| G11 | qualifier | `show customer amount spent` | sql | PASS | — |
+| G12 | qualifier | `customers with money spent over 100` | sql | PASS | — |
+| G13 | qualifier | `list customers from India` | sql | PASS | — |
+| G14 | qualifier | `give me a list of customers from India` | sql | PASS | — |
+| G15 | qualifier | `show average price` | sql | PASS | — |
+| G16 | number | `customers who spent more than -5` | sql | PASS | — |
+| G17 | number | `customers who spent more than .5` | sql | PASS | — |
+| G18 | number | `customers who spent more than 0.1234567890123456789` | sql | PASS | — |
+| G19 | number | `customers who spent more than 4.35k` | sql | PASS | — |
+| G20 | number | `customers who spent more than 1,5` | VALUE_RESOLUTION_FAILED | PASS | — |
+| G21 | number | `customers who spent more than 12x` | VALUE_RESOLUTION_FAILED | PASS | — |
+| G22 | number | `customers who spent more than one billion billion` | REFUSED | PASS | — |
+| G23 | number | `top 9007199254740993 customers by total spent` | sql | PASS | — |
+| G24 | number | `customers who ordered more than 99999999999999999999999 times` | sql | PASS | — |
+| G25 | number | `orders in the last 2.5 months` | REFUSED | PASS | — |
+| G26 | number | `orders in the last 0 days` | REFUSED | PASS | — |
+| G27 | boundary | `customers from India;` | SECURITY_REJECTED | PASS | — |
+| G28 | boundary | `customers from India -- and status active` | SECURITY_REJECTED | PASS | — |
+| G29 | boundary | `customers from India */` | SECURITY_REJECTED | PASS | — |
+| G30 | boundary | `customers from India； select * from orders` | SECURITY_REJECTED | PASS | — |
+| G31 | boundary | `customers from India -\u200b- orders` | SECURITY_REJECTED | PASS | — |
+| G32 | boundary | `top-5 customers by total spent` | sql | PASS | — |
+| G33 | qualifier | `products with price and discount above 10` | UNSUPPORTED_QUERY | PASS | — |
+| G34 | qualifier | `price of discount` | UNSUPPORTED_QUERY | PASS | — |
+| G35 | qualifier | `customers with amount spent over 100 and total spent below 50` | sql | PASS | — |
+| G36 | qualifier | `list price of products` | sql | PASS | — |
+
+## Every case
+
+### W01 — PASS
+
+- input: `Drop the customer table`
+- expected meaning: section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021)
+- expected: SECURITY_REJECTED
+
+```sql
+REFUSED SECURITY_REJECTED at rank: the word at tokens[0:1] is the write keyword DROP; the engine only reads, and no configured phrase in the sentence explains the word
+```
+
+### W02 — PASS
+
+- input: `Delete all customers`
+- expected meaning: section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021)
+- expected: SECURITY_REJECTED
+
+```sql
+REFUSED SECURITY_REJECTED at rank: the word at tokens[0:1] is the write keyword DELETE; the engine only reads, and no configured phrase in the sentence explains the word
+```
+
+### W03 — PASS
+
+- input: `update customers set country = US`
+- expected meaning: section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021)
+- expected: SECURITY_REJECTED
+
+```sql
+REFUSED SECURITY_REJECTED at rank: the word at tokens[0:1] is the write keyword UPDATE; the engine only reads, and no configured phrase in the sentence explains the word
+```
+
+### W04 — PASS
+
+- input: `insert into customers values (1, 'x')`
+- expected meaning: section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021)
+- expected: SECURITY_REJECTED
+
+```sql
+REFUSED SECURITY_REJECTED at rank: the word at tokens[0:1] is the write keyword INSERT; the engine only reads, and no configured phrase in the sentence explains the word
+```
+
+### W05 — PASS
+
+- input: `alter table customers add column password`
+- expected meaning: section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021)
+- expected: SECURITY_REJECTED
+
+```sql
+REFUSED SECURITY_REJECTED at rank: the word at tokens[0:1] is the write keyword ALTER; the engine only reads, and no configured phrase in the sentence explains the word
+```
+
+### W06 — PASS
+
+- input: `truncate orders`
+- expected meaning: section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021)
+- expected: SECURITY_REJECTED
+
+```sql
+REFUSED SECURITY_REJECTED at rank: the word at tokens[0:1] is the write keyword TRUNCATE; the engine only reads, and no configured phrase in the sentence explains the word
+```
+
+### W07 — PASS
+
+- input: `create a new customer from India`
+- expected meaning: section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021)
+- expected: SECURITY_REJECTED
+
+```sql
+REFUSED SECURITY_REJECTED at rank: the word at tokens[0:1] is the write keyword CREATE; the engine only reads, and no configured phrase in the sentence explains the word
+```
+
+### W08 — PASS
+
+- input: `grant access to customers`
+- expected meaning: section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021)
+- expected: SECURITY_REJECTED
+
+```sql
+REFUSED SECURITY_REJECTED at rank: the word at tokens[0:1] is the write keyword GRANT; the engine only reads, and no configured phrase in the sentence explains the word
+```
+
+### W09 — PASS
+
+- input: `revoke access to orders`
+- expected meaning: section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021)
+- expected: SECURITY_REJECTED
+
+```sql
+REFUSED SECURITY_REJECTED at rank: the word at tokens[0:1] is the write keyword REVOKE; the engine only reads, and no configured phrase in the sentence explains the word
+```
+
+### W10 — PASS
+
+- input: `copy customers to a file`
+- expected meaning: section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021)
+- expected: SECURITY_REJECTED
+
+```sql
+REFUSED SECURITY_REJECTED at rank: the word at tokens[0:1] is the write keyword COPY; the engine only reads, and no configured phrase in the sentence explains the word
+```
+
+### W11 — PASS
+
+- input: `call the refund procedure for orders`
+- expected meaning: section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021)
+- expected: SECURITY_REJECTED
+
+```sql
+REFUSED SECURITY_REJECTED at rank: the word at tokens[0:1] is the write keyword CALL; the engine only reads, and no configured phrase in the sentence explains the word
+```
+
+### W12 — PASS
+
+- input: `merge customers from India into orders`
+- expected meaning: section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021)
+- expected: SECURITY_REJECTED
+
+```sql
+REFUSED SECURITY_REJECTED at rank: the word at tokens[0:1] is the write keyword MERGE; the engine only reads, and no configured phrase in the sentence explains the word
+```
+
+### W13 — PASS
+
+- input: `DELETES all orders`
+- expected meaning: section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021); the plural and the capitals fold to the keyword
+- expected: SECURITY_REJECTED
+
+```sql
+REFUSED SECURITY_REJECTED at rank: the word at tokens[0:1] is the write keyword DELETE; the engine only reads, and no configured phrase in the sentence explains the word
+```
+
+### W14 — PASS
+
+- input: `remove all customers from India`
+- expected meaning: a natural-language write verb that is not an SQL keyword: outside the keyword list, refused as an unexplained word (decision 016), as before Phase 8
+- expected: UNSUPPORTED_QUERY
+
+```sql
+REFUSED UNSUPPORTED_QUERY at bind: UNSUPPORTED_QUERY: the phrase at tokens[0:1] is a word nothing in the config explains; binding refuses rather than ignore it
+```
+
+### W15 — PASS
+
+- input: `customers created in 2024`
+- expected meaning: an INFLECTED form ('created') is read vocabulary, not the keyword CREATE: customers whose created_at is in 2024
+- expected: sql; shape contains `FROM "customers" AS "t0"`, `"t0"."created_at" >= $1`, `"t0"."created_at" < $2`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE ("t0"."created_at" >= $1 AND "t0"."created_at" < $2);
+
+params:
+1 = 2024-01-01T00:00:00Z (time)
+2 = 2025-01-01T00:00:00Z (time)
+```
+
+### W16 — PASS
+
+- input: `customers from India; drop table customers`
+- expected meaning: section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021); the keyword follows a read that would compile on its own. Since the Phase 8 gate (decision 022 §3) a request is one query: statement and comment syntax refuses it at the input boundary, before the read-only rule is reached
+- expected: SECURITY_REJECTED
+
+```sql
+REFUSED SECURITY_REJECTED at input: the request contains SQL statement syntax: a statement separator (;) at character 20 of the normalised request. A request is one query; statement separators and comment markers are refused, never read around
+```
+
+### I01 — PASS
+
+- input: `SELECT * FROM users; DROP TABLE users;`
+- expected meaning: section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021); refused as a write, not as 'matches nothing'. Since the Phase 8 gate (decision 022 §3) a request is one query: statement and comment syntax refuses it at the input boundary, before the read-only rule is reached
+- expected: SECURITY_REJECTED
+
+```sql
+REFUSED SECURITY_REJECTED at input: the request contains SQL statement syntax: a statement separator (;) at character 19 of the normalised request. A request is one query; statement separators and comment markers are refused, never read around
+```
+
+### I02 — PASS
+
+- input: `' OR 1=1 --`
+- expected meaning: no entity, field or value: an explicit refusal. Since the Phase 8 gate (decision 022 §3) a request is one query: statement and comment syntax refuses it at the input boundary
+- expected: REFUSED
+
+```sql
+REFUSED SECURITY_REJECTED at input: the request contains SQL statement syntax: a line-comment marker (--) at character 9 of the normalised request. A request is one query; statement separators and comment markers are refused, never read around
+```
+
+### I03 — PASS
+
+- input: `UNION SELECT password FROM users`
+- expected meaning: SQL keywords and an unconfigured column: an explicit refusal
+- expected: REFUSED
+
+```sql
+REFUSED NO_SEMANTIC_MATCH at rank: NO_SEMANTIC_MATCH: no phrase in the sentence matched a configured target with enough confidence to accept
+```
+
+### I04 — PASS
+
+- input: `customers named Robert'); DROP TABLE customers;--`
+- expected meaning: section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021) (DROP). Phase 7's Z05 hoped for a literal parameter; the explicit read-only rule refuses first. Since the Phase 8 gate (decision 022 §3) a request is one query: statement and comment syntax refuses it at the input boundary, before the read-only rule is reached
+- expected: SECURITY_REJECTED
+
+```sql
+REFUSED SECURITY_REJECTED at input: the request contains SQL statement syntax: a statement separator (;) at character 24 of the normalised request. A request is one query; statement separators and comment markers are refused, never read around
+```
+
+### I05 — PASS
+
+- input: `customers where name = 'x' OR 1=1`
+- expected meaning: a comparison written as SQL: an explicit refusal
+- expected: REFUSED
+
+```sql
+REFUSED UNSUPPORTED_QUERY at bind: UNSUPPORTED_QUERY: the phrase at tokens[8:9] is a number with no role in the reading
+```
+
+### I06 — PASS
+
+- input: `customers from India' OR '1'='1`
+- expected meaning: a tautology appended to a valid read: an explicit refusal, never OR 1=1 in SQL
+- expected: REFUSED
+
+```sql
+REFUSED UNSUPPORTED_QUERY at bind: UNSUPPORTED_QUERY: the phrase at tokens[6:7] is a number with no role in the reading
+```
+
+### I07 — PASS
+
+- input: `customers from India; select * from orders`
+- expected meaning: a second query appended: an explicit refusal. Since the Phase 8 gate (decision 022 §3) a request is one query: statement and comment syntax refuses it at the input boundary
+- expected: SECURITY_REJECTED
+
+```sql
+REFUSED SECURITY_REJECTED at input: the request contains SQL statement syntax: a statement separator (;) at character 20 of the normalised request. A request is one query; statement separators and comment markers are refused, never read around
+```
+
+### I08 — PASS
+
+- input: `customers/**/from/**/India`
+- expected meaning: comment markers in the request. EXPECTATION CHANGED at the Phase 8 gate (decision 022 §3); was: the plain read with country = $1 (the markers were punctuation). Since the Phase 8 gate (decision 022 §3) a request is one query: statement and comment syntax refuses it at the input boundary
+- expected: SECURITY_REJECTED
+
+```sql
+REFUSED SECURITY_REJECTED at input: the request contains SQL statement syntax: a block-comment opener (/*) at character 9 of the normalised request. A request is one query; statement separators and comment markers are refused, never read around
+```
+
+### I09 — PASS
+
+- input: `customers named Smith; --`
+- expected meaning: a terminator and a comment after a value. EXPECTATION CHANGED at the Phase 8 gate (decision 022 §3); was: name = $1 with Smith. Since the Phase 8 gate (decision 022 §3) a request is one query: statement and comment syntax refuses it at the input boundary
+- expected: SECURITY_REJECTED
+
+```sql
+REFUSED SECURITY_REJECTED at input: the request contains SQL statement syntax: a statement separator (;) at character 21 of the normalised request. A request is one query; statement separators and comment markers are refused, never read around
+```
+
+### I10 — PASS
+
+- input: `customers named O'Brien`
+- expected meaning: a quote in a value is data: ONE parameter, never a quote in the SQL text. EXPECTATION CORRECTED after the first run: it was written as REFUSED on a wrong guess that Phase 3 splits the apostrophe; the engine produced the designed outcome (phase-8-results.md)
+- expected: sql; shape contains `"t0"."name" = $1`; never `O'Brien`, `'B`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."name" = $1;
+
+params:
+1 = "O'Brien" (string)
+```
+
+### N01 — PASS
+
+- input: `customers.password`
+- expected meaning: a column the config does not have: refused, never emitted
+- expected: REFUSED
+
+```sql
+REFUSED UNSUPPORTED_QUERY at bind: UNSUPPORTED_QUERY: the phrase at tokens[2:3] is a word nothing in the config explains; binding refuses rather than ignore it
+```
+
+### N02 — PASS
+
+- input: `show the password of every customer`
+- expected meaning: 'password' is unexplained: refused
+- expected: UNSUPPORTED_QUERY
+
+```sql
+REFUSED UNSUPPORTED_QUERY at bind: UNSUPPORTED_QUERY: the phrase at tokens[2:3] is a word nothing in the config explains; binding refuses rather than ignore it
+```
+
+### N03 — PASS
+
+- input: `show pg_catalog tables`
+- expected meaning: a system catalogue: refused
+- expected: REFUSED
+
+```sql
+REFUSED NO_SEMANTIC_MATCH at rank: NO_SEMANTIC_MATCH: no phrase in the sentence matched a configured target with enough confidence to accept
+```
+
+### N04 — PASS
+
+- input: `unknown_field`
+- expected meaning: the brief's 'unknown_field'
+- expected: REFUSED
+
+```sql
+REFUSED NO_SEMANTIC_MATCH at rank: NO_SEMANTIC_MATCH: no phrase in the sentence matched a configured target with enough confidence to accept
+```
+
+### N05 — PASS
+
+- input: `unknown_operator`
+- expected meaning: the brief's 'unknown_operator'
+- expected: REFUSED
+
+```sql
+REFUSED NO_SEMANTIC_MATCH at rank: NO_SEMANTIC_MATCH: no phrase in the sentence matched a configured target with enough confidence to accept
+```
+
+### N06 — PASS
+
+- input: `customers with shoe size above 10`
+- expected meaning: an attribute the config does not have: refused, never guessed
+- expected: REFUSED
+
+```sql
+REFUSED AMBIGUOUS_MATCH at rank: AMBIGUOUS_MATCH: the phrase at tokens[0:1] matches multiple configured targets with insufficient confidence separation: entity:customer, field:customer.total_spent (margin 0.089 < 0.100)
+```
+
+### L01 — PASS
+
+- input: `customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers customers `
+- expected meaning: 600 characters, over maxInputLength 512: refused, never truncated
+- expected: INVALID_INPUT
+
+```sql
+REFUSED INVALID_INPUT at input: the request is 600 characters, over the limit of 512
+```
+
+### L02 — PASS
+
+- input: `x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x `
+- expected meaning: 140 characters but 70 words: 274 candidate spans, over maxPhrases 256, refused before retrieval (decision 021)
+- expected: INVALID_INPUT
+
+```sql
+REFUSED INVALID_INPUT at extract: input produced 274 candidate spans, over the limit of 256
+```
+
+### L03 — PASS
+
+- input: `customers with country India and country India and country India and country India and country India and country India and country India and country India and country India and country India and country India and country India and country India and country India`
+- expected meaning: the brief's 'very deep conditions': 14 conditions, over commerce's maxFilters 12
+- expected: SECURITY_REJECTED
+
+```sql
+REFUSED SECURITY_REJECTED at bind: the sentence binds 14 conditions, over the configured limit of 12
+```
+
+### U01 — PASS
+
+- input: `custоmers from India`
+- expected meaning: a Cyrillic o inside 'customers': not the configured word; refused, never read as it
+- expected: REFUSED
+
+```sql
+REFUSED UNSUPPORTED_QUERY at bind: UNSUPPORTED_QUERY: the phrase at tokens[0:1] is a word nothing in the config explains; binding refuses rather than ignore it
+```
+
+### U02 — PASS
+
+- input: `customers from Indiа`
+- expected meaning: a Cyrillic a inside the VALUE 'India': a value needs literal evidence (019 section 1), so it is refused, never bound
+- expected: REFUSED
+
+```sql
+REFUSED UNSUPPORTED_QUERY at bind: UNSUPPORTED_QUERY: the phrase at tokens[2:3] is a word nothing in the config explains; binding refuses rather than ignore it
+```
+
+### U03 — PASS
+
+- input: `customers\u200b from India`
+- expected meaning: a zero-width space carries nothing: the plain read
+- expected: sql; shape contains `"t0"."country" = $1`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."country" = $1;
+
+params:
+1 = "IN" (string)
+```
+
+### U04 — PASS
+
+- input: `\u202ecustomers from India`
+- expected meaning: a right-to-left override is display-only: the plain read
+- expected: sql; shape contains `"t0"."country" = $1`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."country" = $1;
+
+params:
+1 = "IN" (string)
+```
+
+### U05 — PASS
+
+- input: `ｃｕｓｔｏｍｅｒｓ from India`
+- expected meaning: fullwidth letters are not folded by Phase 3: not the configured word, an explicit refusal
+- expected: REFUSED
+
+```sql
+REFUSED UNSUPPORTED_QUERY at bind: UNSUPPORTED_QUERY: the phrase at tokens[0:1] is a word nothing in the config explains; binding refuses rather than ignore it
+```
+
+### U06 — PASS
+
+- input: `customers from India\u0000 DROP TABLE customers`
+- expected meaning: section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021); a NUL byte does not hide the keyword
+- expected: SECURITY_REJECTED
+
+```sql
+REFUSED SECURITY_REJECTED at rank: the word at tokens[3:4] is the write keyword DROP; the engine only reads, and no configured phrase in the sentence explains the word
+```
+
+### U07 — PASS
+
+- input: `😀 customers from India 😀`
+- expected meaning: emoji are symbols, not words: the plain read
+- expected: sql; shape contains `"t0"."country" = $1`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."country" = $1;
+
+params:
+1 = "IN" (string)
+```
+
+### V01 — PASS
+
+- input: `customers who spent more than 1e309`
+- expected meaning: exponent notation is not a form the engine reads exactly (decision 022 §2): refused. Before the gate float parsing dropped this token (out of float range) and the operator was refused for having no value
+- expected: REFUSED
+
+```sql
+REFUSED VALUE_RESOLUTION_FAILED at bind: the number at tokens[5:6] is not written in a form the engine reads exactly (digits, optional en-US thousands grouping, one decimal point, then optionally a k, m, bn or t magnitude or a currency code; or number words whose scale words descend, as in two million three thousand); it is refused rather than approximated
+```
+
+### V02 — PASS
+
+- input: `customers who spent more than 99999999999999999999999`
+- expected meaning: a 23-digit number is carried EXACTLY from the sentence to the parameter (decision 022 §2). EXPECTATION CHANGED at the Phase 8 gate; was VALUE_RESOLUTION_FAILED (the principled outcome while numbers were float64)
+- expected: sql; shape contains `"t0"."total_spent" > $1`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."total_spent" > $1;
+
+params:
+1 = 99999999999999999999999 (number)
+```
+
+### V03 — PASS
+
+- input: `orders placed on 2024-13-45`
+- expected meaning: an impossible date: refused, never normalised to another day
+- expected: REFUSED
+
+```sql
+REFUSED AMBIGUOUS_MATCH at rank: AMBIGUOUS_MATCH: the phrase at tokens[1:2] matches multiple configured targets with insufficient confidence separation: relationship:customer_orders, field:order.placed_at (margin 0.019 < 0.100)
+```
+
+### V04 — PASS
+
+- input: `customers named 50%_off`
+- expected meaning: LIKE metacharacters and a percent in a value: a refusal (a percent is refused until unit metadata exists, 017 section 1), never a pattern in the SQL text
+- expected: REFUSED
+
+```sql
+REFUSED UNSUPPORTED_QUERY at bind: UNSUPPORTED_QUERY: the phrase at tokens[2:4] is a number, but customer.name is a string field
+```
+
+### P01 — PASS
+
+- input: `show customers by update date`
+- expected meaning: section 16.1: an SQL write keyword no configured phrase explains refuses the request as a write (decision 021); decision 021's ranking rule would refuse it too
+- expected: SECURITY_REJECTED
+
+```sql
+REFUSED SECURITY_REJECTED at rank: the word at tokens[3:4] is the write keyword UPDATE; the engine only reads, and no configured phrase in the sentence explains the word
+```
+
+### P02 — PASS
+
+- input: `show customers by modification date`
+- expected meaning: a generic configured word ('date', part of several fields' phrases) qualified by a word no reading configures names a target the config does not have: refused (decision 021)
+- expected: AMBIGUOUS_MATCH
+
+```sql
+REFUSED AMBIGUOUS_MATCH at rank: AMBIGUOUS_MATCH: the phrase at tokens[4:5] is part of the configured phrases of several targets, and nothing in the sentence distinguishes them: field:customer.created_at, field:order.placed_at (use a configured phrase of one, or configure this phrase)
+```
+
+### P03 — PASS
+
+- input: `orders by shipping date`
+- expected meaning: a generic configured word ('date', part of several fields' phrases) qualified by a word no reading configures names a target the config does not have: refused (decision 021); 'orders' spells out 'order date', but no evidence elsewhere makes 'shipping date' a configured phrase
+- expected: REFUSED
+
+```sql
+REFUSED AMBIGUOUS_MATCH at rank: AMBIGUOUS_MATCH: the phrase at tokens[2:3] matches multiple configured targets with insufficient confidence separation: entity:order, entity:customer, relationship:customer_orders, field:order.amount, field:order.placed_at (margin 0.068 < 0.100)
+```
+
+### P04 — PASS
+
+- input: `show order shipping date`
+- expected meaning: a generic configured word ('date', part of several fields' phrases) qualified by a word no reading configures names a target the config does not have: refused (decision 021)
+- expected: REFUSED
+
+```sql
+REFUSED AMBIGUOUS_MATCH at rank: AMBIGUOUS_MATCH: the phrase at tokens[2:3] matches multiple configured targets with insufficient confidence separation: entity:order, entity:customer, relationship:customer_orders, field:order.amount, field:order.placed_at (margin 0.068 < 0.100)
+```
+
+### P05 — PASS
+
+- input: `customers by signup date`
+- expected meaning: a generic configured word ('date', part of several fields' phrases) qualified by a word no reading configures names a target the config does not have: refused (decision 021). The COST of the rule: 'signup date' plausibly means created_at, but 'signup' is configured nowhere, and similarity is not evidence (019 section 5)
+- expected: AMBIGUOUS_MATCH
+
+```sql
+REFUSED AMBIGUOUS_MATCH at rank: AMBIGUOUS_MATCH: the phrase at tokens[3:4] is part of the configured phrases of several targets, and nothing in the sentence distinguishes them: field:customer.created_at, field:order.placed_at (use a configured phrase of one, or configure this phrase)
+```
+
+### P06 — PASS
+
+- input: `customers by joined date`
+- expected meaning: control: 'joined date' is created_at's configured synonym
+- expected: sql; shape contains `SELECT "t0"."created_at"`
+
+```sql
+SELECT "t0"."created_at"
+FROM "customers" AS "t0";
+```
+
+### P07 — PASS
+
+- input: `orders by date`
+- expected meaning: control (X12): 'order date' is spelled out
+- expected: sql; shape contains `SELECT "t0"."placed_at"`
+
+```sql
+SELECT "t0"."placed_at"
+FROM "orders" AS "t0";
+```
+
+### P08 — PASS
+
+- input: `money spent`
+- expected meaning: control: the brief's pure paraphrase; 'spent' has one home
+- expected: sql; shape contains `SELECT "t0"."total_spent"`
+
+```sql
+SELECT "t0"."total_spent"
+FROM "customers" AS "t0";
+```
+
+### P09 — PASS
+
+- input: `customers registered last year`
+- expected meaning: control: 'registered' shares no word with a configured phrase; semantic linking, untouched
+- expected: sql; shape contains `"t0"."created_at" >= $1`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE ("t0"."created_at" >= $1 AND "t0"."created_at" < $2);
+
+params:
+1 = 2025-01-01T00:00:00Z (time)
+2 = 2026-01-01T00:00:00Z (time)
+```
+
+### P10 — PASS
+
+- input: `show product discount price`
+- expected meaning: an unconfigured word ('discount') qualifies a configured phrase of product.price: the config has no target for the whole phrase, so it is refused (decision 022 §1)
+- expected: UNSUPPORTED_QUERY
+
+```sql
+REFUSED UNSUPPORTED_QUERY at bind: the word at tokens[2:3] qualifies the phrase at tokens[2:4], which reads as field:product.price by one of its configured names, but the phrase as a whole is none of field:product.price's configured names, synonyms or phrases, and the word has no other role in the reading: the config has no target for the whole phrase, and reading it as field:product.price would discard the word
+```
+
+### P11 — PASS
+
+- input: `show product list price`
+- expected meaning: 'list' is a request verb in noun position, qualifying 'price'; no configured phrase contains it, so it is refused (decision 022 §1)
+- expected: UNSUPPORTED_QUERY
+
+```sql
+REFUSED UNSUPPORTED_QUERY at bind: the word at tokens[2:3] is a request verb inside the sentence, not the one that opens the request: there it qualifies what follows it or starts a second request, no configured phrase in the reading contains it, and it would be discarded
+```
+
+### G01 — PASS
+
+- input: `show discount price`
+- expected meaning: §1: a meaningful qualifier in a candidate phrase cannot be silently discarded (decision 022); P10 without the entity
+- expected: UNSUPPORTED_QUERY
+
+```sql
+REFUSED UNSUPPORTED_QUERY at bind: the word at tokens[1:2] qualifies the phrase at tokens[1:3], which reads as field:product.price by one of its configured names, but the phrase as a whole is none of field:product.price's configured names, synonyms or phrases, and the word has no other role in the reading: the config has no target for the whole phrase, and reading it as field:product.price would discard the word
+```
+
+### G02 — PASS
+
+- input: `show products with discount price above 100`
+- expected meaning: §1: a meaningful qualifier in a candidate phrase cannot be silently discarded (decision 022); the qualified phrase in a condition
+- expected: UNSUPPORTED_QUERY
+
+```sql
+REFUSED UNSUPPORTED_QUERY at bind: the word at tokens[3:4] qualifies the phrase at tokens[3:5], which reads as field:product.price by one of its configured names, but the phrase as a whole is none of field:product.price's configured names, synonyms or phrases, and the word has no other role in the reading: the config has no target for the whole phrase, and reading it as field:product.price would discard the word
+```
+
+### G03 — PASS
+
+- input: `products with list price below 50`
+- expected meaning: §1: a meaningful qualifier in a candidate phrase cannot be silently discarded (decision 022); a request verb in noun position, in a condition
+- expected: UNSUPPORTED_QUERY
+
+```sql
+REFUSED UNSUPPORTED_QUERY at bind: the word at tokens[2:3] is a request verb inside the sentence, not the one that opens the request: there it qualifies what follows it or starts a second request, no configured phrase in the reading contains it, and it would be discarded
+```
+
+### G04 — PASS
+
+- input: `show product cost price`
+- expected meaning: §1: a meaningful qualifier in a candidate phrase cannot be silently discarded (decision 022); 'cost' and 'price' are two different configured surfaces of product.price, and the config names no 'cost price'
+- expected: UNSUPPORTED_QUERY
+
+```sql
+REFUSED UNSUPPORTED_QUERY at bind: the word at tokens[2:3] qualifies the phrase at tokens[2:4], which reads as field:product.price by one of its configured names, but the phrase as a whole is none of field:product.price's configured names, synonyms or phrases, and the word has no other role in the reading: the config has no target for the whole phrase, and reading it as field:product.price would discard the word
+```
+
+### G05 — PASS
+
+- input: `orders by return date`
+- expected meaning: §1: a meaningful qualifier in a candidate phrase cannot be silently discarded (decision 022); a request verb qualifying 'date', which no configured phrase contains
+- expected: UNSUPPORTED_QUERY
+
+```sql
+REFUSED UNSUPPORTED_QUERY at bind: the word at tokens[2:3] is a request verb inside the sentence, not the one that opens the request: there it qualifies what follows it or starts a second request, no configured phrase in the reading contains it, and it would be discarded
+```
+
+### G06 — PASS
+
+- input: `show product display name`
+- expected meaning: §1: a meaningful qualifier in a candidate phrase cannot be silently discarded (decision 022); a request verb qualifying 'name'
+- expected: UNSUPPORTED_QUERY
+
+```sql
+REFUSED UNSUPPORTED_QUERY at bind: the word at tokens[2:3] is a request verb inside the sentence, not the one that opens the request: there it qualifies what follows it or starts a second request, no configured phrase in the reading contains it, and it would be discarded
+```
+
+### G07 — PASS
+
+- input: `customers who return orders`
+- expected meaning: §1: a meaningful qualifier in a candidate phrase cannot be silently discarded (decision 022); a request verb as a second verb: before the gate it vanished and the query was customers WITH orders
+- expected: UNSUPPORTED_QUERY
+
+```sql
+REFUSED UNSUPPORTED_QUERY at bind: the word at tokens[2:3] is a request verb inside the sentence, not the one that opens the request: there it qualifies what follows it or starts a second request, no configured phrase in the reading contains it, and it would be discarded
+```
+
+### G08 — PASS
+
+- input: `show price discount`
+- expected meaning: §1: a meaningful qualifier in a candidate phrase cannot be silently discarded (decision 022); the qualifier after the head
+- expected: UNSUPPORTED_QUERY
+
+```sql
+REFUSED UNSUPPORTED_QUERY at bind: the word at tokens[2:3] qualifies the phrase at tokens[1:3], which reads as field:product.price by one of its configured names, but the phrase as a whole is none of field:product.price's configured names, synonyms or phrases, and the word has no other role in the reading: the config has no target for the whole phrase, and reading it as field:product.price would discard the word
+```
+
+### G09 — PASS
+
+- input: `show product unit price`
+- expected meaning: control: 'unit price' is product.price's configured synonym and 'product' names its entity
+- expected: sql; shape contains `SELECT "t0"."price"`, `FROM "products" AS "t0"`
+
+```sql
+SELECT "t0"."price"
+FROM "products" AS "t0";
+```
+
+### G10 — PASS
+
+- input: `show product price`
+- expected meaning: control: the configured synonym itself
+- expected: sql; shape contains `SELECT "t0"."price"`, `FROM "products" AS "t0"`
+
+```sql
+SELECT "t0"."price"
+FROM "products" AS "t0";
+```
+
+### G11 — PASS
+
+- input: `show customer amount spent`
+- expected meaning: control: 'amount spent' is configured and 'customer' names the owning entity
+- expected: sql; shape contains `"t0"."total_spent"`, `FROM "customers" AS "t0"`
+
+```sql
+SELECT "t0"."total_spent"
+FROM "customers" AS "t0";
+```
+
+### G12 — PASS
+
+- input: `customers with money spent over 100`
+- expected meaning: control: paraphrase with no complete configured surface is semantic linking, untouched
+- expected: sql; shape contains `"t0"."total_spent" > $1`
+
+```sql
+SELECT "t0"."total_spent"
+FROM "customers" AS "t0"
+WHERE "t0"."total_spent" > $1;
+
+params:
+1 = 100 (number)
+```
+
+### G13 — PASS
+
+- input: `list customers from India`
+- expected meaning: control: the request verb that opens the request
+- expected: sql; shape contains `"t0"."country" = $1`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."country" = $1;
+
+params:
+1 = "IN" (string)
+```
+
+### G14 — PASS
+
+- input: `give me a list of customers from India`
+- expected meaning: control: 'a list of' is a framing noun (the verb is followed by a function word)
+- expected: sql; shape contains `"t0"."country" = $1`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."country" = $1;
+
+params:
+1 = "IN" (string)
+```
+
+### G15 — PASS
+
+- input: `show average price`
+- expected meaning: control: 'average' has its own reading (avg), so it is not discarded
+- expected: sql; shape contains `AVG("t0"."price")`
+
+```sql
+SELECT AVG("t0"."price")
+FROM "products" AS "t0";
+```
+
+### G16 — PASS
+
+- input: `customers who spent more than -5`
+- expected meaning: §2: a number is carried exactly or refused, never rounded, re-signed or dropped (decision 022); before the gate the sign was punctuation and the value 5
+- expected: sql; shape contains `"t0"."total_spent" > $1`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."total_spent" > $1;
+
+params:
+1 = -5 (number)
+```
+
+### G17 — PASS
+
+- input: `customers who spent more than .5`
+- expected meaning: §2: a number is carried exactly or refused, never rounded, re-signed or dropped (decision 022); before the gate the value was 5
+- expected: sql; shape contains `"t0"."total_spent" > $1`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."total_spent" > $1;
+
+params:
+1 = 0.5 (number)
+```
+
+### G18 — PASS
+
+- input: `customers who spent more than 0.1234567890123456789`
+- expected meaning: §2: a number is carried exactly or refused, never rounded, re-signed or dropped (decision 022); every digit reaches the parameter
+- expected: sql; shape contains `"t0"."total_spent" > $1`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."total_spent" > $1;
+
+params:
+1 = 0.1234567890123456789 (number)
+```
+
+### G19 — PASS
+
+- input: `customers who spent more than 4.35k`
+- expected meaning: §2: a number is carried exactly or refused, never rounded, re-signed or dropped (decision 022); a suffix moves the decimal point (4.35 x 1000 is 4349.999... in float64)
+- expected: sql; shape contains `"t0"."total_spent" > $1`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."total_spent" > $1;
+
+params:
+1 = 4350 (number)
+```
+
+### G20 — PASS
+
+- input: `customers who spent more than 1,5`
+- expected meaning: §2: a number is carried exactly or refused, never rounded, re-signed or dropped (decision 022); European grouping is not read (before the gate: 15)
+- expected: VALUE_RESOLUTION_FAILED
+
+```sql
+REFUSED VALUE_RESOLUTION_FAILED at bind: the number at tokens[5:6] is not written in a form the engine reads exactly (digits, optional en-US thousands grouping, one decimal point, then optionally a k, m, bn or t magnitude or a currency code; or number words whose scale words descend, as in two million three thousand); it is refused rather than approximated
+```
+
+### G21 — PASS
+
+- input: `customers who spent more than 12x`
+- expected meaning: §2: a number is carried exactly or refused, never rounded, re-signed or dropped (decision 022); an unknown tag is not read (before the gate: 12)
+- expected: VALUE_RESOLUTION_FAILED
+
+```sql
+REFUSED VALUE_RESOLUTION_FAILED at bind: the number at tokens[5:6] is not written in a form the engine reads exactly (digits, optional en-US thousands grouping, one decimal point, then optionally a k, m, bn or t magnitude or a currency code; or number words whose scale words descend, as in two million three thousand); it is refused rather than approximated
+```
+
+### G22 — PASS
+
+- input: `customers who spent more than one billion billion`
+- expected meaning: §2: a number is carried exactly or refused, never rounded, re-signed or dropped (decision 022); a repeated scale word ends the number and is then an unexplained word (before the gate: 2000000000)
+- expected: REFUSED
+
+```sql
+REFUSED VALUE_RESOLUTION_FAILED at bind: the number at tokens[5:8] is not written in a form the engine reads exactly (digits, optional en-US thousands grouping, one decimal point, then optionally a k, m, bn or t magnitude or a currency code; or number words whose scale words descend, as in two million three thousand); it is refused rather than approximated
+```
+
+### G23 — PASS
+
+- input: `top 9007199254740993 customers by total spent`
+- expected meaning: §2: a number is carried exactly or refused, never rounded, re-signed or dropped (decision 022); 2^53 + 1 is the LIMIT exactly (before the gate: 9007199254740992)
+- expected: sql; shape contains `LIMIT 9007199254740993;`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+ORDER BY "t0"."total_spent" DESC NULLS LAST
+LIMIT 9007199254740993;
+```
+
+### G24 — PASS
+
+- input: `customers who ordered more than 99999999999999999999999 times`
+- expected meaning: §2: a number is carried exactly or refused, never rounded, re-signed or dropped (decision 022); a count compared exactly
+- expected: sql
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE (
+    SELECT COUNT(*)
+    FROM "orders" AS "t1"
+    WHERE "t1"."customer_id" = "t0"."id"
+  ) > $1;
+
+params:
+1 = 99999999999999999999999 (number)
+```
+
+### G25 — PASS
+
+- input: `orders in the last 2.5 months`
+- expected meaning: §2: a number is carried exactly or refused, never rounded, re-signed or dropped (decision 022); a window count must be a whole number (before the gate: 2 months)
+- expected: REFUSED
+
+```sql
+REFUSED UNSUPPORTED_QUERY at bind: UNSUPPORTED_QUERY: the phrase at tokens[5:6] is a second query pattern; one sentence may invoke only one
+```
+
+### G26 — PASS
+
+- input: `orders in the last 0 days`
+- expected meaning: §2: a number is carried exactly or refused, never rounded, re-signed or dropped (decision 022); a window count must be at least 1 (before the gate: 1 day)
+- expected: REFUSED
+
+```sql
+REFUSED VALUE_RESOLUTION_FAILED at bind: VALUE_RESOLUTION_FAILED: the phrase at tokens[1:4] restricts to a time window, but no period is given and the config defines none
+```
+
+### G27 — PASS
+
+- input: `customers from India;`
+- expected meaning: §3: a request is one query; statement and comment syntax is refused at the input boundary (decision 022); a lone trailing separator
+- expected: SECURITY_REJECTED
+
+```sql
+REFUSED SECURITY_REJECTED at input: the request contains SQL statement syntax: a statement separator (;) at character 20 of the normalised request. A request is one query; statement separators and comment markers are refused, never read around
+```
+
+### G28 — PASS
+
+- input: `customers from India -- and status active`
+- expected meaning: §3: a request is one query; statement and comment syntax is refused at the input boundary (decision 022); a line comment
+- expected: SECURITY_REJECTED
+
+```sql
+REFUSED SECURITY_REJECTED at input: the request contains SQL statement syntax: a line-comment marker (--) at character 21 of the normalised request. A request is one query; statement separators and comment markers are refused, never read around
+```
+
+### G29 — PASS
+
+- input: `customers from India */`
+- expected meaning: §3: a request is one query; statement and comment syntax is refused at the input boundary (decision 022); a block-comment closer alone
+- expected: SECURITY_REJECTED
+
+```sql
+REFUSED SECURITY_REJECTED at input: the request contains SQL statement syntax: a block-comment closer (*/) at character 21 of the normalised request. A request is one query; statement separators and comment markers are refused, never read around
+```
+
+### G30 — PASS
+
+- input: `customers from India； select * from orders`
+- expected meaning: §3: a request is one query; statement and comment syntax is refused at the input boundary (decision 022); a FULLWIDTH SEMICOLON (NFKC ';')
+- expected: SECURITY_REJECTED
+
+```sql
+REFUSED SECURITY_REJECTED at input: the request contains SQL statement syntax: a statement separator (;) at character 20 of the normalised request. A request is one query; statement separators and comment markers are refused, never read around
+```
+
+### G31 — PASS
+
+- input: `customers from India -\u200b- orders`
+- expected meaning: §3: a request is one query; statement and comment syntax is refused at the input boundary (decision 022); a zero-width space inside '--'
+- expected: SECURITY_REJECTED
+
+```sql
+REFUSED SECURITY_REJECTED at input: the request contains SQL statement syntax: a line-comment marker (--) at character 21 of the normalised request. A request is one query; statement separators and comment markers are refused, never read around
+```
+
+### G32 — PASS
+
+- input: `top-5 customers by total spent`
+- expected meaning: control: a hyphen glued to a word is neither a sign nor a comment marker
+- expected: sql; shape contains `LIMIT 5;`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+ORDER BY "t0"."total_spent" DESC NULLS LAST
+LIMIT 5;
+```
+
+### G33 — PASS
+
+- input: `products with price and discount above 10`
+- expected meaning: decision 022 §5: the sentence names product.price by its own configured word, so an independent span may not resolve to it by similarity alone; here across a connective
+- expected: UNSUPPORTED_QUERY
+
+```sql
+REFUSED UNSUPPORTED_QUERY at bind: the phrase at tokens[4:5] resolves to field:product.price by similarity alone, and the sentence already names field:product.price at tokens[2:3] by one of its configured names, synonyms or phrases: an independent phrase may not resolve to a target the sentence already names, because its own words then say nothing the reading keeps
+```
+
+### G34 — PASS
+
+- input: `price of discount`
+- expected meaning: decision 022 §5: the sentence names product.price by its own configured word, so an independent span may not resolve to it by similarity alone; here across a function word
+- expected: UNSUPPORTED_QUERY
+
+```sql
+REFUSED UNSUPPORTED_QUERY at bind: the phrase at tokens[2:3] resolves to field:product.price by similarity alone, and the sentence already names field:product.price at tokens[0:1] by one of its configured names, synonyms or phrases: an independent phrase may not resolve to a target the sentence already names, because its own words then say nothing the reading keeps
+```
+
+### G35 — PASS
+
+- input: `customers with amount spent over 100 and total spent below 50`
+- expected meaning: control for decision 022 §5: both phrases hold "spent", a configured word of total_spent, so neither rests on similarity alone
+- expected: sql; shape contains `"t0"."total_spent" > $1`, `"t0"."total_spent" < $2`
+
+```sql
+SELECT "t0"."name", "t0"."country", "t0"."status", "t0"."total_spent", "t0"."created_at"
+FROM "customers" AS "t0"
+WHERE "t0"."total_spent" > $1
+  AND "t0"."total_spent" < $2;
+
+params:
+1 = 100 (number)
+2 = 50 (number)
+```
+
+### G36 — PASS
+
+- input: `list price of products`
+- expected meaning: decision 022 §6: commerce configures no phrase holding "list", so the opening request verb is the request and the sentence reads as the command "list the price of products". With a config that has a "list price" field, the same sentence reads that field instead (tested in internal/binding)
+- expected: sql; shape contains `SELECT "t0"."price"`, `FROM "products" AS "t0"`
+
+```sql
+SELECT "t0"."price"
+FROM "products" AS "t0";
+```

@@ -1,0 +1,9 @@
+{
+  "entities": [
+    { "name": "customer", "table": "customers" }
+  ],
+  "fields": [
+    { "entity": "customer", "name": "name", "type": "string" }
+  ],
+  "security": { "maxJoins": -1, "maxInputLength": -512 }
+}

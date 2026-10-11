@@ -1,0 +1,12 @@
+SELECT "t0"."country", SUM("t1"."amount"), COUNT(*)
+FROM "customers" AS "t0"
+JOIN "orders" AS "t1" ON "t1"."customer_id" = "t0"."id"
+WHERE "t0"."status" <> $1
+GROUP BY "t0"."country"
+HAVING AVG("t1"."amount") >= $2
+ORDER BY SUM("t1"."amount") DESC NULLS LAST
+LIMIT 5;
+
+params:
+1 = "suspended" (string)
+2 = 250.5 (number)

@@ -1,0 +1,18 @@
+{
+  "entities": [
+    { "name": "customer", "table": "customers" },
+    { "name": "order", "table": "orders" }
+  ],
+  "fields": [
+    { "entity": "customer", "name": "id", "type": "number" },
+    { "entity": "order", "name": "customer_ref", "type": "string" }
+  ],
+  "relationships": [
+    {
+      "name": "mismatched_keys",
+      "from": { "entity": "customer", "field": "id" },
+      "to": { "entity": "order", "field": "customer_ref" },
+      "cardinality": "one-to-many"
+    }
+  ]
+}

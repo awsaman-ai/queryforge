@@ -1,0 +1,45 @@
+{
+  "entities": [
+    { "name": "customer", "description": "A person who buys from the store.", "synonyms": ["customer", "client"], "table": "customers" },
+    { "name": "order", "description": "A single purchase.", "synonyms": ["order", "purchase"], "table": "orders" },
+    { "name": "warehouse", "description": "A building where stock is kept.", "synonyms": ["warehouse", "depot"], "table": "warehouses" }
+  ],
+  "fields": [
+    { "entity": "customer", "name": "id", "type": "number", "description": "Unique identifier of the customer.", "selectable": false },
+    { "entity": "customer", "name": "country", "type": "string", "description": "The country where the customer lives.", "synonyms": ["customer country"],
+      "valueAliases": { "Ruritania": "RU_QX", "Graustark": "GR_QX" } },
+    { "entity": "order", "name": "id", "type": "number", "description": "Unique identifier of the order.", "selectable": false },
+    { "entity": "order", "name": "billing_customer_id", "type": "number", "description": "The customer who pays for the order.", "selectable": false, "filterable": false },
+    { "entity": "order", "name": "shipping_customer_id", "type": "number", "description": "The customer the order is delivered to.", "selectable": false, "filterable": false },
+    { "entity": "order", "name": "amount", "type": "number", "description": "Total value of the order.", "synonyms": ["order amount", "order total"] },
+    { "entity": "warehouse", "name": "id", "type": "number", "description": "Unique identifier of the warehouse.", "selectable": false },
+    { "entity": "warehouse", "name": "capacity", "type": "number", "description": "How many units the warehouse holds.", "synonyms": ["warehouse capacity", "storage capacity"] }
+  ],
+  "operators": {
+    "eq": ["equals"],
+    "gt": ["more than", "greater than", "above", "over"],
+    "lt": ["less than", "below", "under"]
+  },
+  "aggregations": {
+    "count": ["how many", "number of"]
+  },
+  "relationships": [
+    {
+      "name": "order_billing_customer",
+      "description": "The customer billed for an order.",
+      "synonyms": ["billed to", "paid by", "billed"],
+      "from": { "entity": "order", "field": "billing_customer_id" },
+      "to": { "entity": "customer", "field": "id" },
+      "cardinality": "many-to-one"
+    },
+    {
+      "name": "order_shipping_customer",
+      "description": "The customer an order is shipped to.",
+      "synonyms": ["shipped to", "delivered to", "shipped"],
+      "from": { "entity": "order", "field": "shipping_customer_id" },
+      "to": { "entity": "customer", "field": "id" },
+      "cardinality": "many-to-one"
+    }
+  ],
+  "security": { "maxJoins": 3 }
+}
