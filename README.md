@@ -300,7 +300,7 @@ Build one without writing JSON: the [config builder](https://queryforge-service.
 <details>
 <summary><b>🔁 Choosing a model, and falling back</b></summary>
 
-A config change, never a code change. The default provider speaks any **OpenAI-compatible `/chat/completions`** endpoint; a second speaks **Anthropic's native Messages API**.
+A config change, never a code change. The default provider speaks any **OpenAI-compatible `/chat/completions`** endpoint; a second speaks **Anthropic's native Messages API**; a third speaks **Amazon Bedrock's Converse API** (see below).
 
 Naming a known provider supplies the endpoint, so the common case is two keys:
 
@@ -308,7 +308,16 @@ Naming a known provider supplies the endpoint, so the common case is two keys:
 "model": { "provider": "groq", "model": "llama-3.3-70b-versatile", "apiKeyEnv": "GROQ_API_KEY" }
 ```
 
-Built-in endpoints: `anthropic`, `cerebras`, `deepseek`, `fireworks`, `gemini`, `google`, `groq`, `lmstudio`, `mistral`, `nvidia`, `ollama`, `openai`, `openrouter`, `perplexity`, `together`, `vllm`, `xai`. `{ "provider": "ollama", "model": "qwen2.5" }` is a complete config on a stock install — no URL, no key.
+Built-in endpoints: `anthropic`, `bedrock` (region-based), `cerebras`, `deepseek`, `fireworks`, `gemini`, `google`, `groq`, `lmstudio`, `mistral`, `nvidia`, `ollama`, `openai`, `openrouter`, `perplexity`, `together`, `vllm`, `xai`. `{ "provider": "ollama", "model": "qwen2.5" }` is a complete config on a stock install — no URL, no key.
+
+**Amazon Bedrock** needs a region and a credential, and you can supply the credential by reference to an environment variable or write it in the config:
+
+```json
+{ "provider": "bedrock", "model": "us.anthropic.claude-sonnet-4-6",
+  "aws": { "region": "us-east-1", "bearerTokenEnv": "AWS_BEARER_TOKEN_BEDROCK" } }
+```
+
+With no `aws` block at all, the standard `AWS_REGION` and `AWS_BEARER_TOKEN_BEDROCK` (or `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` + `AWS_SESSION_TOKEN`) variables are read. A credential written inline (`bearerToken`, `secretAccessKey`, …) works but raises a warning on every translate. QueryForge signs requests itself (SigV4) but does not resolve profiles, SSO, AssumeRole or instance roles; resolve those yourself and pass the temporary credentials in. Details in the [config reference](docs/config.html#bedrock).
 
 This list holds **no model ids**, so a provider shipping a new model needs no QueryForge release. An explicit `baseURL` always overrides a preset, and a provider that is *not* listed is not unsupported — set `baseURL` and it works identically:
 
@@ -316,7 +325,7 @@ This list holds **no model ids**, so a provider shipping a new model needs no Qu
 "model": { "provider": "acme", "baseURL": "https://api.acme.ai/v1", "model": "acme-ultra", "apiKeyEnv": "ACME_API_KEY" }
 ```
 
-The key value never lives in the config — `apiKeyEnv` names the environment variable that holds it. From Java or Python you can supply it at runtime instead, straight from a secret manager:
+Prefer keeping the key out of the config: `apiKeyEnv` names the environment variable that holds it. When that is not possible (a quick local test, a config built in the browser), `"apiKey": "…"` puts the key in the file itself — one or the other, never both. It is a redacted type: it never appears in logs, error messages, `%v` output or re-marshalled JSON, but it does travel with the file, so keep that file out of version control. From Java or Python you can also supply a key at runtime, straight from a secret manager:
 
 ```python
 QueryForge.mysql("orders.config.json", credentials={"QF_API_KEY": vault.get("openai/key")})

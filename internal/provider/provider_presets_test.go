@@ -258,11 +258,20 @@ func TestKnownProvidersIsStableAndSorted(t *testing.T) {
 // model-agnostic and starts needing a release every time a provider ships one.
 func TestPresetsCarryNoModelIds(t *testing.T) {
 	for name, p := range providerPresets {
-		if p.BaseURL == "" {
-			t.Errorf("preset %q has no base URL, which is the only thing it is for", name)
-		}
 		if !config.KnownProtocols[p.Protocol] {
 			t.Errorf("preset %q names protocol %q, which is not implemented", name, p.Protocol)
+		}
+		// The one exception: a regional endpoint is derived from the config's
+		// region at construction, so a static table cannot hold it. It must
+		// still carry no URL at all rather than a half-right one.
+		if p.Protocol == config.ProtocolBedrock {
+			if p.BaseURL != "" {
+				t.Errorf("preset %q has a fixed base URL, but Bedrock endpoints are per-region", name)
+			}
+			continue
+		}
+		if p.BaseURL == "" {
+			t.Errorf("preset %q has no base URL, which is the only thing it is for", name)
 		}
 		if !strings.HasPrefix(p.BaseURL, "http://") && !strings.HasPrefix(p.BaseURL, "https://") {
 			t.Errorf("preset %q base URL %q is not an absolute URL", name, p.BaseURL)

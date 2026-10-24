@@ -127,6 +127,10 @@ type (
 	Config = config.Config
 	// ModelConfig selects the AI planner target.
 	ModelConfig = config.ModelConfig
+	// Secret is a credential type that redacts itself in logs, errors and JSON.
+	Secret = config.Secret
+	// AWSConfig is the region and credentials block for provider "bedrock".
+	AWSConfig = config.AWSConfig
 	// BackendConfig maps the logical entity to a physical source per backend.
 	BackendConfig = config.BackendConfig
 	// Field is one registered, queryable attribute of the entity.
@@ -335,6 +339,8 @@ type (
 	OpenAIProvider = provider.OpenAIProvider
 	// AnthropicProvider calls Anthropic's native Messages API (/v1/messages).
 	AnthropicProvider = provider.AnthropicProvider
+	// BedrockProvider calls Amazon Bedrock's Converse API.
+	BedrockProvider = provider.BedrockProvider
 	// FallbackProvider tries an ordered list of providers and returns the first
 	// successful completion.
 	FallbackProvider = provider.FallbackProvider
@@ -352,6 +358,11 @@ func NewOpenAIProvider(m ModelConfig) *OpenAIProvider { return provider.NewOpenA
 func NewAnthropicProvider(m ModelConfig) *AnthropicProvider {
 	return provider.NewAnthropicProvider(m)
 }
+
+// NewBedrockProvider builds the Amazon Bedrock (Converse API) provider from a
+// config model block. Credentials come from the block's aws settings or the
+// standard AWS_* environment variables.
+func NewBedrockProvider(m ModelConfig) *BedrockProvider { return provider.NewBedrockProvider(m) }
 
 // NewFallbackProvider builds a fallback chain from bare providers, labelling
 // each by its position.

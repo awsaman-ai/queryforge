@@ -340,7 +340,7 @@ use and reused afterwards, so different engine versions on one machine never ove
 | `-Dqueryforge.cacheDir=/path` or `QUERYFORGE_CACHE_DIR` | Where to extract the binary. Useful when the temp directory is mounted `noexec`. |
 | `-Dqueryforge.logLevel=info` or `QUERYFORGE_LOG_LEVEL` | `off` \| `error` \| `warn` \| `info` \| `debug`. Turns on SDK and engine diagnostics without a code change. Unset means off. |
 | `-Dqueryforge.maxConcurrentProcesses=8` or `QUERYFORGE_MAX_CONCURRENT_PROCESSES` | Positive whole number: at most this many engine processes run at once in this JVM. Unset means no limit. See below. |
-| whatever your config's `apiKeyEnv` names | The model API key. Never put the key in the config file. |
+| whatever your config's `apiKeyEnv` names | The model API key. Prefer this to writing the key in the config; if you must, use `model.apiKey` (never combined with `apiKeyEnv`). |
 
 The system property wins over the environment variable, so a JVM launch flag can override an
 environment inherited from a container image.

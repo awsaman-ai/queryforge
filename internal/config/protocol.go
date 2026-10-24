@@ -35,6 +35,13 @@ const (
 
 	// ProtocolAnthropic is Anthropic's native Messages API (/v1/messages).
 	ProtocolAnthropic Protocol = "anthropic"
+
+	// ProtocolBedrock is Amazon Bedrock's Converse API, authenticated with either
+	// a Bedrock API key (bearer) or AWS SigV4 request signing. It is a protocol
+	// rather than a provider preset because the request is not merely sent to a
+	// different URL: it is signed, and the body, route and error vocabulary all
+	// differ from the other two dialects.
+	ProtocolBedrock Protocol = "bedrock"
 )
 
 // KnownProtocols is the validation set for the config's `protocol` key. It is
@@ -44,6 +51,7 @@ const (
 var KnownProtocols = map[Protocol]bool{
 	ProtocolOpenAI:    true,
 	ProtocolAnthropic: true,
+	ProtocolBedrock:   true,
 }
 
 // validateProtocol rejects a protocol the library cannot speak.

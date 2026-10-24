@@ -1,0 +1,12 @@
+{
+  "entity": "Order",
+  "model": {
+    "apiKey": "two words"
+  },
+  "fields": [
+    {
+      "name": "customerName",
+      "type": "string"
+    }
+  ]
+}

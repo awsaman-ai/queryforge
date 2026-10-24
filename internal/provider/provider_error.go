@@ -260,8 +260,8 @@ func asProviderError(err error) (*ProviderError, bool) {
 func errModelUnreachable(pe *ProviderError) error {
 	switch pe.Kind {
 	case failure.KindAuth:
-		return fmt.Errorf("%w: check that the environment variable named by model.apiKeyEnv is exported "+
-			"in THIS process and holds a key valid for this endpoint", pe)
+		return fmt.Errorf("%w: check the key is valid for this endpoint: model.apiKey if set, "+
+			"otherwise the environment variable named by model.apiKeyEnv, which must be exported in THIS process", pe)
 	case failure.KindQuota:
 		return fmt.Errorf("%w: this account is out of credit or past a billing cap; "+
 			"waiting will not clear it — switch models or add a `models` fallback entry", pe)

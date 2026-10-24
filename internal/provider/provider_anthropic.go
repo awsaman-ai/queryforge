@@ -47,12 +47,10 @@ type AnthropicProvider struct {
 func (p *AnthropicProvider) SetObserver(o observe.Observer) { p.Observe = o }
 
 // NewAnthropicProvider builds the provider from a config model block. The key is
-// read from the environment variable NAMED by apiKeyEnv, never stored in config.
+// the inline apiKey when set, otherwise read from the environment variable NAMED
+// by apiKeyEnv.
 func NewAnthropicProvider(m config.ModelConfig) *AnthropicProvider {
-	key := ""
-	if m.APIKeyEnv != "" {
-		key = os.Getenv(m.APIKeyEnv)
-	}
+	key := config.ResolveAPIKey(m, os.Getenv) // inline apiKey wins; else the env var apiKeyEnv names
 	baseURL, _ := resolveEndpoint(m)
 	if baseURL == "" || strings.Contains(baseURL, "/openai") {
 		baseURL = "https://api.anthropic.com" // native Messages API root
@@ -182,8 +180,9 @@ func (p *AnthropicProvider) roundTrip(ctx context.Context, system, user string, 
 	if client == nil {
 		client = http.DefaultClient
 	}
-	resp, err := client.Do(req)
+	resp, err := safeClient(client).Do(req)
 	if err != nil {
+		err = scrubURLError(err) // the URL may carry a token in its query string
 		return "", p.fail(classifyTransport(ctx, err), 0, "request failed: "+err.Error(), err)
 	}
 	defer resp.Body.Close()
@@ -239,7 +238,7 @@ func (p *AnthropicProvider) roundTrip(ctx context.Context, system, user string, 
 			b.WriteString(block.Text)
 		}
 	}
-	out = b.String()
+	out = redactSecret(b.String(), p.APIKey) // see the twin comment in provider.go
 	if out == "" {
 		return "", p.fail(failure.KindBadResponse, resp.StatusCode, "response contained no text content", nil)
 	}
@@ -262,8 +261,11 @@ func (p *AnthropicProvider) fail(kind failure.ProviderErrorKind, status int, det
 //
 // Model selection stays a config change, never a code change.
 func ProviderFor(m config.ModelConfig) ModelProvider {
-	if _, proto := resolveEndpoint(m); proto == config.ProtocolAnthropic {
+	switch _, proto := resolveEndpoint(m); proto {
+	case config.ProtocolAnthropic:
 		return NewAnthropicProvider(m)
+	case config.ProtocolBedrock:
+		return NewBedrockProvider(m)
 	}
 	return NewOpenAIProvider(m)
 }

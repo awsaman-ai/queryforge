@@ -1,0 +1,34 @@
+[
+ {
+  "name": "plain id",
+  "model": "anthropic.claude-3-5-sonnet-20241022-v2:0",
+  "token": "",
+  "body": "{\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"hi\"}]}]}",
+  "authorization": "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20261024/us-east-1/bedrock/aws4_request, SignedHeaders=content-type;host;x-amz-date, Signature=3c105114326253c8b1b009f47981757198b718409fbc656a30a51a58a70f8eb7",
+  "amzdate": "20261024T160940Z"
+ },
+ {
+  "name": "profile id",
+  "model": "us.anthropic.claude-sonnet-4-6",
+  "token": "",
+  "body": "{\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"hi\"}]}]}",
+  "authorization": "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20261024/us-east-1/bedrock/aws4_request, SignedHeaders=content-type;host;x-amz-date, Signature=52a34ea67a5abcb54eeb92651e90381eb4be9535e0968e186b79635b5a656a9d",
+  "amzdate": "20261024T160940Z"
+ },
+ {
+  "name": "session token",
+  "model": "anthropic.claude-3-5-sonnet-20241022-v2:0",
+  "token": "FQoGZXIvYXdzEXAMPLETOKEN+/=",
+  "body": "{\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"hi\"}]}]}",
+  "authorization": "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20261024/us-east-1/bedrock/aws4_request, SignedHeaders=content-type;host;x-amz-date;x-amz-security-token, Signature=f42c09ae6b9bc2966e4076f487bcd11387afa3f5dece76daa7175694bb04fd4c",
+  "amzdate": "20261024T160940Z"
+ },
+ {
+  "name": "arn",
+  "model": "arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.claude-sonnet-4-6",
+  "token": "",
+  "body": "{\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"hi\"}]}]}",
+  "authorization": "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20261024/us-east-1/bedrock/aws4_request, SignedHeaders=content-type;host;x-amz-date, Signature=c0d361f09cee65c07b38e04690d80d0ec56ce9c51356e34e37216511ff558bf3",
+  "amzdate": "20261024T160940Z"
+ }
+]

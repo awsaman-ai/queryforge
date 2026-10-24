@@ -412,7 +412,9 @@ final class Json {
                 try {
                     return Double.valueOf(text);
                 } catch (NumberFormatException e2) {
-                    throw new JsonException("invalid number '" + text + "' at position " + start);
+                    // The position only, never the token: a config that holds a key where a number was
+                    // expected (an unquoted paste) would otherwise have it echoed into the message.
+                    throw new JsonException("invalid number at position " + start);
                 }
             }
         }

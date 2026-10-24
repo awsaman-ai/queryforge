@@ -1,0 +1,13 @@
+{
+  "entity": "Order",
+  "model": {
+    "apiKey": "NOT-A-REAL-KEY",
+    "apiKeyEnv": "QF_API_KEY"
+  },
+  "fields": [
+    {
+      "name": "customerName",
+      "type": "string"
+    }
+  ]
+}

@@ -254,7 +254,7 @@ qf.query(text).timeout(10).max_repairs(0).include_raw().scope_in_ast()
 | `QUERYFORGE_BINARY` | Run this executable instead of the bundled one. Reported, never silently ignored, if it does not work. |
 | `QUERYFORGE_LOG_LEVEL` | `off` \| `error` \| `warn` \| `info` \| `debug`. Turns on SDK and engine diagnostics without a code change. Unset means off. |
 | `QUERYFORGE_MAX_CONCURRENT_PROCESSES` | Positive whole number: at most this many engine processes run at once in this Python process. Unset means no limit. See below. |
-| whatever your config's `apiKeyEnv` names | The model API key. Never put the key in the config file. |
+| whatever your config's `apiKeyEnv` names | The model API key. Prefer this to writing the key in the config; if you must, use `model.apiKey` (never combined with `apiKeyEnv`). |
 
 ### Limiting concurrent engine processes
 

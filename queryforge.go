@@ -362,7 +362,7 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 			Query:          res,
 			Explain:        explain.Explain(effective, e.config),
 			Raw:            raw,
-			Warnings:       res.Warnings,
+			Warnings:       withAdvisories(res.Warnings, e.config),
 			RepairAttempts: attempt,
 			Repairs:        repairs,
 			Scope:          filters,
@@ -469,3 +469,16 @@ func (e *Engine) Config() *Config { return e.config }
 
 // Backends lists the registered backend ids.
 func (e *Engine) Backends() []string { return e.registry.Backends() }
+
+// withAdvisories appends the config's own advisories (today: credentials written
+// inline) to a result's warnings. It copies rather than appending in place,
+// because res.Warnings belongs to the generator's result and is shared.
+func withAdvisories(warnings []string, c *Config) []string {
+	adv := c.Advisories()
+	if len(adv) == 0 {
+		return warnings
+	}
+	out := make([]string, 0, len(warnings)+len(adv))
+	out = append(out, warnings...)
+	return append(out, adv...)
+}

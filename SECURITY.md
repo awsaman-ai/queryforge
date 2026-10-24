@@ -26,7 +26,7 @@ A demonstrated break in any of them is a security bug:
 | **No injection** | Any user-influenced value that reaches the statement text instead of being bound as a parameter. Only config-supplied identifiers may be written into a query directly. |
 | **Field concealment** | Any route by which a field marked `queryable: false` or `returnable: false` reaches the caller — through the default projection, a hand-written AST, an error message, or introspection. |
 | **Vocabulary bounds** | Any AST that passes validation while referencing a field, operator, or enum value the config does not define. |
-| **Credential handling** | Any path that writes an API key into generated output, an error message, or a log line. Keys are read from the environment by name and must never appear in a config file. |
+| **Credential handling** | Any path that writes an API key into generated output, an error message, or a log line. Keys are best read from the environment by name (`apiKeyEnv`); an inline `apiKey` is supported for local testing and is a redacted type that never appears in logs, errors, `%v` output or re-marshalled JSON. Also in scope: a credential forwarded to another host by a redirect, or printed as part of a URL in an error. |
 
 ## What the caller must do
 

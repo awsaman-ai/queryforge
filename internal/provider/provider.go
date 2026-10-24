@@ -62,13 +62,11 @@ type OpenAIProvider struct {
 func (p *OpenAIProvider) SetObserver(o observe.Observer) { p.Observe = o }
 
 // NewOpenAIProvider builds a provider from the config's model block. The API key
-// is read from the environment variable NAMED by apiKeyEnv — the key value
-// itself is never stored in config.
+// is the inline apiKey when one is set, otherwise the value of the environment
+// variable NAMED by apiKeyEnv (the preferred route: the key then never enters a
+// config file).
 func NewOpenAIProvider(m config.ModelConfig) *OpenAIProvider {
-	key := ""
-	if m.APIKeyEnv != "" {
-		key = os.Getenv(m.APIKeyEnv) // resolve the env var name to its value
-	}
+	key := config.ResolveAPIKey(m, os.Getenv) // inline apiKey wins; else the env var apiKeyEnv names
 	// The endpoint comes from resolveEndpoint, so a known provider name alone
 	// ("groq", "ollama") is a complete configuration; an explicit baseURL still
 	// overrides it.
@@ -202,8 +200,9 @@ func (p *OpenAIProvider) roundTrip(ctx context.Context, system, user string, ret
 	if client == nil {
 		client = http.DefaultClient
 	}
-	resp, err := client.Do(req)
+	resp, err := safeClient(client).Do(req)
 	if err != nil {
+		err = scrubURLError(err) // the URL may carry a token in its query string
 		return "", p.fail(classifyTransport(ctx, err), 0, "request failed: "+err.Error(), err)
 	}
 	defer resp.Body.Close()
@@ -269,7 +268,9 @@ func (p *OpenAIProvider) roundTrip(ctx context.Context, system, user string, ret
 			cr.Usage.PromptTokens, cr.Usage.CompletionTokens, hidden, cr.Usage.TotalTokens), nil)
 	}
 
-	return cr.Choices[0].Message.Content, nil
+	// A gateway that reflects request headers into the reply would otherwise put the key into the
+	// reply text, which is logged (debug) and returned as TranslateResult.Raw.
+	return redactSecret(cr.Choices[0].Message.Content, p.APIKey), nil
 }
 
 // fail builds a classified error tagged with this provider's identity, with the

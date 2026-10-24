@@ -47,6 +47,7 @@ func TestBuilderOutputLoads(t *testing.T) {
 		"docs/testdata/builder_full.config.json",             // every documented key, all six field types
 		"docs/testdata/builder_roundtrip_orders.config.json", // examples/orders.config.json, imported and re-emitted
 		"docs/testdata/builder_nested.config.json",           // embedded documents and arrays of sub-documents
+		"docs/testdata/builder_inline_key.config.json",       // "Paste my key": model.apiKey instead of apiKeyEnv
 
 		// Elasticsearch/OpenSearch: one fixture per source mode / routing
 		// strategy, each verbatim output of qf-logic.js's buildConfig for a
@@ -337,6 +338,8 @@ func TestBuilderInvalidOutputIsRejected(t *testing.T) {
 	}{
 		{"pasted_key.json", "looks like an API key"},
 		{"env_name.json", "not a valid environment variable name"},
+		{"apikey_and_env.json", "both apiKey and apiKeyEnv"},
+		{"apikey_whitespace.json", "whitespace or a control character"},
 		{"no_entity.json", "entity is required"},
 		{"no_fields.json", "at least one field is required"},
 		{"dup_field.json", "duplicate field"},

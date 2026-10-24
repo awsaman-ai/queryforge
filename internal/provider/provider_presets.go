@@ -38,6 +38,10 @@ var providerPresets = map[string]providerPreset{
 	// Native dialect.
 	"anthropic": {BaseURL: "https://api.anthropic.com", Protocol: config.ProtocolAnthropic},
 
+	// Amazon Bedrock. No BaseURL on purpose: the endpoint is derived from the
+	// region (model.aws.region / AWS_REGION), which a static table cannot hold.
+	"bedrock": {Protocol: config.ProtocolBedrock},
+
 	// First-party OpenAI.
 	"openai": {BaseURL: "https://api.openai.com/v1", Protocol: config.ProtocolOpenAI},
 

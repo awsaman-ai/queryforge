@@ -10,6 +10,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -59,15 +60,51 @@ type Config struct {
 	location     *time.Location // resolved Timezone; nil until finalize
 }
 
+// Secret is a credential that cannot leak by accident. It prints, marshals to
+// JSON and logs as "[REDACTED]" whatever the formatter or encoder, so a config
+// carrying a key can be %v'd, slog'd or re-marshalled without disclosing it.
+// The only way to read the value is Reveal, which makes every disclosure a
+// deliberate, greppable act.
+type Secret string
+
+const redacted = "[REDACTED]"
+
+// Reveal returns the credential itself.
+func (s Secret) Reveal() string { return string(s) }
+
+// String implements fmt.Stringer, covering %v and %+v.
+func (s Secret) String() string {
+	if s == "" {
+		return ""
+	}
+	return redacted
+}
+
+// GoString implements fmt.GoStringer, covering %#v.
+func (s Secret) GoString() string { return `"` + s.String() + `"` }
+
+// MarshalJSON redacts. A config round-tripped through encoding/json therefore
+// never writes the key back out.
+func (s Secret) MarshalJSON() ([]byte, error) { return json.Marshal(s.String()) }
+
+// LogValue implements slog.LogValuer so structured loggers stay redacted too.
+func (s Secret) LogValue() slog.Value { return slog.StringValue(s.String()) }
+
 // ModelConfig selects the AI planner target. Swapping provider or model is a
 // config change, never a code change: any OpenAI-compatible /chat/completions
 // endpoint works. APIKeyEnv is the NAME of the environment variable holding
-// the key, never the key itself.
+// the key. Prefer it over APIKey: a key written into a config file travels with
+// the file, into version control and backups.
 type ModelConfig struct {
-	Provider    string  `json:"provider,omitempty"`
-	BaseURL     string  `json:"baseURL,omitempty"`
-	Model       string  `json:"model,omitempty"`
-	APIKeyEnv   string  `json:"apiKeyEnv,omitempty"`
+	Provider  string `json:"provider,omitempty"`
+	BaseURL   string `json:"baseURL,omitempty"`
+	Model     string `json:"model,omitempty"`
+	APIKeyEnv string `json:"apiKeyEnv,omitempty"`
+	// APIKey is the key itself, for the case where an environment variable is
+	// not available (a browser-built config on a laptop, a quick local test).
+	// Mutually exclusive with APIKeyEnv. It is a Secret, so it never appears in
+	// logs, error messages, %v output or re-marshalled JSON.
+	APIKey      Secret  `json:"apiKey,omitempty"`
 	Temperature float64 `json:"temperature,omitempty"`
 	MaxTokens   int     `json:"maxTokens,omitempty"`
 
@@ -108,6 +145,10 @@ type ModelConfig struct {
 	// already demands a bare JSON object and the parser tolerates code fences.
 	// Turn it on for endpoints where it genuinely helps.
 	JSONMode *bool `json:"jsonMode,omitempty"`
+
+	// AWS carries the region and credentials for provider "bedrock" (protocol
+	// "bedrock"). Ignored by every other provider. See AWSConfig.
+	AWS *AWSConfig `json:"aws,omitempty"`
 }
 
 // Default retry/timeout settings. These are the values a model block gets when
@@ -175,6 +216,52 @@ func (m ModelConfig) EffectiveRetryBackoff() time.Duration {
 	return DefaultRetryBackoff
 }
 
+// ResolveAPIKey returns the credential a model block should authenticate with:
+// the inline apiKey when one is set, otherwise the value of the environment
+// variable apiKeyEnv names, otherwise "" (legal for keyless local servers).
+// Surrounding whitespace is trimmed, because a key pasted from a terminal or an
+// .env file very often carries a trailing newline that the provider rejects as
+// an invalid header.
+func ResolveAPIKey(m ModelConfig, getenv func(string) string) string {
+	if m.APIKey != "" {
+		return strings.TrimSpace(m.APIKey.Reveal())
+	}
+	if m.APIKeyEnv != "" {
+		return strings.TrimSpace(getenv(m.APIKeyEnv))
+	}
+	return ""
+}
+
+// validateAPIKey checks the inline key. Errors never quote it — echoing the
+// value would reprint the secret into the very logs this field is built to
+// stay out of.
+func (m ModelConfig) validateAPIKey(where string) error {
+	if m.APIKey == "" {
+		return nil
+	}
+	if strings.TrimSpace(m.APIKeyEnv) != "" {
+		return fmt.Errorf("config: %s sets both apiKey and apiKeyEnv. Use one: apiKey is the key itself, "+
+			"apiKeyEnv is the NAME of the environment variable that holds it", where)
+	}
+	key := strings.TrimSpace(m.APIKey.Reveal())
+	if key == "" {
+		return fmt.Errorf("config: %s.apiKey is blank. Remove it, or paste the key", where)
+	}
+	for i := 0; i < len(key); i++ {
+		// Whitespace or a control character inside a key means a paste picked up
+		// extra text (a second line, a placeholder, a label). Sent as a header it
+		// would be rejected with an error that says nothing about the cause.
+		if key[i] <= ' ' || key[i] == 0x7f {
+			return fmt.Errorf("config: %s.apiKey contains whitespace or a control character. "+
+				"A key is a single unbroken token — check the paste", where)
+		}
+	}
+	if len(key) > 4096 {
+		return fmt.Errorf("config: %s.apiKey is implausibly long (over 4096 bytes). Check the paste", where)
+	}
+	return nil
+}
+
 // secretPrefixes are the recognisable openings of common API keys. Matching one
 // means the caller pasted a credential where a variable name belongs.
 var secretPrefixes = []string{
@@ -214,7 +301,7 @@ func (m ModelConfig) validateAPIKeyEnv(where string) error {
 		if strings.HasPrefix(name, p) {
 			return fmt.Errorf("config: %s.apiKeyEnv looks like an API key, not an environment variable name. "+
 				"This field takes the NAME of the variable holding your key (e.g. \"QF_API_KEY\"), and the key itself "+
-				"goes in the environment: export QF_API_KEY=<your-key>. Keys must never be written into a config file", where)
+				"goes in the environment: export QF_API_KEY=<your-key>. To put the key in the config, use the apiKey field instead", where)
 		}
 	}
 
@@ -235,7 +322,13 @@ func (m ModelConfig) validateModelBlock(where string) error {
 	if err := m.validateAPIKeyEnv(where); err != nil {
 		return err
 	}
-	return m.validateProtocol(where)
+	if err := m.validateAPIKey(where); err != nil {
+		return err
+	}
+	if err := m.validateProtocol(where); err != nil {
+		return err
+	}
+	return m.validateAWS(where)
 }
 
 // validEnvVarName reports whether s has the shape of a POSIX environment
