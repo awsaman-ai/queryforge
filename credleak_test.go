@@ -38,10 +38,10 @@ func everything(rec *recorder, err error) string {
 	var sb strings.Builder
 	if err != nil {
 		sb.WriteString("ERR:" + err.Error() + " ")
-		sb.WriteString(fmt.Sprintf("%+v %#v ", err, err))
+		fmt.Fprintf(&sb, "%+v %#v ", err, err)
 	}
 	for _, ev := range rec.all() {
-		sb.WriteString(fmt.Sprintf("%+v %#v ", ev, ev))
+		fmt.Fprintf(&sb, "%+v %#v ", ev, ev)
 		if ev.Err != nil {
 			sb.WriteString(ev.Err.Error())
 		}
