@@ -64,7 +64,9 @@ jobs:
     # runs against the binary built right here, so a protocol change that forgets an SDK turns
     # this job red rather than a user's install.
     name: sdk-python (${{ matrix.python }})
-    runs-on: ubuntu-latest
+    # Pinned, not ubuntu-latest: latest moved to Ubuntu 26.04, which has no Python 3.9 build, so the
+    # 3.9 leg failed in setup-python before running a single test. Move this when 3.9 is dropped.
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
