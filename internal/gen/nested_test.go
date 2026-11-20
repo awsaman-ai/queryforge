@@ -32,11 +32,11 @@ const nestedConfigJSON = `{
     {"name":"itemPrice","type":"number",
      "mapping":{"sql":"item_price","mongo":"items.price"},"elemMatch":"items"},
     {"name":"itemWidth","type":"number",
-     "mapping":{"mongo":"items.dims.w"},"elemMatch":"items"},
+     "mapping":{"sql":"item_width","mongo":"items.dims.w"},"elemMatch":"items"},
     {"name":"payMethod","type":"string","operators":["equals","in"],
-     "mapping":{"mongo":"payments.method"},"elemMatch":"payments"},
+     "mapping":{"sql":"pay_method","mongo":"payments.method"},"elemMatch":"payments"},
     {"name":"payAmount","type":"number",
-     "mapping":{"mongo":"payments.amount"},"elemMatch":"payments"}
+     "mapping":{"sql":"pay_amount","mongo":"payments.amount"},"elemMatch":"payments"}
   ],
   "defaults":{"limit":50}
 }`
@@ -433,7 +433,7 @@ func TestConfigAcceptsGoodNestedPaths(t *testing.T) {
 	fields := []string{
 		`{"name":"city","type":"string","mapping":{"mongo":"address.city"}}`,
 		`{"name":"sku","type":"string","mapping":{"mongo":"items.sku"},"elemMatch":"items"}`,
-		`{"name":"w","type":"number","mapping":{"mongo":"items.dims.w"},"elemMatch":"items"}`,
+		`{"name":"w","type":"number","mapping":{"sql":"item_width","mongo":"items.dims.w"},"elemMatch":"items"}`,
 		`{"name":"deep","type":"number","mapping":{"mongo":"a.b.c.d"},"elemMatch":"a.b"}`,
 		`{"name":"plain","type":"string"}`,
 	}

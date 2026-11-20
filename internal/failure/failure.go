@@ -145,6 +145,9 @@ func Classify(err error) FailureCode {
 	if errors.Is(err, scope.ErrScope) {
 		return FailureInvalidScope
 	}
+	if errors.Is(err, ErrInvalidRequest) {
+		return FailureInvalidRequest
+	}
 
 	var unsupported *UnsupportedRequestError
 	if errors.As(err, &unsupported) {
@@ -195,6 +198,10 @@ func (c FailureCode) Retryable() bool {
 // (models occasionally emit truncated or double-brace JSON), whereas never
 // reaching the model at all will not fix itself on a retry.
 var (
+	// ErrInvalidRequest means the call itself was unusable (today: an empty
+	// question). Decided before any model call, so it costs nothing.
+	ErrInvalidRequest = errors.New("invalid request")
+
 	// ErrModelTransport means the model was not reached or refused the call —
 	// network failure, auth rejection, retired model, quota block. Not repairable.
 	ErrModelTransport = errors.New("model transport failure")

@@ -419,7 +419,7 @@ func resolveIfElseRouting(q *ast.Query, c *config.Config, r *config.IndexRouting
 // value (absent, inside an OR/NOT, or multi-valued) simply does not match —
 // routing never guesses.
 func evalRoutingCondition(q *ast.Query, c *config.Config, cond config.RoutingCondition, now time.Time) (bool, error) {
-	_, val, ok := singleRoutingValue(q, cond.Field)
+	qop, val, ok := singleRoutingValue(q, cond.Field)
 	if !ok {
 		return false, nil
 	}
@@ -434,7 +434,7 @@ func evalRoutingCondition(q *ast.Query, c *config.Config, cond config.RoutingCon
 		if err != nil {
 			return false, fmt.Errorf("elasticsearch: routing condition on %q: %w", cond.Field, err)
 		}
-		return compareFloat(got, cond.Operator, want), nil
+		return impliesRule(qop, cond.Operator, cmpFloat(got, want)), nil
 	case config.FieldDate:
 		got, err := resolveDateValue(val, now)
 		if err != nil {
@@ -444,10 +444,10 @@ func evalRoutingCondition(q *ast.Query, c *config.Config, cond config.RoutingCon
 		if !ok {
 			return false, fmt.Errorf("elasticsearch: routing condition on %q: %q is not a recognised date", cond.Field, cond.Value)
 		}
-		return compareTime(got, cond.Operator, want), nil
+		return impliesRule(qop, cond.Operator, cmpTime(got, want)), nil
 	default: // string, enum
 		got, ok := val.AsString()
-		if !ok {
+		if !ok || qop != ast.OpEquals { // only a point value pins a string/enum
 			return false, nil
 		}
 		switch cond.Operator {
@@ -461,40 +461,83 @@ func evalRoutingCondition(q *ast.Query, c *config.Config, cond config.RoutingCon
 	}
 }
 
-func compareFloat(got float64, op ast.Operator, want float64) bool {
-	switch op {
-	case ast.OpEquals:
-		return got == want
-	case ast.OpNotEquals:
-		return got != want
-	case ast.OpGt:
-		return got > want
-	case ast.OpGte:
-		return got >= want
-	case ast.OpLt:
-		return got < want
-	case ast.OpLte:
-		return got <= want
-	default:
-		return false
+func cmpFloat(a, b float64) int {
+	switch {
+	case a < b:
+		return -1
+	case a > b:
+		return 1
 	}
+	return 0
 }
 
-func compareTime(got time.Time, op ast.Operator, want time.Time) bool {
-	switch op {
-	case ast.OpEquals:
-		return got.Equal(want)
-	case ast.OpNotEquals:
-		return !got.Equal(want)
-	case ast.OpGt:
-		return got.After(want)
-	case ast.OpGte:
-		return !got.Before(want)
-	case ast.OpLt:
-		return got.Before(want)
-	case ast.OpLte:
-		return !got.After(want)
-	default:
-		return false
+func cmpTime(a, b time.Time) int {
+	switch {
+	case a.Before(b):
+		return -1
+	case a.After(b):
+		return 1
 	}
+	return 0
+}
+
+// impliesRule reports whether the query's predicate (qop against value v)
+// guarantees the routing rule's predicate (rop against threshold w), given
+// c = compare(v, w). Routing must be sound: a rule selects its indexes only
+// when EVERY row the query can match lives in them, so this is a subsumption
+// test between two half-lines, not a point comparison.
+//
+// QA audit 2026-11-20 (F2): the old code compared the query's value against the
+// rule's threshold with the RULE's operator and ignored the query's own. That
+// missed the exact-threshold case (query "< 10" vs rule "< 10" → 10 < 10 is
+// false) and, worse, routed "> 5" to a "< 10" rule (5 < 10 is true).
+func impliesRule(qop, rop ast.Operator, c int) bool {
+	switch qop { // dates: before/after are lt/gt
+	case ast.OpBefore:
+		qop = ast.OpLt
+	case ast.OpAfter:
+		qop = ast.OpGt
+	}
+	switch qop {
+	case ast.OpEquals: // a single point: the rule must hold at it
+		switch rop {
+		case ast.OpEquals:
+			return c == 0
+		case ast.OpNotEquals:
+			return c != 0
+		case ast.OpLt:
+			return c < 0
+		case ast.OpLte:
+			return c <= 0
+		case ast.OpGt:
+			return c > 0
+		case ast.OpGte:
+			return c >= 0
+		}
+	case ast.OpLt: // x < v
+		switch rop {
+		case ast.OpLt, ast.OpLte, ast.OpNotEquals:
+			return c <= 0
+		}
+	case ast.OpLte: // x <= v
+		switch rop {
+		case ast.OpLt, ast.OpNotEquals:
+			return c < 0
+		case ast.OpLte:
+			return c <= 0
+		}
+	case ast.OpGt: // x > v
+		switch rop {
+		case ast.OpGt, ast.OpGte, ast.OpNotEquals:
+			return c >= 0
+		}
+	case ast.OpGte: // x >= v
+		switch rop {
+		case ast.OpGt, ast.OpNotEquals:
+			return c > 0
+		case ast.OpGte:
+			return c >= 0
+		}
+	}
+	return false
 }

@@ -233,6 +233,14 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 		observe.Emit(e.Observe, ctx, ev)
 	}
 
+	// An empty question cannot be answered and would otherwise cost a model call
+	// to find that out (QA audit P4). INVALID_REQUEST is the documented code.
+	if strings.TrimSpace(text) == "" {
+		err := fmt.Errorf("%w: the question is empty", failure.ErrInvalidRequest)
+		done(0, OutcomeCallerError, err, nil, nil)
+		return nil, err
+	}
+
 	g, ok := e.registry.Get(backend)
 	if !ok {
 		err := fmt.Errorf("unknown backend %q (registered: %s)", backend, strings.Join(e.registry.Backends(), ", "))
@@ -362,7 +370,7 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 			Query:          res,
 			Explain:        explain.Explain(effective, e.config),
 			Raw:            raw,
-			Warnings:       withAdvisories(res.Warnings, e.config),
+			Warnings:       requestAdvisories(withAdvisories(res.Warnings, e.config), text, ast, e.config),
 			RepairAttempts: attempt,
 			Repairs:        repairs,
 			Scope:          filters,
@@ -382,11 +390,17 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 	// mismatch (fix the config or the phrasing) from a model that kept emitting
 	// unusable output (retry, or switch models).
 	if errors.Is(lastErr, failure.ErrModelOutput) {
-		spent := fmt.Errorf("model returned unparseable output on all %d attempt(s); last error: %w", e.MaxRepairs+1, lastErr)
+		spent := &TranslateError{
+			Err:     fmt.Errorf("model returned unparseable output on all %d attempt(s); last error: %w", e.MaxRepairs+1, lastErr),
+			Repairs: repairs, Raw: raw,
+		}
 		done(e.MaxRepairs, OutcomeBudgetSpent, spent, nil, filters)
 		return nil, spent
 	}
-	spent := fmt.Errorf("translation failed validation after %d attempt(s); last error: %w", e.MaxRepairs+1, lastErr)
+	spent := &TranslateError{
+		Err:     fmt.Errorf("translation failed validation after %d attempt(s); last error: %w", e.MaxRepairs+1, lastErr),
+		Repairs: repairs, Raw: raw,
+	}
 	done(e.MaxRepairs, OutcomeBudgetSpent, spent, nil, filters)
 	return nil, spent
 }
@@ -469,6 +483,33 @@ func (e *Engine) Config() *Config { return e.config }
 
 // Backends lists the registered backend ids.
 func (e *Engine) Backends() []string { return e.registry.Backends() }
+
+// TranslateError is returned when the repair budget is spent. It carries what
+// the success path puts in TranslateResult — the per-attempt record of what the
+// model tried and why each try was rejected — which was previously discarded
+// with the result (QA audit P3). Its message and Unwrap chain are exactly the
+// old error's, so errors.Is/As, failure.Classify and callers that only print
+// the error behave as before; read the extras with errors.As.
+type TranslateError struct {
+	Err     error
+	Repairs []RepairRecord // oldest first; one per rejected attempt
+	Raw     string         // the model's last raw output
+}
+
+func (e *TranslateError) Error() string { return e.Err.Error() }
+func (e *TranslateError) Unwrap() error { return e.Err }
+
+// requestAdvisories adds the request-level warnings (mutation verb, contradictory
+// filter) to a result's warnings, copying rather than appending in place.
+func requestAdvisories(warnings []string, text string, q *Query, c *Config) []string {
+	extra := append(mutationAdvisory(text), contradictionAdvisories(q, c)...)
+	if len(extra) == 0 {
+		return warnings
+	}
+	out := make([]string, 0, len(warnings)+len(extra))
+	out = append(out, warnings...)
+	return append(out, extra...)
+}
 
 // withAdvisories appends the config's own advisories (today: credentials written
 // inline) to a result's warnings. It copies rather than appending in place,

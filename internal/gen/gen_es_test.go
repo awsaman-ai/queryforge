@@ -1,6 +1,7 @@
 package gen_test
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -635,5 +636,99 @@ func TestOpenSearchSharesTheSameCompiler(t *testing.T) {
 	}
 	if es.Backend != "elasticsearch" || os.Backend != "opensearch" {
 		t.Errorf("backend ids wrong: %q / %q", es.Backend, os.Backend)
+	}
+}
+
+// TestESRoutingSubsumption is the F2 regression (QA audit 2026-11-20): a rule
+// routes only when the query's own predicate implies the rule's, so the query's
+// OPERATOR matters, and the exact-threshold query must hit its own rule.
+func TestESRoutingSubsumption(t *testing.T) {
+	const stock = `{
+	  "entity":"Item","model":{},
+	  "backends":{"elasticsearch":{"routing":{
+	    "strategy":"rules","default":["general"],
+	    "rules":[{"when":{"field":"qty","operator":"%s","value":"10"},"indexes":["low"]}]
+	  }}},
+	  "fields":[{"name":"qty","type":"number","routingField":true,"operators":["lt","lte","gt","gte","equals"]}]
+	}`
+	for _, tc := range []struct {
+		rule string
+		op   Operator
+		v    float64
+		want string
+	}{
+		// rule: qty < 10
+		{"lt", OpLt, 10, "low"},      // exact threshold: the audited bug
+		{"lt", OpLt, 5, "low"},       // strictly inside
+		{"lt", OpLt, 11, "general"},  // wider than the rule
+		{"lt", OpLte, 9, "low"},      // x<=9 implies x<10
+		{"lt", OpLte, 10, "general"}, // x<=10 admits 10
+		{"lt", OpGt, 5, "general"},   // the audit's false positive: 5 < 10 but ">5" is not "<10"
+		{"lt", OpGt, 20, "general"},  // disjoint
+		{"lt", OpEquals, 9, "low"},   // a point still uses the rule
+		{"lt", OpEquals, 10, "general"},
+		// rule: qty <= 10
+		{"lte", OpLt, 10, "low"},
+		{"lte", OpLte, 10, "low"},
+		{"lte", OpLte, 11, "general"},
+		// rule: qty > 10
+		{"gt", OpGt, 10, "low"},
+		{"gt", OpGt, 9, "general"},
+		{"gt", OpGte, 11, "low"},
+		{"gt", OpGte, 10, "general"},
+		{"gt", OpLt, 20, "general"},
+		// rule: qty >= 10
+		{"gte", OpGte, 10, "low"},
+		{"gte", OpGt, 10, "low"},
+		{"gte", OpGt, 9, "general"},
+	} {
+		c := testutil.MustParse(t, fmt.Sprintf(stock, tc.rule))
+		eq := genES(t, c, &Query{Version: ASTVersion, Entity: "Item",
+			Filter: testutil.Comp("qty", tc.op, testutil.VNum(tc.v))})
+		if !reflect.DeepEqual(eq.Index, []string{tc.want}) {
+			t.Errorf("rule qty %s 10, query qty %s %v: routed to %v, want [%s]", tc.rule, tc.op, tc.v, eq.Index, tc.want)
+		}
+	}
+}
+
+// TestESRoutingSubsumptionDates covers the date branch of the F2 fix: a rule on
+// a date threshold, queried with before/after/equals around the boundary.
+func TestESRoutingSubsumptionDates(t *testing.T) {
+	c := testutil.MustParse(t, `{
+	  "entity":"Order","model":{},
+	  "backends":{"elasticsearch":{"routing":{
+	    "strategy":"rules","default":["orders-all"],
+	    "rules":[{"when":{"field":"createdAt","operator":"lt","value":"2026-01-01"},"indexes":["orders-archive"]}]
+	  }}},
+	  "fields":[{"name":"createdAt","type":"date","routingField":true,"operators":["before","after","equals"]}]
+	}`)
+	for _, tc := range []struct {
+		op   Operator
+		date string
+		want string
+	}{
+		{OpBefore, "2026-01-01", "orders-archive"}, // exact threshold
+		{OpBefore, "2025-06-01", "orders-archive"},
+		{OpBefore, "2026-06-01", "orders-all"}, // reaches past the archive
+		{OpAfter, "2025-06-01", "orders-all"},  // the false positive shape, on dates
+		{OpEquals, "2025-12-31", "orders-archive"},
+		{OpEquals, "2026-01-01", "orders-all"},
+	} {
+		eq := genES(t, c, &Query{Version: ASTVersion, Entity: "Order",
+			Filter: testutil.Comp("createdAt", tc.op, vDate(tc.date))})
+		if !reflect.DeepEqual(eq.Index, []string{tc.want}) {
+			t.Errorf("createdAt %s %s: routed to %v, want [%s]", tc.op, tc.date, eq.Index, tc.want)
+		}
+	}
+}
+
+// TestESRoutingStringRequiresEquals: a string/enum rule only fires for an equals
+// query. A non-equals operator used to be ignored and compared as if it were a point.
+func TestESRoutingStringRequiresEquals(t *testing.T) {
+	c := testutil.MustParse(t, rulesRoutingJSON)
+	eq := genES(t, c, &Query{Version: ASTVersion, Entity: "Order",
+		Filter: testutil.Comp("region", OpGt, testutil.VStr("US"))})
+	if !reflect.DeepEqual(eq.Index, []string{"orders-global"}) {
+		t.Errorf("a non-equals string query must not route, got %v", eq.Index)
 	}
 }

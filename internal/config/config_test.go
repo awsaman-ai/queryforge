@@ -300,3 +300,33 @@ func TestAPIKeyEnvCheckedInFallbackChain(t *testing.T) {
 		t.Errorf("error should identify which chain entry is wrong, got: %v", err)
 	}
 }
+
+// TestSQLBackendRejectsMongoOnlyMappedField is the F1 regression (QA audit
+// 2026-11-20): a field mapped only for Mongo, on an entity that also enables a
+// SQL backend, used to compile to a column named after the logical field.
+func TestSQLBackendRejectsMongoOnlyMappedField(t *testing.T) {
+	mk := func(backends, field string) string {
+		return `{"entity":"Ticket","model":{},"backends":` + backends + `,"fields":[` + field + `]}`
+	}
+	const sqlBE = `{"sql":{"table":"tickets"}}`
+	const mongoBE = `{"mongo":{"collection":"tickets"}}`
+	const mongoOnly = `{"name":"commentDate","type":"date","mapping":{"mongo":"comments.date"},"elemMatch":"comments"}`
+
+	for name, tc := range map[string]struct {
+		cfg     string
+		wantErr bool
+	}{
+		"sql + mongo-only mapping":              {mk(sqlBE, mongoOnly), true},
+		"mysql resolves through sql mapping":    {mk(`{"mysql":{"table":"t"}}`, `{"name":"d","type":"date","mapping":{"sql":"d_col","mongo":"x.d"}}`), false},
+		"mysql + mongo-only mapping":            {mk(`{"mysql":{"table":"t"}}`, mongoOnly), true},
+		"mongo backend only is fine":            {mk(mongoBE, mongoOnly), false},
+		"no mapping at all keeps same-name col": {mk(sqlBE, `{"name":"status","type":"string"}`), false},
+		"fully hidden field is exempt":          {mk(sqlBE, `{"name":"commentDate","type":"date","mapping":{"mongo":"c.d"},"queryable":false,"returnable":false}`), false},
+		"explicit sql mapping":                  {mk(sqlBE, `{"name":"commentDate","type":"date","mapping":{"sql":"comment_date","mongo":"c.d"}}`), false},
+	} {
+		_, err := ParseConfig([]byte(tc.cfg))
+		if (err != nil) != tc.wantErr {
+			t.Errorf("%s: err = %v, wantErr %v", name, err, tc.wantErr)
+		}
+	}
+}

@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sort"
 	"strings"
 	"time"
 	// Embeds the IANA zone database (~450 KB) so a "timezone" key resolves on
@@ -1086,6 +1087,26 @@ func (c *Config) finalize() error {
 					"(expected dot-separated letters, digits and underscores, not starting with a digit)", f.Name, backend, phys)
 			}
 		}
+		// F1 (QA audit 2026-11-20): a field that declares a mapping for some
+		// backends but none usable for an enabled SQL backend would compile to its
+		// bare logical name as a column (PhysicalName's fallback) — a column that
+		// does not exist. A field with NO mapping at all keeps the fallback (the
+		// plain same-name-column case); it is the "mapped elsewhere, not here"
+		// shape that is the mistake, typically a Mongo-only elemMatch field.
+		// MySQL resolves through the "sql" mapping exactly as sqlPhysicalName does.
+		if len(f.Mapping) > 0 && (f.EffectiveQueryable() || f.EffectiveReturnable()) {
+			for backend := range c.Backends {
+				if !IsSQLBackend(backend) {
+					continue
+				}
+				if f.Mapping[backend] == "" && f.Mapping["sql"] == "" {
+					return fmt.Errorf("config: field %q is mapped for %s but has no %q mapping, and the entity enables the %q backend — "+
+						"it would compile to a column named %q that does not exist. Add mapping.sql, or set queryable:false and returnable:false "+
+						"if the field is not available on SQL",
+						f.Name, mappedBackends(f.Mapping), backend, backend, f.Name)
+				}
+			}
+		}
 		if !ValidFieldType(f.Type) {
 			return fmt.Errorf("config: field %q has invalid type %q", f.Name, f.Type)
 		}
@@ -1311,6 +1332,19 @@ func (c *Config) FieldNames() []string {
 		names[i] = c.Fields[i].Name
 	}
 	return names
+}
+
+// mappedBackends lists the backends a field declares a mapping for, sorted, for
+// the F1 load-time error message.
+func mappedBackends(m map[string]string) string {
+	var names []string
+	for b, p := range m {
+		if p != "" {
+			names = append(names, b)
+		}
+	}
+	sort.Strings(names)
+	return strings.Join(names, "+")
 }
 
 // PhysicalName returns the backend-specific column/field name for a logical

@@ -500,8 +500,10 @@ ORDER BY created_at DESC LIMIT 20
   </ul>
 
   <div class="note"><strong>Other backends ignore <code>elemMatch</code>.</strong> Nesting is a Mongo concept. For SQL,
-    give the field a flat <code>mapping.sql</code> column (<code>"item_sku"</code>); leave it out and the logical name is
-    used as the column, exactly as for any other field.</div>
+    give the field a flat <code>mapping.sql</code> column (<code>"item_sku"</code>). If the entity enables a
+    <code>sql</code> or <code>mysql</code> backend and the field is mapped for Mongo but has no SQL mapping, the config
+    is rejected at load: the query would otherwise name a column that does not exist. To keep such a field off SQL
+    entirely, set <code>queryable</code> and <code>returnable</code> to <code>false</code>.</div>
 
   <h2 id="capabilities">Capability flags</h2>
   <p>Five boolean flags gate what a field can do. They sit <em>alongside</em> <code>operators</code>: <code>operators</code> bounds <em>which</em> comparison operators are legal; the flags bound <em>where</em> the field may appear.</p>
@@ -561,6 +563,7 @@ ORDER BY created_at DESC LIMIT 20
   <ul>
     <li><strong>Predicate ordering:</strong> within an <code>AND</code>/<code>OR</code>, predicates on <code>indexed</code> fields are emitted first, then higher <code>priority</code> first. Because AND/OR are commutative, this is safe and improves how the database plans the query.</li>
     <li><strong>Soft warnings:</strong> filtering on a non-indexed field produces a non-fatal warning in the result (<code>"filtering on non-indexed field … may be slow"</code>) that your app may surface or ignore.</li>
+    <li><strong>Request warnings:</strong> a question that opens with a write verb (<em>"close every open ticket"</em>) and a filter that pins one single-valued field to two different values under AND (it can never match) also add a non-fatal entry to <code>Warnings</code>. QueryForge only reads, so a write-phrased question is answered with a plain selection that may not be the rows you meant. Surface these before acting on the result.</li>
     <li><strong>Prompt ordering:</strong> higher-priority fields are presented earlier to the model.</li>
   </ul>
 
@@ -770,6 +773,13 @@ ORDER BY created_at DESC LIMIT 50
     <tr><td>Visible to the model</td><td>no</td><td>no — <code>queryable:false</code> hides it from the prompt and rejects it in a model AST</td></tr>
     <tr><td>Best for</td><td>getting started; one backend</td><td><strong>recommended</strong> when you target SQL <em>and</em> Mongo, or want the value checked</td></tr>
   </table></div>
+
+  <div class="note"><strong>An undeclared scope key is used verbatim, and a typo in it is not caught.</strong> Because
+    a key with no matching field cannot be checked, <code>tennantId</code> compiles to a column named
+    <code>tennantId</code> and fails at the database (or, worse, matches an unrelated column). QueryForge deliberately
+    does not warn on every undeclared key, since a tenancy column that is simply absent from the config is a supported
+    setup. Declare the column as a <code>queryable:false</code> field as shown below and an unknown key is then the only
+    thing left to mistype, in one place.</div>
 
   <p>The second form matters as soon as the physical names differ. Declare the column once and one scope map compiles correctly everywhere:</p>
 <pre><code>{
