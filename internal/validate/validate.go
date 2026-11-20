@@ -321,6 +321,10 @@ func (w *walk) logical(path string, cond *ast.Condition, depth int) ValidationEr
 			Message: fmt.Sprintf("unknown logical operator %q", cond.Op)})
 	}
 
+	if cond.Distinct && cond.Op != ast.OpAND { // distinct elements only make sense for a conjunction
+		errs = append(errs, &ValidationError{Code: CodeMalformedAST, Path: path,
+			Message: fmt.Sprintf("\"distinct\" is only valid on an AND node, not %q", cond.Op)})
+	}
 	if len(cond.Children) == 0 { // an empty logical node has no meaning
 		errs = append(errs, &ValidationError{Code: CodeInvalidArity, Path: path,
 			Message: fmt.Sprintf("logical %q has no children", cond.Op)})

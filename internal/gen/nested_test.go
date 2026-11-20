@@ -464,3 +464,27 @@ func TestMongoElemMatchRelativePathSplit(t *testing.T) {
 		t.Error("an unregistered field reported as nested")
 	}
 }
+
+// TestMongoDistinctAndKeepsElementMatchesSeparate is the BUG-02 regression: an
+// AND marked distinct must compile each array predicate as its OWN $elemMatch
+// (different elements allowed), where the unmarked AND folds them into one.
+func TestMongoDistinctAndKeepsElementMatchesSeparate(t *testing.T) {
+	c := nestedConfig(t)
+	q := NewQuery("Order")
+	and := testutil.And(
+		testutil.Comp("itemSku", OpEquals, testutil.VStr("ABC")),
+		testutil.Comp("itemPrice", OpGt, testutil.VNum(100)),
+	)
+	and.Distinct = true
+	q.Filter = and
+
+	got := testutil.FilterJSON(t, testutil.GenMongo(t, c, q))
+	want := `{"$and":[{"items":{"$elemMatch":{"price":{"$gt":100}}}},{"items":{"$elemMatch":{"sku":"ABC"}}}]}`
+	if got != want {
+		// Order follows predicate ordering upstream; accept either, but never a fold.
+		alt := `{"$and":[{"items":{"$elemMatch":{"sku":"ABC"}}},{"items":{"$elemMatch":{"price":{"$gt":100}}}}]}`
+		if got != alt {
+			t.Errorf("filter = %s, want two separate $elemMatch clauses", got)
+		}
+	}
+}

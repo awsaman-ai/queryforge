@@ -183,6 +183,9 @@ func esLogical(backend string, c *config.Config, cond *ast.Condition, now time.T
 
 	switch cond.Op {
 	case ast.OpAND:
+		if cond.Distinct { // BUG-02: separate nested clauses = different array elements
+			return map[string]any{"bool": map[string]any{"filter": toAnySlice(parts)}}, nil
+		}
 		return map[string]any{"bool": map[string]any{"filter": toAnySlice(foldNested(parts))}}, nil
 	case ast.OpOR:
 		return map[string]any{"bool": map[string]any{"should": toAnySlice(parts), "minimum_should_match": 1}}, nil

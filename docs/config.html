@@ -503,7 +503,19 @@ ORDER BY created_at DESC LIMIT 20
     give the field a flat <code>mapping.sql</code> column (<code>"item_sku"</code>). If the entity enables a
     <code>sql</code> or <code>mysql</code> backend and the field is mapped for Mongo but has no SQL mapping, the config
     is rejected at load: the query would otherwise name a column that does not exist. To keep such a field off SQL
-    entirely, set <code>queryable</code> and <code>returnable</code> to <code>false</code>.</div>
+    entirely, set <code>queryable</code> and <code>returnable</code> to <code>false</code>. The same check applies in
+    the other direction: a field whose mappings all target backends the entity does not enable (for example
+    <code>mapping: {"sql": "warehouse_note"}</code> on a Mongo-only entity) is rejected at load, since it would
+    compile to its logical name. A field mapped for at least one enabled backend is fine.</div>
+
+  <h3 id="distinct-elements">Different array elements — <code>"distinct": true</code></h3>
+  <p>The folding above assumes AND-ed conditions on one array describe the <em>same</em> element. When the question
+    asks for <em>different</em> elements (<em>"a batch from Acme and a different batch expiring within 7 days"</em>), the
+    model marks the AND node <code>"distinct": true</code> and each child compiles to its own <code>$elemMatch</code>
+    (Mongo) or <code>nested</code> clause (Elasticsearch/OpenSearch) instead of being folded. Nothing to set in the config;
+    the flag is part of the query format, only valid on AND nodes (an OR/NOT carrying it is rejected), and
+    <code>Explain</code> says "on a DIFFERENT array element". If the wording asks for different elements but the query still
+    folds, a warning is added.</p>
 
   <h2 id="capabilities">Capability flags</h2>
   <p>Five boolean flags gate what a field can do. They sit <em>alongside</em> <code>operators</code>: <code>operators</code> bounds <em>which</em> comparison operators are legal; the flags bound <em>where</em> the field may appear.</p>
@@ -563,7 +575,7 @@ ORDER BY created_at DESC LIMIT 20
   <ul>
     <li><strong>Predicate ordering:</strong> within an <code>AND</code>/<code>OR</code>, predicates on <code>indexed</code> fields are emitted first, then higher <code>priority</code> first. Because AND/OR are commutative, this is safe and improves how the database plans the query.</li>
     <li><strong>Soft warnings:</strong> filtering on a non-indexed field produces a non-fatal warning in the result (<code>"filtering on non-indexed field … may be slow"</code>) that your app may surface or ignore.</li>
-    <li><strong>Request warnings:</strong> a question that opens with a write verb (<em>"close every open ticket"</em>) and a filter that pins one single-valued field to two different values under AND (it can never match) also add a non-fatal entry to <code>Warnings</code>. QueryForge only reads, so a write-phrased question is answered with a plain selection that may not be the rows you meant. Surface these before acting on the result.</li>
+    <li><strong>Request warnings:</strong> a question that opens with a write verb (<em>"close every open ticket"</em>) and a filter that pins one single-valued field to two different values under AND (it can never match) also add a non-fatal entry to <code>Warnings</code>. So do: numeric bounds on one field that cannot overlap (<em>above 100 and below 10</em>); a relative-date window pointing against the wording (<em>"next week"</em> compiled to the past); a "different element" request whose same-array predicates were folded; and a scope key one edit away from a declared field (a likely typo). The write-verb list can be extended per config with <code>policy.mutationVerbs</code>. QueryForge only reads, so a write-phrased question is answered with a plain selection that may not be the rows you meant. Surface these before acting on the result.</li>
     <li><strong>Prompt ordering:</strong> higher-priority fields are presented earlier to the model.</li>
   </ul>
 
@@ -654,6 +666,7 @@ Elasticsearch  { "range": { "createdAt": { "gte": "…", "lt": "…" } } }</code
     <tr><td><code>maxValueLength</code></td><td>number</td><td>4096</td><td>Characters in a single string literal.</td></tr>
     <tr><td><code>maxRegexLength</code></td><td>number</td><td>256</td><td>Characters in a <code>regex</code> pattern.</td></tr>
     <tr><td><code>maxSuggestCalls</code></td><td>number</td><td>10</td><td>How many unknown fields get "did you mean" suggestions. Each suggestion runs an edit-distance pass over every field and synonym, so an AST full of nonsense is the most expensive thing to reject.</td></tr>
+    <tr><td><code>mutationVerbs</code></td><td>string[]</td><td>none</td><td>Extra write verbs (single words, e.g. <code>"waive"</code>, <code>"quarantine"</code>) that make a request starting with them draw the "this changes data" warning, on top of the built-in list. Advisory only; never rejects a query.</td></tr>
   </table></div>
 
   <p><strong>One regex rule has no key and cannot be switched off.</strong> A pattern that nests an unbounded quantifier inside a quantified group — <code>(a+)+</code>, <code>(x+x+)+y</code>, <code>^(\w+\s?)*$</code> — is rejected with <code>regex_unsafe</code>, whatever <code>allowRegexOn</code> says. Those take exponential time <em>in the database process</em>, once per row, and are reachable from an ordinary English sentence; unlike the two gates above, there is no legitimate use to weigh against. Rewrite with a bounded repetition such as <code>{1,20}</code>. The check is structural and narrow on purpose — it does not catch alternation overlap like <code>(a|ab)*</code>, so <a href="https://github.com/awsaman-ai/queryforge/blob/main/SECURITY.md">set a statement timeout at the database</a> as well.</p>

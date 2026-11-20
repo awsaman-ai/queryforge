@@ -732,3 +732,24 @@ func TestESRoutingStringRequiresEquals(t *testing.T) {
 		t.Errorf("a non-equals string query must not route, got %v", eq.Index)
 	}
 }
+
+// TestESDistinctAndKeepsNestedSeparate is the BUG-02 regression for ES: a
+// distinct AND must not fold sibling nested predicates into one nested query.
+func TestESDistinctAndKeepsNestedSeparate(t *testing.T) {
+	c := esConfig(t)
+	and := testutil.And(
+		testutil.Comp("sku", OpEquals, testutil.VStr("ABC")),
+		testutil.Comp("qty", OpGt, testutil.VNum(10)),
+	)
+	and.Distinct = true
+	eq := genES(t, c, &Query{Version: ASTVersion, Entity: "Order", Filter: and})
+	filter := eq.Query["bool"].(map[string]any)["filter"].([]any)
+	if len(filter) != 2 {
+		t.Fatalf("distinct AND should keep 2 separate nested clauses, got %d: %#v", len(filter), filter)
+	}
+	for _, f := range filter {
+		if _, ok := f.(map[string]any)["nested"]; !ok {
+			t.Errorf("each clause should be its own nested query: %#v", f)
+		}
+	}
+}

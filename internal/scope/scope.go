@@ -488,7 +488,7 @@ func Apply(q *ast.Query, filters []ScopeFilter) *ast.Query {
 	// AND is associative, so this is the same predicate with one less level of
 	// parentheses in the emitted query.
 	if q.Filter != nil {
-		if q.Filter.Type == ast.CondLogical && q.Filter.Op == ast.OpAND && len(q.Filter.Children) > 0 {
+		if q.Filter.Type == ast.CondLogical && q.Filter.Op == ast.OpAND && !q.Filter.Distinct && len(q.Filter.Children) > 0 {
 			children = append(children, q.Filter.Children...)
 		} else {
 			children = append(children, q.Filter)
@@ -515,4 +515,61 @@ func Keys(filters []ScopeFilter) []string {
 		keys = append(keys, f.Field)
 	}
 	return keys
+}
+
+// Advisories reports scope keys that look like a misspelling of a declared field
+// (BUG-08, QA audit v1.3.0). Undeclared scope keys are the documented, common
+// case — a tenant column the NLP layer must not know about — so an undeclared
+// key alone proves nothing and never warns. But "tennantId" sitting one edit
+// away from a declared "tenantId" almost certainly is the typo it appears to be:
+// it would compile against a column that does not exist, and the scope the
+// caller thinks is confining the query would not be. Warning only, and only on
+// a near miss, so the ordinary undeclared-key case stays silent.
+func Advisories(filters []ScopeFilter, c *config.Config) []string {
+	var out []string
+	for _, sf := range filters {
+		if sf.Declared || len(sf.Field) < 4 {
+			continue
+		}
+		best, bestD := "", 3 // anything at distance >= 3 is not a near miss
+		for i := range c.Fields {
+			n := c.Fields[i].Name
+			if d := editDistance(strings.ToLower(sf.Field), strings.ToLower(n)); d < bestD {
+				best, bestD = n, d
+			}
+		}
+		if best != "" {
+			near := fmt.Sprintf("%d edit(s) from", bestD)
+			if bestD == 0 {
+				near = "a case-variant of" // names are case-sensitive, so this is still a different column
+			}
+			out = append(out, fmt.Sprintf(
+				"scope key %q is not a declared field but is %s %q — if that was meant, the scope filter "+
+					"is compiling against a name that may not exist and is NOT confining the query",
+				sf.Field, near, best))
+		}
+	}
+	return out
+}
+
+// editDistance is the Levenshtein distance between a and b (rune-wise).
+func editDistance(a, b string) int {
+	ra, rb := []rune(a), []rune(b)
+	prev := make([]int, len(rb)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(ra); i++ {
+		cur := make([]int, len(rb)+1)
+		cur[0] = i
+		for j := 1; j <= len(rb); j++ {
+			cost := 1
+			if ra[i-1] == rb[j-1] {
+				cost = 0
+			}
+			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
+		}
+		prev = cur
+	}
+	return prev[len(rb)]
 }

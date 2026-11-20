@@ -810,6 +810,14 @@ type Policy struct {
 	MaxRegexLength  int `json:"maxRegexLength,omitempty"`  // characters in a regex pattern
 	MaxSuggestCalls int `json:"maxSuggestCalls,omitempty"` // unknown fields that get "did you mean" suggestions
 
+	// MutationVerbs extends the built-in list of write verbs (close, delete,
+	// refund, dispatch, …) that make a request draw the "this changes data"
+	// advisory. Write verbs are domain-specific — "waive" in billing, "recall"
+	// in logistics — so a single global list can never be complete; each config
+	// names its own. Single words, matched case-insensitively against the verb
+	// the request opens with. Advisory only: never rejects anything.
+	MutationVerbs []string `json:"mutationVerbs,omitempty"`
+
 	// Requires declares cross-field business rules: "when field A is filtered,
 	// field B must be filtered too" (e.g. passport expiry needs a country to be
 	// meaningful). Structurally legal ASTs can still break one of these, which
@@ -1095,6 +1103,16 @@ func (c *Config) finalize() error {
 		// shape that is the mistake, typically a Mongo-only elemMatch field.
 		// MySQL resolves through the "sql" mapping exactly as sqlPhysicalName does.
 		if len(f.Mapping) > 0 && (f.EffectiveQueryable() || f.EffectiveReturnable()) {
+			// Whether any declared mapping applies to an enabled backend. SQL
+			// dialects also resolve through the shared "sql" key.
+			applies := false
+			for backend := range c.Backends {
+				if f.Mapping[backend] != "" || (IsSQLBackend(backend) && f.Mapping["sql"] != "") {
+					applies = true
+				}
+			}
+			// Per-SQL-backend strictness (original F1 rule): a SQL backend with
+			// no usable mapping is an error even when another backend maps.
 			for backend := range c.Backends {
 				if !IsSQLBackend(backend) {
 					continue
@@ -1105,6 +1123,19 @@ func (c *Config) finalize() error {
 						"if the field is not available on SQL",
 						f.Name, mappedBackends(f.Mapping), backend, backend, f.Name)
 				}
+			}
+			// BUG-01 (QA audit v1.3.0), the mirror direction: a field whose
+			// mappings ALL target backends the entity does not enable (e.g. mapped
+			// only for "sql" on a mongo/elasticsearch-only entity) would compile
+			// to its bare logical name — a field that does not exist. A field
+			// mapped for some enabled backends may still legitimately share its
+			// logical name with the rest (a same-named Mongo field next to a
+			// renamed SQL column), so only the "no mapping applies anywhere"
+			// shape is rejected: it is unambiguously a mistake.
+			if !applies && len(c.Backends) > 0 {
+				return fmt.Errorf("config: field %q is mapped only for %s, but none of those backends is enabled on the entity (enabled: %s) — "+
+					"it would compile to a name %q that does not exist. Add a mapping for an enabled backend, or set queryable:false and returnable:false",
+					f.Name, mappedBackends(f.Mapping), enabledBackends(c.Backends), f.Name)
 			}
 		}
 		if !ValidFieldType(f.Type) {
@@ -1195,6 +1226,15 @@ func (c *Config) finalize() error {
 
 	// Cross-field business rules reference fields by name too, so they can only
 	// be checked once fieldByName is built.
+	// policy.mutationVerbs: each entry must be a single word (the advisory
+	// compares against the request's opening word), stored lowercased.
+	for i, v := range c.Policy.MutationVerbs {
+		w := strings.ToLower(strings.TrimSpace(v))
+		if w == "" || strings.ContainsAny(w, " \t\n,;:") {
+			return fmt.Errorf("config: policy.mutationVerbs[%d] %q must be a single word", i, v)
+		}
+		c.Policy.MutationVerbs[i] = w
+	}
 	if err := c.validatePolicyRequires(); err != nil {
 		return err
 	}
@@ -1592,4 +1632,14 @@ func IsKnownOperator(op ast.Operator) bool {
 		}
 	}
 	return false
+}
+
+// enabledBackends lists the entity's declared backend ids, sorted, for error text.
+func enabledBackends(m map[string]BackendConfig) string {
+	ids := make([]string, 0, len(m))
+	for id := range m {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return strings.Join(ids, "+")
 }

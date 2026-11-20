@@ -138,7 +138,7 @@ func mongoLogical(c *config.Config, cond *ast.Condition, now time.Time) (map[str
 	}
 	switch cond.Op {
 	case ast.OpAND:
-		return mergeAnd(parts), nil
+		return mergeAnd(parts, cond.Distinct), nil
 	case ast.OpOR:
 		return map[string]any{"$or": toAnySlice(parts)}, nil
 	case ast.OpNOT:
@@ -484,8 +484,14 @@ func mongoCaseInsensitiveNegatedBranches(field string, elems []any) ([]any, erro
 // not collide; on any collision it falls back to an explicit $and array.
 // Sibling $elemMatch predicates on the same array are folded first, so they
 // reach the collision check as a single key.
-func mergeAnd(parts []map[string]any) map[string]any {
-	parts = foldElemMatches(parts)
+func mergeAnd(parts []map[string]any, distinct bool) map[string]any {
+	// distinct (BUG-02): the AND asked for different array elements, so sibling
+	// $elemMatch predicates must stay separate. They share a key, so the
+	// collision check below renders them as an explicit $and — two independent
+	// element matches, each free to be satisfied by a different element.
+	if !distinct {
+		parts = foldElemMatches(parts)
+	}
 	acc := map[string]any{}
 	for _, p := range parts {
 		for k := range p {

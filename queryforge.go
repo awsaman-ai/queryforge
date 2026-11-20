@@ -288,7 +288,7 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 			// will not change on a retry, so surface it now.
 			if errors.Is(err, failure.ErrModelOutput) {
 				lastErr = err
-				hint = RepairHint{Kind: RepairParse, Message: err.Error()}
+				hint = RepairHint{Kind: RepairParse, Message: err.Error(), Raw: raw}
 				// No Errors slice: nothing parsed, so there is no AST to have
 				// structured findings about.
 				repairs = append(repairs, RepairRecord{
@@ -370,7 +370,7 @@ func (e *Engine) Translate(ctx context.Context, text, backend string, scope Scop
 			Query:          res,
 			Explain:        explain.Explain(effective, e.config),
 			Raw:            raw,
-			Warnings:       requestAdvisories(withAdvisories(res.Warnings, e.config), text, ast, e.config),
+			Warnings:       append(requestAdvisories(withAdvisories(res.Warnings, e.config), text, ast, e.config), qscope.Advisories(filters, e.config)...),
 			RepairAttempts: attempt,
 			Repairs:        repairs,
 			Scope:          filters,
@@ -449,7 +449,14 @@ func (e *Engine) GenerateFrom(ast *Query, backend string, scope Scope) (*Result,
 	if err != nil {
 		return nil, err
 	}
-	return g.Generate(qscope.Apply(ast, filters), e.config, GenOptions{Now: e.now()})
+	res, err := g.Generate(qscope.Apply(ast, filters), e.config, GenOptions{Now: e.now()})
+	if err == nil && res != nil {
+		// BUG-08: surface a scope key that looks like a typo of a declared field.
+		if adv := qscope.Advisories(filters, e.config); len(adv) > 0 {
+			res.Warnings = append(append([]string(nil), res.Warnings...), adv...)
+		}
+	}
+	return res, err
 }
 
 // ApplyScope performs, on its own, the scope-injection step that Translate and
@@ -502,7 +509,11 @@ func (e *TranslateError) Unwrap() error { return e.Err }
 // requestAdvisories adds the request-level warnings (mutation verb, contradictory
 // filter) to a result's warnings, copying rather than appending in place.
 func requestAdvisories(warnings []string, text string, q *Query, c *Config) []string {
-	extra := append(mutationAdvisory(text), contradictionAdvisories(q, c)...)
+	extra := mutationAdvisory(text, c.Policy.MutationVerbs)
+	extra = append(extra, contradictionAdvisories(q, c)...)
+	extra = append(extra, rangeContradictionAdvisories(q, c)...)
+	extra = append(extra, dateDirectionAdvisories(text, q)...)
+	extra = append(extra, distinctElementAdvisories(text, q, c)...)
 	if len(extra) == 0 {
 		return warnings
 	}

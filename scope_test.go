@@ -831,3 +831,25 @@ func TestScopeAppliesUnderPolicyNestingLimit(t *testing.T) {
 		t.Errorf("scope injection broke a filter that was within the depth limit: %v", err)
 	}
 }
+
+// BUG-08: a scope key one edit from a declared field warns; ordinary undeclared
+// keys and exact declared keys stay silent.
+func TestScopeTypoAdvisory(t *testing.T) {
+	e := scopeEngine(t, &StubProvider{})
+	cases := map[string]bool{"tennantId": true, "tenantID": true, "tenantId": false, "org_id": false, "statuss": true}
+	for key, wantWarn := range cases {
+		r, err := e.GenerateFrom(userQuery(), "sql", Scope{key: "X"})
+		if err != nil {
+			t.Fatalf("%s: %v", key, err)
+		}
+		got := false
+		for _, w := range r.Warnings {
+			if strings.Contains(w, "not a declared field") {
+				got = true
+			}
+		}
+		if got != wantWarn {
+			t.Errorf("scope key %q: warned=%v want %v (%v)", key, got, wantWarn, r.Warnings)
+		}
+	}
+}

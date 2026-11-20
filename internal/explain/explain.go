@@ -171,6 +171,9 @@ func describeLogical(cond *ast.Condition, c *config.Config) string {
 	}
 	switch cond.Op {
 	case ast.OpAND:
+		if cond.Distinct { // say so: this changes which rows match
+			return "(" + strings.Join(parts, " AND, on a DIFFERENT array element, ") + ")"
+		}
 		return "(" + strings.Join(parts, " AND ") + ")"
 	case ast.OpOR:
 		return "(" + strings.Join(parts, " OR ") + ")"

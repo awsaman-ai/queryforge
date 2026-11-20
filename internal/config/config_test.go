@@ -330,3 +330,30 @@ func TestSQLBackendRejectsMongoOnlyMappedField(t *testing.T) {
 		}
 	}
 }
+
+// TestNonSQLBackendRejectsUnenabledOnlyMapping is the BUG-01 regression (QA
+// audit v1.3.0): a field mapped only for SQL on a mongo/elasticsearch-only
+// entity used to load and compile to its bare logical name.
+func TestNonSQLBackendRejectsUnenabledOnlyMapping(t *testing.T) {
+	mk := func(backends, field string) string {
+		return `{"entity":"Sale","model":{},"backends":` + backends + `,"fields":[` + field + `]}`
+	}
+	const sqlOnly = `{"name":"warehouseNote","type":"string","mapping":{"sql":"warehouse_note"}}`
+	for name, tc := range map[string]struct {
+		cfg     string
+		wantErr bool
+	}{
+		"mongo-only entity, sql-only mapping":    {mk(`{"mongo":{"collection":"s"}}`, sqlOnly), true},
+		"elasticsearch entity, sql-only map":     {mk(`{"elasticsearch":{"index":"s"}}`, sqlOnly), true},
+		"mongo+es entity, sql-only mapping":      {mk(`{"mongo":{"collection":"s"},"elasticsearch":{"index":"s"}}`, sqlOnly), true},
+		"mongo entity, mongo mapping":            {mk(`{"mongo":{"collection":"s"}}`, `{"name":"warehouseNote","type":"string","mapping":{"mongo":"wn"}}`), false},
+		"mongo+sql, only sql mapped (same-name)": {mk(`{"mongo":{"collection":"s"},"sql":{"table":"s"}}`, sqlOnly), false},
+		"unmapped field keeps same name":         {mk(`{"mongo":{"collection":"s"}}`, `{"name":"warehouseNote","type":"string"}`), false},
+		"hidden field exempt":                    {mk(`{"mongo":{"collection":"s"}}`, `{"name":"w","type":"string","mapping":{"sql":"w"},"queryable":false,"returnable":false}`), false},
+	} {
+		_, err := ParseConfig([]byte(tc.cfg))
+		if (err != nil) != tc.wantErr {
+			t.Errorf("%s: err = %v, wantErr %v", name, err, tc.wantErr)
+		}
+	}
+}

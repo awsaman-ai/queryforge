@@ -23,7 +23,7 @@ import (
 
 // PromptVersion identifies the prompt template. Bumping it lets prompt changes
 // be A/B tested and rolled back, and it is cheap to log per request.
-const PromptVersion = "qf-planner-v3" // v3: calendar periods + config timezone
+const PromptVersion = "qf-planner-v4" // v4: forward-period examples; v3: calendar periods + config timezone
 
 // RepairKind says why a previous attempt was rejected, so the retry prompt can
 // tell the model something actionable instead of a generic "try again".
@@ -59,7 +59,18 @@ func (k RepairKind) MarshalJSON() ([]byte, error) {
 type RepairHint struct {
 	Kind    RepairKind // what went wrong last time
 	Message string     // the underlying error text, fed back verbatim
+	// Raw is the model's own previous reply (RepairParse only). BUG-03 (QA audit
+	// v1.3.0): without it the model got just "invalid character '}' after array
+	// element" and had to regenerate blind — 7 of 9 nested-boolean questions
+	// exhausted every attempt that way. Showing the text lets it locate the
+	// exact syntax slip. It is model output, so it is quoted as data, not trusted.
+	Raw string
 }
+
+// maxRepairRawBytes caps how much of the failed reply is echoed back. Large
+// enough to hold any realistic AST, small enough that a runaway reply cannot
+// balloon the retry prompt.
+const maxRepairRawBytes = 6000
 
 // Planner is the only AI-touching component. It builds a prompt entirely from
 // the config (the config IS the prompt: which fields, operators, and enum
@@ -162,6 +173,7 @@ func (pl *Planner) SystemPrompt(now time.Time) string {
 	// mistake out of the AST in the first place.
 	b.WriteString("Use the kind that matches the field's declared type above, not the kind the example happens to show: a string field takes {\"kind\":\"string\"}, and only a field listed as enum takes {\"kind\":\"enum\"}.\n")
 	b.WriteString("Combine predicates with logical nodes: {\"type\":\"logical\",\"op\":\"AND|OR|NOT\",\"children\":[...]}.\n")
+	b.WriteString(arrayElementGuidance(c))
 	b.WriteString("Omit any part you don't need (filter, sort, limit, select).\n\n")
 
 	// Refusal contract. Without this the model will happily map an unlisted
@@ -173,6 +185,23 @@ func (pl *Planner) SystemPrompt(now time.Time) string {
 	b.WriteString("Instead return exactly: {\"unsupported\":\"<short reason naming what is missing>\"}\n")
 	b.WriteString("Only decline for genuinely missing vocabulary — a phrasing that matches a listed field's synonyms is supported.\n")
 	return b.String()
+}
+
+// arrayElementGuidance teaches the "different element" marker, only for configs
+// that declare array-of-sub-document fields (elemMatch / nestedPath). BUG-02 (QA
+// audit v1.3.0): AND siblings on one array always match the SAME element, and
+// without a way to say otherwise "a batch from Acme and a different batch
+// expiring soon" compiled to the same-element query, silently.
+func arrayElementGuidance(c *config.Config) string {
+	for i := range c.Fields {
+		if c.Fields[i].ElemMatch != "" || c.Fields[i].NestedPath != "" {
+			return "Some fields above live inside an array of objects. By default, AND-ed predicates on fields of the same array must all hold for ONE element (\"the batch is from Acme and has under 5 units\"). " +
+				"When the request says the predicates hold for DIFFERENT elements (\"a batch from Acme and a different/another/other batch expiring soon\"), put them in an AND node with \"distinct\":true: " +
+				"{\"type\":\"logical\",\"op\":\"AND\",\"distinct\":true,\"children\":[...]}. Each child of a distinct AND is matched against its own element; group predicates that must share an element in a nested AND child. " +
+				"\"distinct\" is only valid on AND.\n"
+		}
+	}
+	return ""
 }
 
 // dateGuidance renders how the model should express time, or nothing when the
@@ -218,6 +247,10 @@ func dateGuidance(c *config.Config) string {
 	if hasBetween {
 		b.WriteString("- Calendar periods (\"today\", \"yesterday\", \"this week\", \"last month\", \"this year\", \"last 30 days\"): use operator between with a period value, e.g. {\"kind\":\"period\",\"unit\":\"day\",\"from\":-1,\"to\":-1}. from and to count whole units from the current one (0 = current, -1 = previous) and both are inclusive.\n")
 		b.WriteString("  today: day 0..0; yesterday: day -1..-1; last 7 days: day -6..0 (includes today); last 30 days: day -29..0; this week: week 0..0 (weeks start Monday); last week: week -1..-1; last month: month -1..-1; this year: year 0..0.\n")
+		// BUG-04 (QA audit v1.3.0): every example above looks BACK, which biased
+		// the model to answer "next week" with a past window. Forward windows
+		// use positive from/to; state it with its own examples.
+		b.WriteString("  FUTURE periods use positive numbers: tomorrow: day 1..1; next week: week 1..1; next 7 days: day 1..7; next month: month 1..1; \"expiring in the next 30 days\": day 0..30. \"next\"/\"upcoming\" never means a negative number.\n")
 		b.WriteString("- A span back from this exact moment (\"in the last 2 hours\", \"past 45 minutes\"): use after with a relative_date value, e.g. {\"kind\":\"relative_date\",\"unit\":\"hour\",\"amount\":-2}.\n")
 	} else {
 		b.WriteString("- For a time relative to now (\"in the last 30 days\"), use after with a relative_date value, e.g. {\"kind\":\"relative_date\",\"unit\":\"day\",\"amount\":-30}.\n")
@@ -296,8 +329,17 @@ func BuildUserPrompt(text string, hint RepairHint) string {
 		return "Request: " + text
 	}
 	if hint.Kind == RepairParse {
-		return "Request: " + text +
-			"\n\nYour previous reply could not be parsed as JSON: " + hint.Message +
+		prompt := "Request: " + text +
+			"\n\nYour previous reply could not be parsed as JSON: " + hint.Message
+		if hint.Raw != "" {
+			raw := hint.Raw
+			if len(raw) > maxRepairRawBytes {
+				raw = raw[:maxRepairRawBytes] + "… (truncated)"
+			}
+			prompt += "\nYour previous reply was:\n<<<\n" + raw + "\n>>>" +
+				"\nFind the syntax mistake in it (mismatched brackets, a stray '}' or ']', a trailing comma) and fix exactly that."
+		}
+		return prompt +
 			"\nReturn exactly one JSON object and nothing else — no prose, no markdown fences, no trailing text."
 	}
 	return "Request: " + text +

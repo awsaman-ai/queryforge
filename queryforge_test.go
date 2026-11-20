@@ -294,3 +294,21 @@ func TestSystemPromptStatesRefusalContract(t *testing.T) {
 		}
 	}
 }
+
+// TestRepairParseHintEchoesPreviousReply is the BUG-03 regression: the retry
+// prompt must contain the model's own malformed output (bounded), not only the
+// decoder's error string.
+func TestRepairParseHintEchoesPreviousReply(t *testing.T) {
+	bad := `{"filter":{"children":[{"a":1}}]}`
+	got := planner.BuildUserPrompt("orders", RepairHint{Kind: RepairParse, Message: "invalid character '}'", Raw: bad})
+	if !strings.Contains(got, bad) {
+		t.Errorf("retry prompt should include the previous reply, got: %q", got)
+	}
+	long := planner.BuildUserPrompt("orders", RepairHint{Kind: RepairParse, Message: "m", Raw: strings.Repeat("x", 50000)})
+	if len(long) > 10000 || !strings.Contains(long, "truncated") {
+		t.Errorf("previous reply must be truncated, prompt length %d", len(long))
+	}
+	if none := planner.BuildUserPrompt("orders", RepairHint{Kind: RepairParse, Message: "m"}); strings.Contains(none, "<<<") {
+		t.Errorf("no Raw means no echo block: %q", none)
+	}
+}

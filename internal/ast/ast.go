@@ -100,6 +100,16 @@ type Condition struct {
 	Op       LogicalOp    `json:"op,omitempty"`
 	Children []*Condition `json:"children,omitempty"`
 
+	// Distinct, on an AND node, says its children must be satisfied by DIFFERENT
+	// elements of any array of sub-documents they share (Mongo elemMatch /
+	// Elasticsearch nestedPath fields). Without it, AND siblings on one array
+	// are folded into a single same-element match, which is right for "the same
+	// batch is from Acme and has fewer than 5 units" and wrong for "a batch from
+	// Acme AND A DIFFERENT batch expiring soon" (BUG-02, QA audit v1.3.0). A
+	// distinct AND compiles each child as its own element/nested match.
+	// Meaningless — and rejected by the validator — on OR/NOT/comparisons.
+	Distinct bool `json:"distinct,omitempty"`
+
 	// Comparison fields.
 	Field    string   `json:"field,omitempty"`
 	Operator Operator `json:"operator,omitempty"`
